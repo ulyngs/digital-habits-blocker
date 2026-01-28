@@ -99,7 +99,57 @@ Contains blocklists, schedules, active blocks, and settings.
 Tracks blocking state so blocks persist across app restarts.
 
 ### Uninstall Behavior
-User data is preserved unless manually deleted. Reinstalling restores your blocklists and settings automatically.
+
+**Important**: ReDD Block installs a privileged helper daemon that modifies your system's hosts file. When uninstalling, this helper must be properly stopped and the hosts file restored.
+
+#### Recommended Uninstall Process
+
+**macOS:**
+1. Run the uninstall script to remove the helper daemon and restore your hosts file:
+   ```bash
+   sudo bash scripts/uninstall-mac.sh
+   ```
+2. Move `ReDD Block.app` from `/Applications` to Trash
+3. (Optional) Remove user data:
+   ```bash
+   rm -rf ~/Library/Application\ Support/ReddBlock
+   ```
+
+**Windows:**
+1. Run the uninstall script as Administrator to remove the helper and restore your hosts file:
+   ```powershell
+   # Right-click PowerShell → Run as Administrator
+   .\scripts\uninstall-windows.ps1
+   ```
+2. Uninstall via Windows Settings: `Settings > Apps > ReDD Block > Uninstall`
+3. (Optional) Remove user data from `%AppData%\ReddBlock`
+
+#### What Gets Cleaned Up
+
+The uninstall scripts ensure:
+- ✅ **Helper daemon/service is stopped and removed** (launchd on macOS, scheduled task on Windows)
+- ✅ **Original hosts file is restored from backup** (created automatically on first block)
+- ✅ **All ReDD Block entries removed from hosts file**
+- ✅ **DNS cache is flushed** to apply changes immediately
+- ✅ **Backup and state files are deleted**
+
+User data (blocklists, schedules, settings) is preserved by default for reinstallation. Delete manually if desired.
+
+#### Backup File Persistence
+
+The hosts file backup (`hosts.redd-backup`) is created once on first use and **persists across reinstalls**. This protects against:
+- Failed uninstall attempts
+- Helper daemon crashes
+- Unexpected system reboots
+
+If uninstallation fails, the backup file remains and can be manually restored:
+```bash
+# macOS
+sudo cp /etc/hosts.redd-backup /etc/hosts
+
+# Windows (as Administrator)
+Copy-Item "$env:SystemRoot\System32\drivers\etc\hosts.redd-backup" "$env:SystemRoot\System32\drivers\etc\hosts"
+```
 
 ## Requirements
 

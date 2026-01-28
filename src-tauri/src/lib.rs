@@ -111,6 +111,7 @@ pub fn run() {
             // Helper commands
             commands::check_helper_status,
             commands::install_helper,
+            commands::uninstall_helper,
             commands::start_block_via_helper,
             commands::clear_block_via_helper,
             commands::block_websites,

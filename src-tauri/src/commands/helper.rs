@@ -446,3 +446,144 @@ pub fn refresh_blocked_apps() {
     log::info!("refresh_blocked_apps called");
     // Will be implemented with process watcher
 }
+
+/// Uninstall helper daemon and restore hosts file
+#[tauri::command]
+pub async fn uninstall_helper() -> HelperResult {
+    log::info!("uninstall_helper called");
+    
+    // Step 1: Try to restore hosts file from backup before stopping daemon
+    let cmd = IpcCommand {
+        action: "restore-hosts".to_string(),
+        domains: None,
+        end_time: None,
+        blocklist_id: None,
+    };
+    
+    // Attempt to restore hosts file (ignore errors if daemon not running)
+    let restore_result = send_command(&cmd);
+    match restore_result {
+        Ok(response) if response.success => {
+            log::info!("Hosts file restored successfully");
+        }
+        Ok(response) => {
+            log::warn!("Failed to restore hosts file: {:?}", response.error);
+        }
+        Err(e) => {
+            log::warn!("Could not communicate with helper to restore hosts: {}", e);
+        }
+    }
+    
+    // Step 2: Stop and remove the helper daemon
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        
+        let plist_path = "/Library/LaunchDaemons/com.redd.block.helper.plist";
+        let helper_path = "/usr/local/bin/redd-block-helper";
+        
+        // Unload the daemon using osascript for admin privileges
+        let unload_script = format!(
+            r#"do shell script "launchctl unload '{}' 2>/dev/null || true; rm -f '{}'; rm -f '{}'" with administrator privileges"#,
+            plist_path, plist_path, helper_path
+        );
+        
+        let result = Command::new("osascript")
+            .arg("-e")
+            .arg(&unload_script)
+            .output();
+        
+        match result {
+            Ok(output) if output.status.success() => {
+                log::info!("Helper daemon uninstalled successfully");
+                return HelperResult {
+                    success: true,
+                    error: None,
+                };
+            }
+            Ok(output) => {
+                let error_msg = String::from_utf8_lossy(&output.stderr);
+                log::warn!("Helper daemon uninstall had issues: {}", error_msg);
+                return HelperResult {
+                    success: false,
+                    error: Some(format!("Uninstall partially failed: {}", error_msg)),
+                };
+            }
+            Err(e) => {
+                return HelperResult {
+                    success: false,
+                    error: Some(format!("Failed to run uninstaller: {}", e)),
+                };
+            }
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        
+        let task_name = "ReDD Block Helper";
+        
+        // Stop and delete the scheduled task
+        let result = Command::new("schtasks")
+            .args(["/End", "/TN", task_name])
+            .output();
+        
+        // Log result but continue regardless
+        match result {
+            Ok(output) if output.status.success() => {
+                log::info!("Helper task stopped successfully");
+            }
+            _ => {
+                log::warn!("Could not stop helper task (may not be running)");
+            }
+        }
+        
+        // Delete the scheduled task
+        let delete_result = Command::new("schtasks")
+            .args(["/Delete", "/TN", task_name, "/F"])
+            .output();
+        
+        match delete_result {
+            Ok(output) if output.status.success() => {
+                log::info!("Scheduled task deleted successfully");
+                
+                // Delete the helper binary and state files
+                let program_data = std::env::var("PROGRAMDATA")
+                    .unwrap_or_else(|_| "C:\\ProgramData".to_string());
+                let helper_dir = PathBuf::from(&program_data).join("ReDD Block");
+                
+                if let Err(e) = std::fs::remove_dir_all(&helper_dir) {
+                    log::warn!("Could not delete helper directory: {}", e);
+                }
+                
+                return HelperResult {
+                    success: true,
+                    error: None,
+                };
+            }
+            Ok(output) => {
+                let error_msg = String::from_utf8_lossy(&output.stderr);
+                log::warn!("Failed to delete scheduled task: {}", error_msg);
+                return HelperResult {
+                    success: false,
+                    error: Some(format!("Failed to delete scheduled task: {}", error_msg)),
+                };
+            }
+            Err(e) => {
+                return HelperResult {
+                    success: false,
+                    error: Some(format!("Failed to run task deletion: {}", e)),
+                };
+            }
+        }
+    }
+    
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        HelperResult {
+            success: false,
+            error: Some("Helper uninstall not yet implemented for this platform".to_string()),
+        }
+    }
+}

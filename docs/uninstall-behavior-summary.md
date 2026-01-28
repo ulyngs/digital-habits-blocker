@@ -21,7 +21,7 @@ This document answers the questions raised in the problem statement:
 - **macOS**: `launchctl unload` + remove plist + delete binary
 - **Windows**: Stop and delete scheduled task + remove binary and directory
 
-### 2. Is the original host file restored properly on uninstall?
+### 2. Is the original hosts file restored properly on uninstall?
 
 **Previous State**: ❌ NO
 - Hosts file modifications persisted after uninstall
@@ -48,12 +48,12 @@ fn restore_hosts_from_backup() -> Result<(), String> {
 }
 ```
 
-### 3. Does the original host file persist across uninstalls (in case of broken uninstall)?
+### 3. Does the original hosts file persist across uninstalls (in case of broken uninstall)?
 
 **Answer**: ✅ YES - This was already working correctly!
 
 **Mechanism**:
-The backup file is created once on first block and **never overwritten**:
+The backup file is created once on first block and **never overwritten** during normal operation. However, a **successful complete uninstall deletes the backup** as part of cleanup. The backup **persists only in cases of incomplete or failed uninstalls**, providing protection when needed.
 
 ```rust
 // helper-daemon/src/main.rs:157-169
@@ -70,10 +70,15 @@ fn ensure_backup_exists() -> Result<(), String> {
 ```
 
 **Protection Against**:
-- ✅ Failed uninstall attempts (backup persists)
-- ✅ Helper daemon crashes (backup untouched)
-- ✅ Unexpected system reboots (backup remains)
-- ✅ Multiple reinstalls (backup not overwritten)
+- ✅ Failed/interrupted uninstall attempts (backup persists when uninstall doesn't complete)
+- ✅ Helper daemon crashes (backup untouched during crashes)
+- ✅ Unexpected system reboots (backup remains on disk)
+- ✅ Manual kill of helper process (backup file not affected)
+
+**After Successful Uninstall**:
+- ❌ Backup is deleted as part of complete cleanup
+- ✅ Hosts file is restored from backup before deletion
+- ✅ On reinstall, a new backup will be created from current (clean) hosts file
 
 **Backup Locations**:
 - macOS: `/etc/hosts.redd-backup`

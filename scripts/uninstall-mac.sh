@@ -2,7 +2,7 @@
 # Uninstall script for ReDD Block on macOS
 # This script removes the helper daemon and restores the hosts file
 
-set -e
+# Don't use set -e to allow graceful error handling throughout the script
 
 echo "=========================================="
 echo "ReDD Block Uninstaller"

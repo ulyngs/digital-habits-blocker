@@ -81,28 +81,24 @@
 - ✅ Manual restoration works correctly
 - ✅ Blocked domains are no longer blocked after restore
 
-### Scenario 4: Backup Persistence Across Reinstalls
-**Objective**: Verify backup is not overwritten on reinstall
+### Scenario 4: Backup Persistence Through Failed Uninstall
+**Objective**: Verify backup is protected when uninstall is incomplete
 
 **Steps**:
 1. Install ReDD Block and helper
 2. Start a block (creates backup of clean hosts file)
-3. Note backup file timestamp:
-   ```bash
-   # macOS
-   stat -f "%Sm" /etc/hosts.redd-backup
-   
-   # Windows
-   (Get-Item "$env:SystemRoot\System32\drivers\etc\hosts.redd-backup").LastWriteTime
-   ```
-4. Uninstall completely
-5. Reinstall and start a new block
-6. Check backup timestamp again
+3. Verify backup exists and note its content
+4. Interrupt uninstall script mid-execution (Ctrl+C)
+5. Verify backup still exists
+6. Manually restore hosts file from backup
+7. Complete the uninstall
 
 **Expected Results**:
-- ✅ Backup timestamp is NOT updated (original backup preserved)
+- ✅ Backup persists when uninstall is interrupted
+- ✅ Manual restoration works correctly
 - ✅ Original clean hosts file is preserved in backup
-- ✅ Code at line 160 in helper-daemon prevents overwriting: `if !backup_path.exists()`
+- ✅ After complete uninstall, backup is removed (as part of cleanup)
+- ✅ On reinstall, new backup created from current hosts file
 
 ### Scenario 5: Using Tauri Command for Uninstall
 **Objective**: Verify the new `uninstall_helper()` command works
@@ -175,5 +171,7 @@ fn ensure_backup_exists() -> Result<(), String> {
 
 This ensures:
 - Backup created only on first block
-- Never overwritten on subsequent blocks or reinstalls
-- Persists through crashes, failed uninstalls, and reinstallations
+- Never overwritten during normal operation (subsequent blocks won't recreate it)
+- Persists through crashes and failed/interrupted uninstalls
+- Deleted by successful complete uninstall (after restoring hosts file)
+- New backup created on reinstall from current (clean) hosts file

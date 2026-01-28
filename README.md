@@ -137,12 +137,14 @@ User data (blocklists, schedules, settings) is preserved by default for reinstal
 
 #### Backup File Persistence
 
-The hosts file backup (`hosts.redd-backup`) is created once on first use and **persists across reinstalls**. This protects against:
-- Failed uninstall attempts
-- Helper daemon crashes
-- Unexpected system reboots
+The hosts file backup (`hosts.redd-backup`) is created once on first use and protects against incomplete uninstalls:
+- ✅ **Failed/interrupted uninstall attempts** - Backup persists if uninstall doesn't complete
+- ✅ **Helper daemon crashes** - Backup remains available for manual restoration
+- ✅ **Unexpected system reboots** - Backup file survives system crashes
 
-If uninstallation fails, the backup file remains and can be manually restored:
+**Note**: A successful complete uninstall **deletes the backup** after restoring the hosts file. On reinstall, a new backup will be created from your current (clean) hosts file.
+
+If uninstallation fails or is interrupted, the backup file remains and can be manually restored:
 ```bash
 # macOS
 sudo cp /etc/hosts.redd-backup /etc/hosts

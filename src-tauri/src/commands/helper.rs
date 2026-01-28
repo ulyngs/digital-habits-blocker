@@ -481,11 +481,14 @@ pub async fn uninstall_helper() -> HelperResult {
         
         let plist_path = "/Library/LaunchDaemons/com.redd.block.helper.plist";
         let helper_path = "/usr/local/bin/redd-block-helper";
+        let socket_path = "/tmp/redd-block-helper.sock";
+        let backup_path = "/etc/hosts.redd-backup";
+        let state_dir = "/var/lib/redd-block";
         
-        // Unload the daemon using osascript for admin privileges
+        // Unload the daemon and clean up all files using osascript for admin privileges
         let unload_script = format!(
-            r#"do shell script "launchctl unload '{}' 2>/dev/null || true; rm -f '{}'; rm -f '{}'" with administrator privileges"#,
-            plist_path, plist_path, helper_path
+            r#"do shell script "launchctl unload '{}' 2>/dev/null || true; rm -f '{}'; rm -f '{}'; rm -f '{}'; rm -f '{}'; rm -rf '{}'" with administrator privileges"#,
+            plist_path, plist_path, helper_path, socket_path, backup_path, state_dir
         );
         
         let result = Command::new("osascript")
@@ -495,7 +498,7 @@ pub async fn uninstall_helper() -> HelperResult {
         
         match result {
             Ok(output) if output.status.success() => {
-                log::info!("Helper daemon uninstalled successfully");
+                log::info!("Helper daemon and files uninstalled successfully");
                 return HelperResult {
                     success: true,
                     error: None,
@@ -555,6 +558,19 @@ pub async fn uninstall_helper() -> HelperResult {
                 
                 if let Err(e) = std::fs::remove_dir_all(&helper_dir) {
                     log::warn!("Could not delete helper directory: {}", e);
+                }
+                
+                // Delete the hosts file backup
+                let backup_path = PathBuf::from(std::env::var("SystemRoot")
+                    .unwrap_or_else(|_| "C:\\Windows".to_string()))
+                    .join("System32\\drivers\\etc\\hosts.redd-backup");
+                
+                if backup_path.exists() {
+                    if let Err(e) = std::fs::remove_file(&backup_path) {
+                        log::warn!("Could not delete backup file: {}", e);
+                    } else {
+                        log::info!("Backup file deleted successfully");
+                    }
                 }
                 
                 return HelperResult {

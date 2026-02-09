@@ -3589,11 +3589,13 @@ async function proceedWithHelperInstall() {
                 activatedBlockIds.add(block.id);
                 await saveData();
 
+                // Start watcher and update blocked apps (was missing - watcher never started on first block)
+                await updateBlockedApps();
+
                 // Reset UI - keep the blocklist selected
                 const blocklistSelect = document.getElementById('blocklist-select');
                 blocklistSelect.value = blocklist.id; // Keep the blocklist selected
                 handleBlocklistSelect({ target: blocklistSelect });
-
 
                 render();
             } else {
@@ -5508,6 +5510,19 @@ function setupTheme() {
     const settingsModal = document.getElementById('settings-modal');
     const closeSettingsBtn = document.getElementById('close-settings-btn');
     const themeSelect = document.getElementById('theme-select');
+    const openDebugWindowBtn = document.getElementById('open-debug-window-btn');
+    
+    // Debug window button handler
+    if (openDebugWindowBtn) {
+        openDebugWindowBtn.addEventListener('click', async () => {
+            try {
+                await invoke('open_debug_window');
+            } catch (error) {
+                console.error('Failed to open debug window:', error);
+                alert('Failed to open debug window: ' + error);
+            }
+        });
+    }
 
     if (settingsBtn && settingsModal) {
         settingsBtn.addEventListener('click', async () => {

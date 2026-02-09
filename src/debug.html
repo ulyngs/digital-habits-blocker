@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReDD Block - Debug</title>
+    <style>
+        body { font-family: system-ui; padding: 20px; margin: 0; }
+        h1 { font-size: 18px; margin-bottom: 16px; }
+        .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+        .label { color: #666; }
+        .running { color: #28a745; }
+        .stopped { color: #dc3545; }
+        .apps { margin-top: 8px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>Watcher Debug</h1>
+    <div class="row"><span class="label">Status:</span><span id="status">-</span></div>
+    <div class="row"><span class="label">Blocked apps:</span><span id="apps">None</span></div>
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+        async function refresh() {
+            try {
+                const d = await invoke('get_watcher_debug_info');
+                document.getElementById('status').textContent = d.running ? 'Running' : 'Stopped';
+                document.getElementById('status').className = d.running ? 'running' : 'stopped';
+                document.getElementById('apps').textContent = (d.blocked_apps?.length) ? d.blocked_apps.join(', ') : 'None';
+            } catch (_) {}
+        }
+        refresh();
+        setInterval(refresh, 2000);
+    </script>
+</body>
+</html>

@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 use std::io::{BufRead, BufReader};
 use tauri::{AppHandle, Manager, Emitter};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 /// Process watcher state
 pub struct ProcessWatcher {
     /// Maps lowercase app name -> original case app name
@@ -39,7 +42,6 @@ impl Default for ProcessWatcher {
     }
 }
 
-/// Global state for the process watcher
 lazy_static::lazy_static! {
     static ref WATCHER: Arc<Mutex<ProcessWatcher>> = Arc::new(Mutex::new(ProcessWatcher::new()));
 }
@@ -47,23 +49,20 @@ lazy_static::lazy_static! {
 /// Start watching for blocked app launches
 #[tauri::command]
 pub fn start_process_watcher(app: AppHandle) {
-    // Check if already running and set flag atomically to prevent race condition
     {
         let mut watcher = WATCHER.lock().unwrap();
         if watcher.running {
-            log::debug!("Process watcher already running, skipping");
             return;
         }
-        // Set running flag now, before spawning, to prevent multiple spawns
         watcher.running = true;
     }
-    
+
     let watcher = WATCHER.clone();
-    
+
     thread::spawn(move || {
         #[cfg(target_os = "macos")]
         start_macos_watcher(app, watcher);
-        
+
         #[cfg(target_os = "windows")]
         start_windows_watcher(app, watcher);
     });
@@ -74,12 +73,10 @@ pub fn start_process_watcher(app: AppHandle) {
 pub fn stop_process_watcher() {
     let mut watcher = WATCHER.lock().unwrap();
     watcher.running = false;
-    
+
     if let Some(mut process) = watcher.watcher_process.take() {
         let _ = process.kill();
     }
-    
-    log::info!("Process watcher stopped");
 }
 
 /// Update the list of blocked apps
@@ -89,7 +86,6 @@ pub fn set_blocked_apps(apps: Vec<String>) {
     watcher.blocked_apps = apps.iter()
         .map(|a| (a.to_lowercase(), a.clone()))
         .collect();
-    log::debug!("Process watcher: blocking apps: {:?}", watcher.blocked_apps.keys().collect::<Vec<_>>());
 }
 
 /// Check if any apps are currently being blocked
@@ -108,36 +104,23 @@ fn internal_minimize_app(app_name: &str) {
             r#"tell application "System Events" to set visible of application process "{}" to false"#,
             escaped
         );
-        
-        // Try up to 3 times with small delays - osascript can fail on first calls
+
         for attempt in 1..=3 {
             let result = Command::new("osascript")
                 .arg("-e")
                 .arg(&script)
                 .output();
-            
+
             match result {
-                Ok(output) if output.status.success() => {
-                    log::debug!("Minimized app: {} (attempt {})", app_name, attempt);
-                    return;
-                }
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    log::warn!("osascript failed for '{}' (attempt {}): {}", app_name, attempt, stderr.trim());
-                }
-                Err(e) => {
-                    log::warn!("Failed to run osascript for '{}' (attempt {}): {}", app_name, attempt, e);
-                }
+                Ok(output) if output.status.success() => return,
+                _ => {}
             }
-            
-            // Small delay before retry (except on last attempt)
             if attempt < 3 {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
-        log::error!("Failed to minimize app after 3 attempts: {}", app_name);
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         let ps_script = format!(r#"
@@ -156,14 +139,14 @@ foreach ($proc in $processes) {{
     }}
 }}
 "#, app_name);
-        
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let _ = Command::new("powershell")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_script])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn();
-        
-        log::debug!("Minimized app (Windows): {}", app_name);
     }
 }
 
@@ -172,11 +155,9 @@ foreach ($proc in $processes) {{
 pub fn hide_all_blocked_apps() {
     let apps: Vec<String> = {
         let watcher = WATCHER.lock().unwrap();
-        // Get the original case names (values), not lowercase keys
         watcher.blocked_apps.values().cloned().collect()
     };
-    
-    log::debug!("hide_all_blocked_apps: hiding {} apps", apps.len());
+
     for app in apps {
         internal_minimize_app(&app);
     }
@@ -184,7 +165,6 @@ pub fn hide_all_blocked_apps() {
 
 #[cfg(target_os = "macos")]
 fn start_macos_watcher(app: AppHandle, watcher: Arc<Mutex<ProcessWatcher>>) {
-    // AppleScript that monitors for app launches and activations
     let script = r#"
 use framework "Foundation"
 use framework "AppKit"
@@ -197,10 +177,7 @@ end appEvent_
 set theWorkspace to current application's NSWorkspace's sharedWorkspace()
 set notifCenter to theWorkspace's notificationCenter()
 
--- Listen for app launches
 notifCenter's addObserver:me selector:"appEvent:" |name|:(current application's NSWorkspaceDidLaunchApplicationNotification) object:(missing value)
-
--- Listen for app activations (when user clicks to bring app forward)
 notifCenter's addObserver:me selector:"appEvent:" |name|:(current application's NSWorkspaceDidActivateApplicationNotification) object:(missing value)
 
 repeat
@@ -208,10 +185,10 @@ repeat
 end repeat
 "#;
 
-    // Write script to temp file
     let temp_path = std::env::temp_dir().join("redd-app-watcher.applescript");
     if std::fs::write(&temp_path, script).is_err() {
-        log::error!("Failed to write AppleScript file");
+        let mut w = watcher.lock().unwrap();
+        w.running = false;
         return;
     }
 
@@ -221,51 +198,43 @@ end repeat
         .spawn()
     {
         Ok(p) => p,
-        Err(e) => {
-            log::error!("Failed to start macOS watcher: {}", e);
-            // Reset running flag since we failed to start
+        Err(_) => {
             let mut w = watcher.lock().unwrap();
             w.running = false;
             return;
         }
     };
 
-    log::info!("macOS app watcher started");
-
-    // Read stderr (AppleScript 'log' outputs to stderr)
     if let Some(stderr) = process.stderr.take() {
         let reader = BufReader::new(stderr);
         let app_clone = app.clone();
         let watcher_clone = watcher.clone();
-        
+
         for line in reader.lines() {
-            // Check if we should stop
             {
                 let w = watcher_clone.lock().unwrap();
                 if !w.running {
                     break;
                 }
             }
-            
+
             if let Ok(app_name) = line {
                 let app_name = app_name.trim();
                 if app_name.is_empty() {
                     continue;
                 }
-                
-                // Check if this app is blocked
+
                 let is_blocked = {
                     let w = watcher_clone.lock().unwrap();
                     w.blocked_apps.contains_key(&app_name.to_lowercase())
                 };
-                
+
                 if is_blocked {
-                    // Debounce: skip if we detected this app within the last 500ms
                     let should_process = {
                         let mut w = watcher_clone.lock().unwrap();
                         let app_lower = app_name.to_lowercase();
                         let now = Instant::now();
-                        
+
                         if let Some(last_time) = w.last_detection.get(&app_lower) {
                             if now.duration_since(*last_time) < Duration::from_millis(500) {
                                 false
@@ -278,38 +247,28 @@ end repeat
                             true
                         }
                     };
-                    
+
                     if !should_process {
                         continue;
                     }
-                    
-                    log::info!("Blocked app detected: {}", app_name);
-                    
-                    // Minimize the app
+
                     internal_minimize_app(app_name);
-                    
-                    // Emit event to frontend
                     let _ = app_clone.emit("blocked-app-detected", app_name.to_string());
                 }
             }
         }
     }
 
-    // Clean up
     let _ = process.kill();
     let _ = std::fs::remove_file(&temp_path);
-    
     {
         let mut w = watcher.lock().unwrap();
         w.running = false;
     }
-    
-    log::info!("macOS app watcher stopped");
 }
 
 #[cfg(target_os = "windows")]
 fn start_windows_watcher(app: AppHandle, watcher: Arc<Mutex<ProcessWatcher>>) {
-    // PowerShell script for event-driven foreground monitoring
     let ps_script = r#"
 Add-Type @"
 using System;
@@ -318,26 +277,26 @@ using System.Diagnostics;
 
 public class ForegroundWatcher {
     public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
-    
+
     [DllImport("user32.dll")]
     public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
-    
+
     [DllImport("user32.dll")]
     public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-    
+
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-    
+
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
-    
+
     public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
-    
+
     private static WinEventDelegate _delegate;
     private static IntPtr _hook;
-    
+
     public static void Start() {
         _delegate = new WinEventDelegate(WinEventProc);
         _hook = SetWinEventHook(
@@ -345,30 +304,28 @@ public class ForegroundWatcher {
             IntPtr.Zero, _delegate, 0, 0,
             WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
         );
-        Console.WriteLine("READY");
-        Console.Out.Flush();
         OutputCurrentForeground();
     }
-    
+
     public static void Stop() {
         if (_hook != IntPtr.Zero) {
             UnhookWinEvent(_hook);
             _hook = IntPtr.Zero;
         }
     }
-    
+
     private static void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime) {
         if (hwnd == IntPtr.Zero) return;
         OutputProcessForWindow(hwnd);
     }
-    
+
     private static void OutputCurrentForeground() {
         IntPtr hwnd = GetForegroundWindow();
         if (hwnd != IntPtr.Zero) {
             OutputProcessForWindow(hwnd);
         }
     }
-    
+
     private static void OutputProcessForWindow(IntPtr hwnd) {
         try {
             uint processId;
@@ -395,72 +352,119 @@ try {
 }
 "#;
 
-    // Write to temp file
     let temp_path = std::env::temp_dir().join("redd-foreground-watcher.ps1");
     if std::fs::write(&temp_path, ps_script).is_err() {
-        log::error!("Failed to write PowerShell script");
+        let mut w = watcher.lock().unwrap();
+        w.running = false;
         return;
     }
 
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let mut process = match Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(&temp_path)
         .stdout(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
         Ok(p) => p,
-        Err(e) => {
-            log::error!("Failed to start Windows watcher: {}", e);
-            // Reset running flag since we failed to start
+        Err(_) => {
             let mut w = watcher.lock().unwrap();
             w.running = false;
             return;
         }
     };
 
-    log::info!("Windows foreground watcher started");
+    let stdout = match process.stdout.take() {
+        Some(s) => s,
+        None => {
+            let mut w = watcher.lock().unwrap();
+            w.running = false;
+            return;
+        }
+    };
 
-    if let Some(stdout) = process.stdout.take() {
-        let reader = BufReader::new(stdout);
-        let app_clone = app.clone();
-        let watcher_clone = watcher.clone();
-        
-        for line in reader.lines() {
-            {
-                let w = watcher_clone.lock().unwrap();
-                if !w.running {
-                    break;
-                }
+    {
+        let mut w = watcher.lock().unwrap();
+        w.watcher_process = Some(process);
+    }
+
+    let reader = BufReader::new(stdout);
+    let app_clone = app.clone();
+    let watcher_clone = watcher.clone();
+
+    for line in reader.lines() {
+        {
+            let w = watcher_clone.lock().unwrap();
+            if !w.running {
+                break;
             }
-            
-            if let Ok(line) = line {
-                let trimmed = line.trim();
-                
-                if trimmed.starts_with("FG:") {
-                    let process_name = &trimmed[3..];
-                    
-                    let is_blocked = {
-                        let w = watcher_clone.lock().unwrap();
-                        w.blocked_apps.contains_key(&process_name.to_lowercase())
-                    };
-                    
-                    if is_blocked {
-                        log::info!("Blocked app in foreground: {}", process_name);
-                        internal_minimize_app(process_name);
-                        let _ = app_clone.emit("blocked-app-detected", process_name.to_string());
-                    }
+        }
+
+        if let Ok(line) = line {
+            let trimmed = line.trim();
+            if trimmed.starts_with("FG:") {
+                let process_name = &trimmed[3..];
+
+                let is_blocked = {
+                    let w = watcher_clone.lock().unwrap();
+                    w.blocked_apps.contains_key(&process_name.to_lowercase())
+                };
+
+                if is_blocked {
+                    internal_minimize_app(process_name);
+                    let _ = app_clone.emit("blocked-app-detected", process_name.to_string());
                 }
             }
         }
     }
 
-    let _ = process.kill();
-    let _ = std::fs::remove_file(&temp_path);
-    
     {
         let mut w = watcher.lock().unwrap();
+        if let Some(mut proc) = w.watcher_process.take() {
+            let _ = proc.kill();
+        }
         w.running = false;
     }
-    
-    log::info!("Windows foreground watcher stopped");
+
+    let _ = std::fs::remove_file(&temp_path);
+}
+
+/// Get debug information (minimal - for debug window)
+#[tauri::command]
+pub fn get_watcher_debug_info() -> serde_json::Value {
+    let watcher = WATCHER.lock().unwrap();
+    let blocked_apps: Vec<String> = watcher.blocked_apps.keys().cloned().collect();
+    let process_id = watcher.watcher_process.as_ref()
+        .map(|p| p.id().to_string())
+        .unwrap_or_else(|| "None".to_string());
+
+    serde_json::json!({
+        "running": watcher.running,
+        "blocked_apps": blocked_apps,
+        "blocked_apps_count": watcher.blocked_apps.len(),
+        "process_id": process_id,
+    })
+}
+
+/// Open the debug window
+#[tauri::command]
+pub async fn open_debug_window(app: AppHandle) -> Result<(), String> {
+    use tauri::WebviewUrl;
+
+    if let Some(window) = app.get_webview_window("debug") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    tauri::WebviewWindowBuilder::new(&app, "debug", WebviewUrl::App("debug.html".into()))
+        .title("ReDD Block - Debug")
+        .inner_size(500.0, 350.0)
+        .resizable(true)
+        .center()
+        .build()
+        .map_err(|e| format!("Failed to create debug window: {}", e))?;
+
+    Ok(())
 }

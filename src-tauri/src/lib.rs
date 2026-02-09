@@ -122,6 +122,9 @@ pub fn run() {
             commands::set_blocked_apps,
             commands::has_blocked_apps,
             commands::hide_all_blocked_apps,
+            // Debug commands
+            commands::get_watcher_debug_info,
+            commands::open_debug_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

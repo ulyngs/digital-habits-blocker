@@ -3198,6 +3198,7 @@ dependencies = [
  "libc",
  "log",
  "notify",
+ "redd-block-core",
  "serde",
  "serde_json",
  "tauri",
@@ -3210,6 +3211,17 @@ dependencies = [
  "tauri-plugin-screentime",
  "tauri-plugin-shell",
  "windows 0.58.0",
+]
+
+[[package]]
+name = "redd-block-core"
+version = "0.1.0"
+dependencies = [
+ "dirs 5.0.1",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

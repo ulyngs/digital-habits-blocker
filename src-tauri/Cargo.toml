@@ -20,6 +20,7 @@ default = []
 desktop = ["tauri/tray-icon"]
 
 [dependencies]
+redd-block-core = { path = "../redd-block-core" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"

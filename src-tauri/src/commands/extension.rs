@@ -16,23 +16,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Browsers for which we generate per-browser native-host shims.
-/// Each shim passes `--browser-label=<Label>` to the host so the host can
-/// identify which browser spawned it (for heartbeat file naming, logs,
-/// etc.). Keep in sync with `enforcer::browser_table`.
-pub const SHIM_BROWSERS: &[&str] = &["Chrome", "Brave", "Edge", "Firefox"];
-
-/// Native messaging host name — must match the extension's `connectNative()`
-/// call in `reddfocus-open-source/Shared (Extension)/Resources/background.js`.
-pub const NATIVE_HOST_NAME: &str = "com.ulriklyngs.mindshield";
-
-/// Chromium extension IDs allowed to talk to our native host. The published
-/// Web Store ID is the primary; additional IDs (unpacked dev installs) can be
-/// appended via the `EXTRA_CHROMIUM_IDS` environment variable at install time.
-const DEFAULT_CHROMIUM_IDS: &[&str] = &["hhblkhfdjijdinijakbmcpkmdfhoadcd"];
-
-/// Firefox extension IDs.
-const DEFAULT_FIREFOX_IDS: &[&str] = &["mindshield@example.com"];
+pub use redd_block_core::browser::{
+    BrowserStatus, ExtensionStatusReport, ProfileStatus, DEFAULT_CHROMIUM_IDS,
+    DEFAULT_FIREFOX_IDS, NATIVE_HOST_NAME, SHIM_BROWSERS,
+};
 
 /// Outcome of one manifest-installation attempt per browser. Collected and
 /// returned to the frontend so the user can tell which browsers are wired up.
@@ -158,13 +145,15 @@ pub fn shim_path_for(label: &str) -> Option<PathBuf> {
 /// (Chrome's `ImportantFileWriter` has a ~10 s commit delay, whereas the
 /// heartbeat's cadence is 1 s).
 pub fn heartbeat_dir() -> Option<PathBuf> {
-    host_artifacts_dir().map(|d| d.join("native-host-heartbeats"))
+    let home = dirs::home_dir()?;
+    redd_block_core::paths::heartbeat_dir(&home)
 }
 
 /// Path to the heartbeat stamp file for a given browser label (one of
 /// `SHIM_BROWSERS`).
 pub fn heartbeat_file(label: &str) -> Option<PathBuf> {
-    heartbeat_dir().map(|d| d.join(format!("{label}.stamp")))
+    let home = dirs::home_dir()?;
+    redd_block_core::paths::heartbeat_file(&home, label)
 }
 
 /// Write (or refresh) one tiny launcher per supported browser in our
@@ -276,9 +265,60 @@ fn firefox_manifest(host_path: &Path) -> String {
 /// Install manifests for every supported browser. Idempotent: overwrites
 /// existing entries that match `NATIVE_HOST_NAME`, leaves every other host
 /// manifest alone.
+/// Write (or clear) the `extra-chromium-ids.txt` sidecar file based on
+/// the current `EXTRA_CHROMIUM_IDS` environment variable.
+///
+/// The helper daemon runs as a LaunchDaemon (macOS) / scheduled task
+/// (Windows) started at login, so it can't see shell env vars set by
+/// `npm run dev`. Without this sidecar, the helper's enforcer would
+/// probe Chrome looking only for the Web Store extension ID and
+/// conclude the unpacked dev extension "isn't installed", firing a
+/// false-positive "extension disabled" nag every tick.
+fn sync_extra_chromium_ids_sidecar() {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return,
+    };
+    let path = match redd_block_core::paths::extra_chromium_ids_file(&home) {
+        Some(p) => p,
+        None => return,
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    match std::env::var("EXTRA_CHROMIUM_IDS") {
+        Ok(v) if !v.trim().is_empty() => {
+            if let Err(e) = fs::write(&path, v.trim()) {
+                log::warn!(
+                    "[extension] failed to write extra-chromium-ids sidecar at {}: {e}",
+                    path.display()
+                );
+            } else {
+                log::info!(
+                    "[extension] wrote extra-chromium-ids sidecar for helper at {} (value: {})",
+                    path.display(),
+                    v.trim()
+                );
+            }
+        }
+        _ => {
+            // No dev-only IDs set — make sure the sidecar is clean so
+            // the helper doesn't keep using a stale value from a
+            // previous dev session.
+            if path.exists() {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn install_browser_extension_manifests() -> InstallReport {
     log::info!("install_browser_extension_manifests called");
+    // Keep the helper in sync with any EXTRA_CHROMIUM_IDS set in the
+    // dev shell. Cheap (one small file write), idempotent, runs every
+    // time the frontend asks us to install the browser manifests.
+    sync_extra_chromium_ids_sidecar();
     let shims = match write_host_shims() {
         Ok(p) => p,
         Err(e) => {
@@ -1365,49 +1405,10 @@ fn windows_registry_first_free_integer_value_name(subkey: &str) -> Result<String
 }
 
 // ---------- Status probing ---------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BrowserStatus {
-    pub browser: String,
-    /// True if the manifest file (mac) or registry key (windows) we installed
-    /// is still in place.
-    pub manifest_installed: bool,
-    /// True if the browser's root dir exists on disk at all.
-    pub browser_installed: bool,
-    /// Windows-only: whether our force-install policy entry is present under
-    /// the browser's `ExtensionInstallForcelist` / `ExtensionSettings` policy
-    /// tree. `None` on platforms where this isn't applicable.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub force_install_applied: Option<bool>,
-    /// Per-profile extension info, lifted from on-disk prefs without talking
-    /// to the extension.
-    pub profiles: Vec<ProfileStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileStatus {
-    pub name: String,
-    pub is_default: bool,
-    pub installed: bool,
-    pub enabled: bool,
-    /// May be `None` when we can't tell (e.g. Safari's sandboxed pref).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub private_browsing: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExtensionStatusReport {
-    pub browsers: Vec<BrowserStatus>,
-    pub native_host_name: String,
-    pub host_script_path: Option<String>,
-}
+//
+// `BrowserStatus`, `ProfileStatus`, and `ExtensionStatusReport` are defined
+// in `redd_block_core::browser` (re-exported at the top of this file) so
+// the helper daemon can use the same types without pulling in Tauri.
 
 /// Quick status probe: is the manifest we installed still in place, and does
 /// each browser profile have the extension installed + enabled + allowed in
@@ -1432,305 +1433,44 @@ pub async fn check_extension_status() -> ExtensionStatusReport {
     }
 }
 
-fn chromium_extension_ids() -> Vec<String> {
-    collected_chromium_ids()
-}
-
-fn firefox_extension_ids() -> Vec<String> {
-    collected_firefox_ids()
-}
-
-// --- Firefox --------------------------------------------------------------
-
-fn firefox_root() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        Some(dirs::home_dir()?.join("Library").join("Application Support").join("Firefox"))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var("APPDATA").ok()?;
-        Some(PathBuf::from(appdata).join("Mozilla").join("Firefox"))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        Some(dirs::home_dir()?.join(".mozilla").join("firefox"))
-    }
-}
+// --- Browser probing (delegates to redd_block_core) ----------------------
+//
+// The actual preference-file parsing lives in `redd_block_core::browser`
+// so the helper daemon can run the same probes without pulling in Tauri.
+// These wrappers fill in the Tauri-only bits — `is_manifest_installed`
+// (which uses the Windows registry helpers in this module) and
+// `is_force_install_applied` (same reason).
 
 fn probe_firefox() -> BrowserStatus {
     let manifest_installed = is_manifest_installed("Firefox");
     let force_install_applied = is_force_install_applied("Firefox");
-    let root = match firefox_root() {
-        Some(r) if r.exists() => r,
-        _ => {
-            return BrowserStatus {
-                browser: "Firefox".into(),
-                manifest_installed,
-                browser_installed: false,
-                force_install_applied,
-                profiles: Vec::new(),
-                error: None,
-            };
-        }
-    };
-
-    let profiles_ini = root.join("profiles.ini");
-    let mut profile_paths: Vec<String> = Vec::new();
-    let mut default_paths: HashSet<String> = HashSet::new();
-
-    if profiles_ini.exists() {
-        if let Ok(content) = fs::read_to_string(&profiles_ini) {
-            for block in content.split("\n[") {
-                if block.trim_start().starts_with("Install") {
-                    for line in block.lines() {
-                        if let Some(rest) = line.strip_prefix("Default=") {
-                            default_paths.insert(rest.trim().to_string());
-                        }
-                    }
-                }
-                for line in block.lines() {
-                    if let Some(rest) = line.strip_prefix("Path=") {
-                        profile_paths.push(rest.trim().to_string());
-                    }
-                }
-            }
-        }
-    } else {
-        let profiles_dir = root.join("Profiles");
-        if let Ok(entries) = fs::read_dir(&profiles_dir) {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    profile_paths.push(format!("Profiles/{}", name));
-                }
-            }
-        }
-    }
-
-    let ff_ids = firefox_extension_ids();
-    let mut profiles = Vec::new();
-    for rel in profile_paths {
-        let dir = root.join(&rel);
-        if !dir.is_dir() {
-            continue;
-        }
-        let mut status = ProfileStatus {
-            name: rel.clone(),
-            is_default: default_paths.contains(&rel),
-            installed: false,
-            enabled: false,
-            private_browsing: Some(false),
-            note: None,
+    let Some(home) = dirs::home_dir() else {
+        return BrowserStatus {
+            browser: "Firefox".into(),
+            manifest_installed,
+            browser_installed: false,
+            force_install_applied,
+            profiles: Vec::new(),
+            error: None,
         };
-
-        let ext_file = dir.join("extensions.json");
-        if let Ok(text) = fs::read_to_string(&ext_file) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(addons) = value.get("addons").and_then(|a| a.as_array()) {
-                    for addon in addons {
-                        let id = addon.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        if ff_ids.iter().any(|needle| needle == id) {
-                            status.installed = true;
-                            let active = addon.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
-                            let user_disabled = addon.get("userDisabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                            let app_disabled = addon.get("appDisabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                            status.enabled = active && !user_disabled && !app_disabled;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        let prefs_file = dir.join("extension-preferences.json");
-        if let Ok(text) = fs::read_to_string(&prefs_file) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                for ff_id in &ff_ids {
-                    if let Some(entry) = value.get(ff_id) {
-                        if let Some(perms) = entry.get("permissions").and_then(|p| p.as_array()) {
-                            let pb = perms
-                                .iter()
-                                .any(|v| v.as_str() == Some("internal:privateBrowsingAllowed"));
-                            status.private_browsing = Some(pb);
-                        }
-                    }
-                }
-            }
-        }
-
-        profiles.push(status);
-    }
-
-    BrowserStatus {
-        browser: "Firefox".into(),
-        manifest_installed,
-        browser_installed: true,
-        force_install_applied,
-        profiles,
-        error: None,
-    }
-}
-
-// --- Chromium family ------------------------------------------------------
-
-fn chromium_root(label: &str) -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    match label {
-        #[cfg(target_os = "macos")]
-        "Chrome" => Some(home.join("Library/Application Support/Google/Chrome")),
-        #[cfg(target_os = "macos")]
-        "Brave" => Some(home.join("Library/Application Support/BraveSoftware/Brave-Browser")),
-        #[cfg(target_os = "macos")]
-        "Edge" => Some(home.join("Library/Application Support/Microsoft Edge")),
-        #[cfg(target_os = "windows")]
-        "Chrome" => Some(
-            PathBuf::from(std::env::var("LOCALAPPDATA").ok()?)
-                .join("Google")
-                .join("Chrome")
-                .join("User Data"),
-        ),
-        #[cfg(target_os = "windows")]
-        "Brave" => Some(
-            PathBuf::from(std::env::var("LOCALAPPDATA").ok()?)
-                .join("BraveSoftware")
-                .join("Brave-Browser")
-                .join("User Data"),
-        ),
-        #[cfg(target_os = "windows")]
-        "Edge" => Some(
-            PathBuf::from(std::env::var("LOCALAPPDATA").ok()?)
-                .join("Microsoft")
-                .join("Edge")
-                .join("User Data"),
-        ),
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        "Chrome" => Some(home.join(".config/google-chrome")),
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        "Brave" => Some(home.join(".config/BraveSoftware/Brave-Browser")),
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        "Edge" => Some(home.join(".config/microsoft-edge")),
-        _ => None,
-    }
+    };
+    redd_block_core::browser::probe_firefox(&home, manifest_installed, force_install_applied)
 }
 
 fn probe_chromium(label: &str) -> BrowserStatus {
     let manifest_installed = is_manifest_installed(label);
     let force_install_applied = is_force_install_applied(label);
-    let root = match chromium_root(label) {
-        Some(r) if r.exists() => r,
-        _ => {
-            return BrowserStatus {
-                browser: label.into(),
-                manifest_installed,
-                browser_installed: false,
-                force_install_applied,
-                profiles: Vec::new(),
-                error: None,
-            };
-        }
-    };
-
-    let local_state = root.join("Local State");
-    let mut profile_names: Vec<String> = Vec::new();
-    let mut last_used: Option<String> = None;
-    if local_state.exists() {
-        if let Ok(text) = fs::read_to_string(&local_state) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(cache) = value
-                    .get("profile")
-                    .and_then(|p| p.get("info_cache"))
-                    .and_then(|c| c.as_object())
-                {
-                    for k in cache.keys() {
-                        profile_names.push(k.clone());
-                    }
-                }
-                last_used = value
-                    .get("profile")
-                    .and_then(|p| p.get("last_used"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-            }
-        }
-    }
-    if profile_names.is_empty() {
-        if let Ok(entries) = fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if root.join(&name).join("Preferences").exists() {
-                        profile_names.push(name);
-                    }
-                }
-            }
-        }
-    }
-
-    let ids = chromium_extension_ids();
-    let mut profiles = Vec::new();
-    for name in profile_names {
-        let dir = root.join(&name);
-        let is_default = Some(name.as_str())
-            == last_used.as_deref().or(Some("Default"));
-        let mut status = ProfileStatus {
-            name: name.clone(),
-            is_default,
-            installed: false,
-            enabled: false,
-            private_browsing: Some(false),
-            note: None,
+    let Some(home) = dirs::home_dir() else {
+        return BrowserStatus {
+            browser: label.into(),
+            manifest_installed,
+            browser_installed: false,
+            force_install_applied,
+            profiles: Vec::new(),
+            error: None,
         };
-
-        let mut merged_settings = serde_json::Map::new();
-        for file in ["Preferences", "Secure Preferences"] {
-            let p = dir.join(file);
-            if let Ok(text) = fs::read_to_string(&p) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                    if let Some(settings) = value
-                        .get("extensions")
-                        .and_then(|e| e.get("settings"))
-                        .and_then(|s| s.as_object())
-                    {
-                        for (k, v) in settings {
-                            merged_settings.insert(k.clone(), v.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        for id in &ids {
-            if let Some(entry) = merged_settings.get(id) {
-                status.installed = true;
-                let state = entry.get("state").and_then(|v| v.as_i64());
-                let disable_reasons = entry.get("disable_reasons");
-                let has_disable = match disable_reasons {
-                    Some(serde_json::Value::Array(arr)) => !arr.is_empty(),
-                    Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-                    _ => false,
-                };
-                status.enabled = state == Some(1) || (state.is_none() && !has_disable);
-                status.private_browsing = Some(
-                    entry
-                        .get("incognito")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                );
-                break;
-            }
-        }
-
-        profiles.push(status);
-    }
-
-    BrowserStatus {
-        browser: label.into(),
-        manifest_installed,
-        browser_installed: true,
-        force_install_applied,
-        profiles,
-        error: None,
-    }
+    };
+    redd_block_core::browser::probe_chromium(&home, label, manifest_installed, force_install_applied)
 }
 
 // ---------- Manifest-installed probes ----------------------------------------

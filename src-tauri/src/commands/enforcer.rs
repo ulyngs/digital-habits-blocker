@@ -1,872 +1,199 @@
-//! Extension enforcement loop.
+//! Extension-enforcement shim.
 //!
-//! Website blocking is delegated to the browser extension. If the user
-//! disables the extension, runs it in a private window without permission,
-//! or uninstalls it, the blocklist is no longer enforced. To keep the user
-//! honest on **desktop** (Windows first, macOS supported so we can test the
-//! UX end-to-end), we run a background thread that:
+//! Website-blocking enforcement (heartbeat checking, grace-period
+//! countdown, browser force-quit, GUI alerts) now lives in the
+//! `redd-block-helper` daemon so it keeps running even when the main
+//! ReDD Block app is quit. This module is a *thin* Tauri-side shim:
 //!
-//! 1. Every `TICK` seconds, runs the same scan as the diagnostics pane.
-//! 2. For each browser that is *currently running*, checks that the default
-//!    profile has the extension installed + enabled + allowed in private
-//!    browsing.
-//! 3. If a browser fails the check and *any* block is currently active, we
-//!    emit a nag event (UI shows a toast / native notification) and start a
-//!    `GRACE` timer. If the timer expires while still failing, we quit the
-//!    browser.
-//! 4. If the user fixes the issue (or the block ends) before the timer
-//!    expires, the timer is cleared.
+//! 1. On `start_extension_enforcement`, spin up a background thread
+//!    that polls the helper every `POLL_INTERVAL` over the existing
+//!    helper IPC socket.
+//! 2. For every event the helper returns, re-emit it to the frontend as
+//!    the existing `extension-enforcement` Tauri event — so the in-app
+//!    banner in `src/app.js` keeps working unchanged.
+//! 3. Stop the thread on `stop_extension_enforcement`.
 //!
-//! This mirrors `browser-ext-mvp/enforcer/enforce.mjs`. Behaviour is driven
-//! from two events emitted on the main app webview:
-//!
-//!   `extension-enforcement-warning` — { browser, remainingMs, reason }
-//!   `extension-enforcement-action`  — { browser, action, reason }
-//!
-//! The frontend renders these; the Rust side keeps the machinery small.
+//! The frontend is still the source-of-truth for the *in-app banner*;
+//! the helper handles the *system-wide alerts + force-quit*. The two
+//! halves stay in sync because they both observe the same helper
+//! snapshot, with the Tauri app acting as a live relay into the
+//! currently-open window.
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+#[cfg(target_os = "windows")]
+use std::net::{SocketAddr, TcpStream};
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_notification::NotificationExt;
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 
-use super::extension::{check_extension_status, heartbeat_file, BrowserStatus, ProfileStatus};
+#[cfg(not(target_os = "windows"))]
+const HELPER_SOCKET_PATH: &str = "/tmp/redd-block-helper.sock";
+#[cfg(target_os = "windows")]
+const HELPER_TCP_ADDR: &str = "127.0.0.1:62222";
 
-const DEFAULT_TICK: Duration = Duration::from_secs(5);
-const DEFAULT_GRACE: Duration = Duration::from_secs(30);
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const IO_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// How long after the native host's last heartbeat we consider the
-/// extension "not responding". The native host refreshes the stamp every
-/// `HEARTBEAT_CADENCE` (1 s) so four seconds gives us three missed writes
-/// of headroom for disk spikes / scheduler jitter before we nag the user.
-const HEARTBEAT_STALE_AFTER: Duration = Duration::from_secs(4);
-
-/// Per-browser quit + process-detection metadata. The `proc_name` is the
-/// executable name as the OS reports it; `app_name` is the user-facing title
-/// used in nags. `private_mode_name` is the browser's own term for private
-/// browsing ("Incognito", "InPrivate", "Private Windows", …) — used to
-/// compose action-button copy on the nag alert.
-#[derive(Clone, Debug)]
-struct BrowserMeta {
-    label: &'static str,
-    app_name: &'static str,
-    private_mode_name: &'static str,
-    proc_names: &'static [&'static str],
+lazy_static! {
+    /// Single-instance guard so `start_extension_enforcement` is idempotent.
+    static ref RUNNING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
-fn browser_table() -> Vec<BrowserMeta> {
-    vec![
-        BrowserMeta {
-            label: "Chrome",
-            app_name: "Google Chrome",
-            private_mode_name: "Incognito mode",
-            #[cfg(target_os = "windows")]
-            proc_names: &["chrome.exe"],
-            #[cfg(not(target_os = "windows"))]
-            proc_names: &["Google Chrome"],
-        },
-        BrowserMeta {
-            label: "Brave",
-            app_name: "Brave",
-            private_mode_name: "Private mode",
-            #[cfg(target_os = "windows")]
-            proc_names: &["brave.exe"],
-            #[cfg(not(target_os = "windows"))]
-            proc_names: &["Brave Browser"],
-        },
-        BrowserMeta {
-            label: "Edge",
-            app_name: "Microsoft Edge",
-            private_mode_name: "InPrivate mode",
-            #[cfg(target_os = "windows")]
-            proc_names: &["msedge.exe"],
-            #[cfg(not(target_os = "windows"))]
-            proc_names: &["Microsoft Edge"],
-        },
-        BrowserMeta {
-            label: "Firefox",
-            app_name: "Firefox",
-            private_mode_name: "Private Windows",
-            #[cfg(target_os = "windows")]
-            proc_names: &["firefox.exe"],
-            #[cfg(not(target_os = "windows"))]
-            proc_names: &["firefox"],
-        },
-    ]
-}
-
-/// Categorised reason a browser is currently failing the enforcement
-/// check. Keeps `notify_user_of_failure` and the alert-button picker in
-/// lockstep — the user-facing button text should always match the
-/// actual reason the block isn't being enforced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FailureKind {
-    /// Native host heartbeat is stale — the extension is almost
-    /// certainly disabled / crashed.
-    HeartbeatStale,
-    /// Native-messaging manifest never got written to disk. Shouldn't
-    /// happen unless the user deleted it manually.
-    ManifestMissing,
-    /// We couldn't read any profile — rare; surface as a generic open.
-    NoProfile,
-    /// Extension isn't installed in the user's default profile.
-    ExtensionNotInstalled,
-    /// Extension is installed but disabled.
-    ExtensionDisabled,
-    /// Extension is installed + enabled, but not permitted in private
-    /// / incognito windows.
-    PrivateBrowsingDisallowed,
-    /// Catch-all for states we didn't specifically categorise.
-    Unknown,
-}
-
-fn failure_kind_for(hb: HeartbeatStatus, status: Option<&BrowserStatus>) -> FailureKind {
-    if matches!(hb, HeartbeatStatus::Stale(_)) {
-        return FailureKind::HeartbeatStale;
-    }
-    let status = match status {
-        Some(s) => s,
-        None => return FailureKind::Unknown,
-    };
-    if !status.manifest_installed {
-        return FailureKind::ManifestMissing;
-    }
-    let profile = status
-        .profiles
-        .iter()
-        .find(|p| p.is_default)
-        .or_else(|| status.profiles.first());
-    let profile = match profile {
-        Some(p) => p,
-        None => return FailureKind::NoProfile,
-    };
-    if !profile.installed {
-        return FailureKind::ExtensionNotInstalled;
-    }
-    if !profile.enabled {
-        return FailureKind::ExtensionDisabled;
-    }
-    if profile.private_browsing != Some(true) {
-        return FailureKind::PrivateBrowsingDisallowed;
-    }
-    FailureKind::Unknown
-}
-
-/// Copy for the primary action button on the macOS nag alert. Must tell
-/// the user *specifically* what's wrong so they can skip the diagnostic
-/// step — e.g. "Turn ReDD Focus on in Google Chrome" when the extension
-/// is simply disabled, vs "Enable ReDD Focus in Incognito mode in
-/// Google Chrome" when the extension is fine but just not permitted in
-/// private windows.
-fn action_button_label(kind: FailureKind, meta: &BrowserMeta) -> String {
-    match kind {
-        FailureKind::HeartbeatStale | FailureKind::ExtensionDisabled => {
-            format!("Turn ReDD Focus on in {}", meta.app_name)
-        }
-        FailureKind::ExtensionNotInstalled | FailureKind::ManifestMissing => {
-            format!("Install ReDD Focus in {}", meta.app_name)
-        }
-        FailureKind::PrivateBrowsingDisallowed => {
-            format!(
-                "Enable ReDD Focus in {} in {}",
-                meta.private_mode_name, meta.app_name
-            )
-        }
-        FailureKind::NoProfile | FailureKind::Unknown => {
-            format!("Open ReDD Focus settings in {}", meta.app_name)
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Event payload re-emitted to the frontend as `extension-enforcement`.
+/// Matches the shape produced by the helper so we can pass it through
+/// without re-mapping field names.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnforcementEvent {
     pub browser: String,
-    /// One of `nag`, `cancelled`, `quit_attempted`, `quit_failed`.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remaining_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
 }
 
-/// Handle returned by `start_extension_enforcement`. Dropping it is not
-/// enough to stop the thread — call `stop_extension_enforcement` to flip
-/// the kill switch; the thread exits within at most one tick.
-#[derive(Default)]
-pub struct EnforcementHandle {
-    running: Arc<AtomicBool>,
-}
-
-lazy_static::lazy_static! {
-    static ref ENFORCER: Mutex<EnforcementHandle> = Mutex::new(EnforcementHandle::default());
-}
-
-/// Start the enforcement loop on the current app. Idempotent: repeated calls
-/// are no-ops while a loop is already running. Use the returned JSON blob
-/// (via the Tauri command below) for the frontend to know whether the loop
-/// is active.
+/// Start polling the helper and re-emitting events. Returns `true` if
+/// the poller actually started this call, `false` if it was already
+/// running.
 #[tauri::command]
 pub async fn start_extension_enforcement(app: AppHandle) -> bool {
-    let mut guard = ENFORCER.lock().unwrap();
-    if guard.running.load(Ordering::SeqCst) {
-        return true;
+    if RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        log::info!("[enforcer-poll] already running");
+        return false;
     }
-
-    let running = Arc::new(AtomicBool::new(true));
-    guard.running = running.clone();
-    drop(guard);
-
-    thread::spawn(move || run_loop(app, running));
+    log::info!("[enforcer-poll] starting poll loop (interval = {:?})", POLL_INTERVAL);
+    let running = Arc::clone(&RUNNING);
+    thread::spawn(move || poll_loop(app, running));
     true
 }
 
-/// Signal the loop to exit. Returns true if a loop was actually running.
 #[tauri::command]
 pub async fn stop_extension_enforcement() -> bool {
-    let guard = ENFORCER.lock().unwrap();
-    let was_running = guard.running.load(Ordering::SeqCst);
-    guard.running.store(false, Ordering::SeqCst);
-    was_running
+    RUNNING.store(false, Ordering::SeqCst);
+    log::info!("[enforcer-poll] stop requested");
+    true
 }
 
-/// Whether the enforcement loop is currently active.
 #[tauri::command]
 pub async fn is_extension_enforcement_running() -> bool {
-    ENFORCER.lock().unwrap().running.load(Ordering::SeqCst)
+    RUNNING.load(Ordering::SeqCst)
 }
 
-fn run_loop(app: AppHandle, running: Arc<AtomicBool>) {
-    log::info!("[enforcer] loop starting");
-    let mut state: HashMap<String, Instant> = HashMap::new();
+// ---------- Poll loop -----------------------------------------------------
 
+fn poll_loop(app: AppHandle, running: Arc<AtomicBool>) {
+    let mut since_cursor: u64 = 0;
     while running.load(Ordering::SeqCst) {
-        if let Err(e) = tick(&app, &mut state) {
-            log::warn!("[enforcer] tick error: {e}");
-        }
-        // Coarse sleep so `stop_extension_enforcement` wakes us within a tick.
-        let step = Duration::from_millis(500);
-        let mut slept = Duration::ZERO;
-        while slept < DEFAULT_TICK && running.load(Ordering::SeqCst) {
-            thread::sleep(step);
-            slept += step;
-        }
-    }
-    log::info!("[enforcer] loop stopped");
-}
-
-fn tick(app: &AppHandle, state: &mut HashMap<String, Instant>) -> Result<(), String> {
-    // Only enforce when there is actually something to enforce — avoids
-    // nagging the user when no block is active (e.g. first run).
-    let domains = crate::blocklist::current_blocklist();
-    if domains.is_empty() {
-        // Nothing to enforce; cancel any lingering timers silently.
-        if !state.is_empty() {
-            for label in state.keys().cloned().collect::<Vec<_>>() {
-                emit_event(
-                    app,
-                    EnforcementEvent {
-                        browser: label.clone(),
-                        kind: "cancelled".into(),
-                        remaining_ms: None,
-                        reason: Some("no active blocks".into()),
-                    },
-                );
-            }
-            state.clear();
-        }
-        return Ok(());
-    }
-
-    let status = tauri::async_runtime::block_on(check_extension_status());
-
-    for meta in browser_table() {
-        let browser_result = status
-            .browsers
-            .iter()
-            .find(|b| b.browser == meta.label)
-            .cloned();
-
-        let running_now = is_browser_running(&meta);
-
-        // One-line per-browser trace so it's obvious from the dev console
-        // *why* the tick did (or didn't) escalate. Cheap; safe to keep on.
-        let hb_trace = match heartbeat_status(meta.label) {
-            HeartbeatStatus::Fresh(age) => format!("hb=fresh({}ms)", age.as_millis()),
-            HeartbeatStatus::Stale(age) => format!("hb=STALE({}ms)", age.as_millis()),
-            HeartbeatStatus::Missing => "hb=missing".to_string(),
-        };
-        if let Some(b) = browser_result.as_ref() {
-            let default_profile = b
-                .profiles
-                .iter()
-                .find(|p| p.is_default)
-                .or_else(|| b.profiles.first());
-            let (name, inst, ena, priv_) = match default_profile {
-                Some(p) => (
-                    p.name.as_str(),
-                    p.installed,
-                    p.enabled,
-                    p.private_browsing,
-                ),
-                None => ("<no-profile>", false, false, None),
-            };
-            log::info!(
-                "[enforcer] tick: {} running={} {} manifest_installed={} profiles={} default={:?} \
-                 ext_installed={} ext_enabled={} private_browsing={:?}",
-                meta.label,
-                running_now,
-                hb_trace,
-                b.manifest_installed,
-                b.profiles.len(),
-                name,
-                inst,
-                ena,
-                priv_,
-            );
-        } else {
-            log::info!(
-                "[enforcer] tick: {} running={} {} <no probe result>",
-                meta.label,
-                running_now,
-                hb_trace,
-            );
-        }
-
-        if !running_now {
-            if let Some(_) = state.remove(meta.label) {
-                emit_event(
-                    app,
-                    EnforcementEvent {
-                        browser: meta.label.into(),
-                        kind: "cancelled".into(),
-                        remaining_ms: None,
-                        reason: Some("browser closed".into()),
-                    },
-                );
-            }
-            continue;
-        }
-
-        // Heartbeat short-circuit. If we have ever seen the native host for
-        // this browser (i.e. the stamp file exists) and the stamp is now
-        // older than HEARTBEAT_STALE_AFTER, the extension has stopped
-        // talking to us — treat it as an instant failure regardless of what
-        // Chrome's on-disk Preferences currently claim. This is the key
-        // win: Chrome's Preferences file lags behind the user's toggle by
-        // up to ~10 s, but the native-host subprocess dies within <1 s of
-        // the extension being disabled, so the heartbeat is the real-time
-        // source of truth.
-        let hb = heartbeat_status(meta.label);
-        let passes = match hb {
-            HeartbeatStatus::Stale(_) => false,
-            // Fresh OR Missing → defer to the Preferences probe. Missing
-            // covers the "browser just launched and the extension hasn't
-            // connected yet" window; the slower probe will fill in the
-            // correct answer, and once the extension connects at least
-            // once the stamp will switch to Fresh/Stale from then on.
-            HeartbeatStatus::Fresh(_) | HeartbeatStatus::Missing => {
-                browser_passes_check(browser_result.as_ref())
-            }
-        };
-        if passes {
-            if state.remove(meta.label).is_some() {
-                emit_event(
-                    app,
-                    EnforcementEvent {
-                        browser: meta.label.into(),
-                        kind: "cancelled".into(),
-                        remaining_ms: None,
-                        reason: Some("check now passing".into()),
-                    },
-                );
-            }
-            continue;
-        }
-
-        // Failing check + browser running + block active => escalate.
-        let kind = failure_kind_for(hb, browser_result.as_ref());
-        let reason = match hb {
-            HeartbeatStatus::Stale(age) => format!(
-                "extension not responding (last ping {}s ago)",
-                age.as_secs().max(1)
-            ),
-            _ => browser_failure_reason(browser_result.as_ref()),
-        };
-        match state.get(meta.label).copied() {
-            None => {
-                // First tick where this browser is failing. Fire a *system*
-                // notification (not just the in-app event) so the user sees
-                // it even with the ReDD Block window hidden behind Chrome.
-                // We only do this on the transition into a failing state so
-                // the user gets one notification per episode, not one every
-                // 5 s tick.
-                notify_user_of_failure(app, &meta, kind, &reason);
-                let deadline = Instant::now() + DEFAULT_GRACE;
-                state.insert(meta.label.into(), deadline);
-                emit_event(
-                    app,
-                    EnforcementEvent {
-                        browser: meta.label.into(),
-                        kind: "nag".into(),
-                        remaining_ms: Some(DEFAULT_GRACE.as_millis() as u64),
-                        reason: Some(reason),
-                    },
-                );
-            }
-            Some(deadline) => {
-                let now = Instant::now();
-                if now >= deadline {
-                    state.remove(meta.label);
-                    let quit_ok = quit_browser(&meta);
-                    // Follow-up system notification so the user understands
-                    // why their browser just closed even if they never saw
-                    // the earlier warning (e.g. looked away for a minute).
-                    notify_user_of_quit(app, meta.label, meta.app_name, quit_ok, &reason);
-                    emit_event(
-                        app,
-                        EnforcementEvent {
-                            browser: meta.label.into(),
-                            kind: if quit_ok { "quit_attempted" } else { "quit_failed" }.into(),
-                            remaining_ms: Some(0),
-                            reason: Some(reason),
-                        },
-                    );
-                } else {
-                    let remaining = deadline.saturating_duration_since(now);
-                    emit_event(
-                        app,
-                        EnforcementEvent {
-                            browser: meta.label.into(),
-                            kind: "nag".into(),
-                            remaining_ms: Some(remaining.as_millis() as u64),
-                            reason: Some(reason),
-                        },
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn emit_event(app: &AppHandle, event: EnforcementEvent) {
-    if let Err(e) = app.emit("extension-enforcement", &event) {
-        log::warn!("[enforcer] emit failed: {e}");
-    }
-}
-
-/// Escalate on the transition into a failing state. On macOS this is a
-/// modal `display alert` with action buttons: the primary button names
-/// exactly what's wrong ("Turn ReDD Focus on in Google Chrome", "Enable
-/// ReDD Focus in Incognito mode in Google Chrome", …) and, when
-/// clicked, opens the right extensions page directly. The alert is
-/// spawned in a detached thread so we never block the enforcer loop,
-/// and auto-dismisses before the grace period expires so it doesn't
-/// linger if the user's away from their desk.
-///
-/// On Windows we fall back to the plugin's banner notification — toast
-/// notifications *can* carry buttons but need a registered AUMID and a
-/// proper bundle, which is future work. The in-app banner (with its
-/// own Fix button) covers this case once the user opens ReDD Block.
-fn notify_user_of_failure(
-    app: &AppHandle,
-    meta: &BrowserMeta,
-    kind: FailureKind,
-    reason: &str,
-) {
-    let grace_secs = DEFAULT_GRACE.as_secs();
-    let title = format!("{} will close in {grace_secs}s", meta.app_name);
-    let body = format!(
-        "ReDD Focus isn't enforcing your block in {} ({reason}). \
-         Fix it now to keep your block active.",
-        meta.app_name
-    );
-    log::info!(
-        "[enforcer] notifying user of failure ({}): kind={kind:?} title={title}",
-        meta.label
-    );
-
-    #[cfg(target_os = "macos")]
-    {
-        let button = action_button_label(kind, meta);
-        show_action_alert_async(app.clone(), meta.label, button, title, body);
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        // Silence unused-variable lints on Windows; `kind` drives alert
-        // copy which is macOS-only for now.
-        let _ = kind;
-        match app.notification().builder().title(&title).body(&body).show() {
-            Ok(()) => log::info!("[enforcer] plugin notification dispatched ({})", meta.label),
-            Err(e) => log::warn!(
-                "[enforcer] plugin notification failed ({}): {e}",
-                meta.label
-            ),
-        }
-    }
-}
-
-/// Run `osascript display alert` in a detached thread so the enforcer
-/// loop isn't blocked while the user decides. The alert auto-dismisses
-/// 5 s before we'd force-quit the browser, so a late click never races
-/// with the quit itself. If the user clicks the action button we open
-/// the browser's extensions page via the existing tauri command — this
-/// keeps the chromium-id deep-linking behaviour (`?id=<ext-id>`) in
-/// one place.
-#[cfg(target_os = "macos")]
-fn show_action_alert_async(
-    app: AppHandle,
-    label: &'static str,
-    button_label: String,
-    title: String,
-    message: String,
-) {
-    let giving_up_after = DEFAULT_GRACE.as_secs().saturating_sub(5).max(5);
-    std::thread::spawn(move || {
-        let escape = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-        let script = format!(
-            "display alert \"{title}\" message \"{message}\" \
-             buttons {{\"Dismiss\", \"{action}\"}} \
-             default button \"{action}\" as critical \
-             giving up after {giving_up_after}",
-            title = escape(&title),
-            message = escape(&message),
-            action = escape(&button_label),
-        );
-        match std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-        {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stdout = stdout.trim();
-                // `display alert` returns e.g.
-                // `button returned:Turn ReDD Focus on in Google Chrome, gave up:false`
-                // (or `gave up:true` with an empty button when it
-                // auto-dismissed).
-                let clicked_action = stdout.contains(&format!(
-                    "button returned:{}",
-                    button_label
-                ));
-                log::info!(
-                    "[enforcer] alert closed ({label}): clicked_action={clicked_action} out={stdout}"
-                );
-                if clicked_action {
-                    let browser = label.to_string();
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(e) = crate::commands::extension::open_browser_extensions_page(
-                            browser.clone(),
-                        )
-                        .await
-                        {
-                            log::warn!(
-                                "[enforcer] open_browser_extensions_page failed ({browser}): {e}"
-                            );
+        match get_enforcement_state(since_cursor) {
+            Ok(reply) => {
+                since_cursor = reply.next_cursor.unwrap_or(since_cursor);
+                if let Some(events) = reply.events {
+                    for event in events {
+                        if let Err(e) = app.emit("extension-enforcement", &event) {
+                            log::warn!("[enforcer-poll] emit failed: {e}");
                         }
-                    });
-                    // Also bring ReDD Block forward so the in-app banner
-                    // (with its own Re-enable button + countdown) is
-                    // right there once the user deals with the browser.
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
                     }
                 }
             }
-            Err(e) => log::warn!("[enforcer] osascript alert spawn failed ({label}): {e}"),
-        }
-    });
-}
-
-/// Fire a terminal notification after we've actually quit the browser, so
-/// the user sees a clear explanation rather than just "why did Chrome
-/// just close?". `quit_ok=false` means `taskkill` / `osascript` returned
-/// non-zero — we still notify, but with honest copy.
-fn notify_user_of_quit(
-    app: &AppHandle,
-    label: &str,
-    app_name: &str,
-    quit_ok: bool,
-    reason: &str,
-) {
-    let title = if quit_ok {
-        format!("ReDD Block closed {app_name}")
-    } else {
-        format!("ReDD Block couldn't close {app_name}")
-    };
-    let body = if quit_ok {
-        format!(
-            "ReDD Focus was {reason}, so {app_name} was closed to keep your block active. \
-             Re-enable the extension and reopen the browser."
-        )
-    } else {
-        format!(
-            "ReDD Focus was {reason} and we tried to close {app_name} but failed. \
-             Please quit it manually and re-enable the extension."
-        )
-    };
-    log::info!("[enforcer] notifying user of quit ({label}): {title}");
-    send_system_notification(app, &title, &body, label);
-}
-
-/// Send a system notification via the Tauri plugin, and on macOS *also*
-/// fire an `osascript`-backed notification as a fallback. Why the
-/// fallback? The plugin uses `notify-rust`, which on macOS dev builds
-/// posts notifications under `com.apple.Terminal` — meaning the user's
-/// Terminal.app needs to be granted notification permission in System
-/// Settings, otherwise the banner is dropped silently (the plugin
-/// swallows the error inside a spawned task). `osascript` uses the
-/// Script Editor identity which is typically permitted, and in any case
-/// firing both is cheap and one of them almost always lands.
-///
-/// In release / installed builds the plugin posts under the real bundle
-/// identifier and macOS prompts on first use; the fallback is still
-/// harmless and handles edge cases where the user has explicitly denied
-/// notifications for ReDD Block.
-fn send_system_notification(app: &AppHandle, title: &str, body: &str, label: &str) {
-    match app.notification().builder().title(title).body(body).show() {
-        Ok(()) => log::info!("[enforcer] plugin notification dispatched ({label})"),
-        Err(e) => log::warn!("[enforcer] plugin notification failed ({label}): {e}"),
-    }
-
-    #[cfg(target_os = "macos")]
-    osascript_notification_fallback(title, body, label);
-}
-
-/// Shell out to `osascript display notification` as a best-effort
-/// fallback on macOS. Uses a subprocess so a hang in AppleScript can't
-/// wedge the enforcer thread (we don't wait for stdout). Strings are
-/// embedded using the AppleScript-safe escape of backslash + double
-/// quote.
-#[cfg(target_os = "macos")]
-fn osascript_notification_fallback(title: &str, body: &str, label: &str) {
-    fn escape_applescript(s: &str) -> String {
-        s.replace('\\', "\\\\").replace('"', "\\\"")
-    }
-    let script = format!(
-        "display notification \"{body}\" with title \"{title}\"",
-        body = escape_applescript(body),
-        title = escape_applescript(title),
-    );
-    match std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .spawn()
-    {
-        Ok(_) => log::info!("[enforcer] osascript notification dispatched ({label})"),
-        Err(e) => log::warn!("[enforcer] osascript notification spawn failed ({label}): {e}"),
-    }
-}
-
-fn browser_passes_check(status: Option<&BrowserStatus>) -> bool {
-    let status = match status {
-        Some(s) => s,
-        None => return false,
-    };
-    if !status.browser_installed {
-        // Browser isn't installed at all — nothing to enforce; treat as pass
-        // so we never nag about a browser the user doesn't even use.
-        return true;
-    }
-    if !status.manifest_installed {
-        return false;
-    }
-    let profile = match status
-        .profiles
-        .iter()
-        .find(|p| p.is_default)
-        .or_else(|| status.profiles.first())
-    {
-        Some(p) => p,
-        None => return false,
-    };
-    profile_passes(profile)
-}
-
-fn profile_passes(p: &ProfileStatus) -> bool {
-    if !p.installed || !p.enabled {
-        return false;
-    }
-    // Private browsing is optional (Chrome: incognito, Firefox:
-    // privateBrowsingAllowed). If we don't know (None), err on the side of
-    // nagging — user almost certainly needs it for real protection.
-    matches!(p.private_browsing, Some(true))
-}
-
-fn browser_failure_reason(status: Option<&BrowserStatus>) -> String {
-    let status = match status {
-        Some(s) => s,
-        None => return "browser status unknown".into(),
-    };
-    if !status.manifest_installed {
-        return "native-messaging manifest missing".into();
-    }
-    let profile = status.profiles.iter().find(|p| p.is_default).or_else(|| status.profiles.first());
-    let profile = match profile {
-        Some(p) => p,
-        None => return "no profile found".into(),
-    };
-    if !profile.installed {
-        return "extension not installed".into();
-    }
-    if !profile.enabled {
-        return "extension disabled".into();
-    }
-    if profile.private_browsing != Some(true) {
-        return "extension not allowed in private browsing".into();
-    }
-    "unknown reason".into()
-}
-
-// ---------- Heartbeat probe -----------------------------------------------
-
-/// Result of inspecting the per-browser heartbeat stamp file that the
-/// native-host subprocess refreshes each second.
-#[derive(Debug, Clone, Copy)]
-enum HeartbeatStatus {
-    /// File exists and was updated within `HEARTBEAT_STALE_AFTER`.
-    Fresh(Duration),
-    /// File exists but hasn't been updated within `HEARTBEAT_STALE_AFTER`.
-    /// The native host has died (user disabled the extension, the
-    /// extension crashed, or Chrome killed the port).
-    Stale(Duration),
-    /// File doesn't exist yet. Typical for a fresh install / first run
-    /// before the browser has ever spawned our native host. Treated as
-    /// "no signal" rather than failure.
-    Missing,
-}
-
-fn heartbeat_status(label: &str) -> HeartbeatStatus {
-    let path = match heartbeat_file(label) {
-        Some(p) => p,
-        None => return HeartbeatStatus::Missing,
-    };
-    let meta = match std::fs::metadata(&path) {
-        Ok(m) => m,
-        Err(_) => return HeartbeatStatus::Missing,
-    };
-    // Prefer `modified()` over reading the file body: mtime is what
-    // `std::fs::write` updates, it's a single stat() call, and we don't
-    // have to parse the payload.
-    let mtime = match meta.modified() {
-        Ok(t) => t,
-        Err(_) => return HeartbeatStatus::Missing,
-    };
-    let age = SystemTime::now()
-        .duration_since(mtime)
-        .unwrap_or(Duration::ZERO);
-    if age <= HEARTBEAT_STALE_AFTER {
-        HeartbeatStatus::Fresh(age)
-    } else {
-        HeartbeatStatus::Stale(age)
-    }
-}
-
-// ---------- Process detection / quit --------------------------------------
-
-#[cfg(target_os = "windows")]
-fn is_browser_running(meta: &BrowserMeta) -> bool {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-
-    unsafe {
-        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
-            Ok(h) => h,
-            Err(_) => return false,
-        };
-        if snapshot.is_invalid() {
-            return false;
-        }
-        let mut entry = PROCESSENTRY32W {
-            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-            ..Default::default()
-        };
-        let mut found = false;
-        if Process32FirstW(snapshot, &mut entry).is_ok() {
-            loop {
-                let end = entry
-                    .szExeFile
-                    .iter()
-                    .position(|&c| c == 0)
-                    .unwrap_or(entry.szExeFile.len());
-                let name = String::from_utf16_lossy(&entry.szExeFile[..end]);
-                for p in meta.proc_names {
-                    if name.eq_ignore_ascii_case(p) {
-                        found = true;
-                        break;
-                    }
-                }
-                if found || Process32NextW(snapshot, &mut entry).is_err() {
-                    break;
-                }
+            Err(e) => {
+                // Don't spam the log — helper might just not be running
+                // (dev mode without the LaunchDaemon installed). Log
+                // every poll at debug; promote to info on intermittent
+                // connect errors.
+                log::debug!("[enforcer-poll] helper unavailable: {e}");
             }
         }
-        let _ = CloseHandle(snapshot);
-        found
+        thread::sleep(POLL_INTERVAL);
     }
+    log::info!("[enforcer-poll] loop exited");
+}
+
+// ---------- IPC -----------------------------------------------------------
+
+#[derive(Serialize)]
+struct HelperRequest<'a> {
+    action: &'a str,
+    #[serde(rename = "since_cursor")]
+    since_cursor: u64,
+}
+
+#[derive(Deserialize, Default)]
+struct HelperReply {
+    #[serde(default)]
+    #[allow(dead_code)]
+    success: bool,
+    #[serde(default)]
+    events: Option<Vec<EnforcementEvent>>,
+    #[serde(default, rename = "nextCursor")]
+    next_cursor: Option<u64>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    enforcement: Option<serde_json::Value>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    error: Option<String>,
+}
+
+fn get_enforcement_state(since_cursor: u64) -> Result<HelperReply, String> {
+    let req = HelperRequest {
+        action: "get-enforcement-state",
+        since_cursor,
+    };
+    let json = serde_json::to_string(&req).map_err(|e| e.to_string())?;
+    let line = send_line(&json)?;
+    serde_json::from_str::<HelperReply>(&line).map_err(|e| e.to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn is_browser_running(meta: &BrowserMeta) -> bool {
-    use std::process::Command;
-    for proc_name in meta.proc_names {
-        let out = Command::new("/usr/bin/pgrep").arg("-x").arg(proc_name).output();
-        if let Ok(output) = out {
-            if output.status.success() && !output.stdout.is_empty() {
-                return true;
-            }
-        }
-    }
-    false
+fn send_line(line: &str) -> Result<String, String> {
+    let mut stream = UnixStream::connect(HELPER_SOCKET_PATH)
+        .map_err(|e| format!("connect: {e}"))?;
+    stream
+        .set_read_timeout(Some(IO_TIMEOUT))
+        .map_err(|e| e.to_string())?;
+    stream
+        .set_write_timeout(Some(IO_TIMEOUT))
+        .map_err(|e| e.to_string())?;
+    writeln!(stream, "{line}").map_err(|e| format!("write: {e}"))?;
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader
+        .read_line(&mut response)
+        .map_err(|e| format!("read: {e}"))?;
+    Ok(response)
 }
 
 #[cfg(target_os = "windows")]
-fn quit_browser(meta: &BrowserMeta) -> bool {
-    use std::process::Command;
-    let mut ok = false;
-    for proc in meta.proc_names {
-        // Try a graceful close first (/T closes the full process tree, no /F
-        // so we give the browser a chance to save state), then escalate to
-        // /F if the process is still alive on the next tick.
-        let result = Command::new("taskkill")
-            .args(["/IM", proc, "/T"])
-            .output();
-        if let Ok(output) = result {
-            if output.status.success() {
-                ok = true;
-            }
-        }
-    }
-    ok
-}
-
-#[cfg(target_os = "macos")]
-fn quit_browser(meta: &BrowserMeta) -> bool {
-    use std::process::Command;
-    let script = format!(
-        r#"tell application "{}" to quit"#,
-        meta.app_name.replace("\"", "\\\"")
-    );
-    Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn quit_browser(_meta: &BrowserMeta) -> bool {
-    false
+fn send_line(line: &str) -> Result<String, String> {
+    let addr: SocketAddr = HELPER_TCP_ADDR
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    let mut stream = TcpStream::connect_timeout(&addr, IO_TIMEOUT)
+        .map_err(|e| format!("connect: {e}"))?;
+    stream
+        .set_read_timeout(Some(IO_TIMEOUT))
+        .map_err(|e| e.to_string())?;
+    stream
+        .set_write_timeout(Some(IO_TIMEOUT))
+        .map_err(|e| e.to_string())?;
+    writeln!(stream, "{line}").map_err(|e| format!("write: {e}"))?;
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader
+        .read_line(&mut response)
+        .map_err(|e| format!("read: {e}"))?;
+    Ok(response)
 }

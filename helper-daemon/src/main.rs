@@ -7,6 +7,14 @@
 // Hide the console window on Windows
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+// Sibling modules used by the website-blocking enforcement loop. Pulled
+// in as separate modules so `enforcer.rs` can stay focused on its state
+// machine while all platform-specific GUI / process wrangling lives in
+// `alert.rs` and `process.rs`.
+mod alert;
+mod enforcer;
+mod process;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -163,6 +171,16 @@ enum IpcCommand {
     GetVersion,
     #[serde(rename = "uninstall")]
     Uninstall,
+    /// Pull the latest enforcement snapshot + any new events since the
+    /// Tauri app last polled. The Tauri app drains `events` and re-emits
+    /// them to the frontend as `extension-enforcement` events, then
+    /// passes `next_cursor` back on the next call so the helper knows
+    /// what's already been consumed.
+    #[serde(rename = "get-enforcement-state")]
+    GetEnforcementState {
+        #[serde(default)]
+        since_cursor: u64,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -190,6 +208,20 @@ struct IpcResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "blockedApps")]
     blocked_apps: Option<Vec<String>>,
+    /// Current per-browser enforcement snapshot (active/idle +
+    /// per-browser failing/passing rows). `None` unless this response
+    /// is replying to a `get-enforcement-state` request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enforcement: Option<redd_block_core::enforcement::EnforcementSnapshot>,
+    /// New enforcement events since the caller's `since_cursor`.
+    /// Empty if nothing changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    events: Option<Vec<redd_block_core::enforcement::EnforcementEvent>>,
+    /// Cursor the caller should pass on the next
+    /// `get-enforcement-state` poll.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "nextCursor")]
+    next_cursor: Option<u64>,
 }
 
 fn log(message: &str) {
@@ -1679,6 +1711,7 @@ fn handle_command(
     app_state: &Arc<Mutex<Vec<String>>>,
     schedule_state: &Arc<Mutex<Vec<HelperSchedule>>>,
     app_watcher_handle: &Arc<Mutex<Option<AppWatcherHandle>>>,
+    enforcement_state: &Arc<enforcer::SharedState>,
     cmd: IpcCommand,
 ) -> IpcResponse {
     match cmd {
@@ -1805,6 +1838,17 @@ fn handle_command(
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             ..Default::default()
         },
+        IpcCommand::GetEnforcementState { since_cursor } => {
+            let snapshot = enforcement_state.snapshot();
+            let (events, next_cursor) = enforcement_state.events_since(since_cursor);
+            IpcResponse {
+                success: true,
+                enforcement: Some(snapshot),
+                events: Some(events),
+                next_cursor: Some(next_cursor),
+                ..Default::default()
+            }
+        }
         IpcCommand::Uninstall => {
             log("Received uninstall command - cleaning up...");
             stop_app_watcher(app_watcher_handle);
@@ -1847,6 +1891,9 @@ impl Default for IpcResponse {
             remaining_ms: None,
             version: None,
             blocked_apps: None,
+            enforcement: None,
+            events: None,
+            next_cursor: None,
         }
     }
 }
@@ -2048,21 +2095,34 @@ fn handle_client(
     app_state: Arc<Mutex<Vec<String>>>,
     schedule_state: Arc<Mutex<Vec<HelperSchedule>>>,
     app_watcher_handle: Arc<Mutex<Option<AppWatcherHandle>>>,
+    enforcement_state: Arc<enforcer::SharedState>,
     stream: UnixStream,
 ) {
     let reader = BufReader::new(stream.try_clone().unwrap());
     let mut writer = stream;
-    
+
     for line in reader.lines() {
         if let Ok(line) = line {
             if line.trim().is_empty() {
                 continue;
             }
-            
+
             let response = match serde_json::from_str::<IpcCommand>(&line) {
                 Ok(cmd) => {
-                    log(&format!("Received command: {:?}", cmd));
-                    handle_command(&state, &app_state, &schedule_state, &app_watcher_handle, cmd)
+                    // Don't log high-frequency polls — the Tauri app
+                    // calls `get-enforcement-state` every ~500 ms which
+                    // would bury real events in the log.
+                    if !matches!(cmd, IpcCommand::GetEnforcementState { .. }) {
+                        log(&format!("Received command: {:?}", cmd));
+                    }
+                    handle_command(
+                        &state,
+                        &app_state,
+                        &schedule_state,
+                        &app_watcher_handle,
+                        &enforcement_state,
+                        cmd,
+                    )
                 }
                 Err(e) => IpcResponse {
                     success: false,
@@ -2070,7 +2130,7 @@ fn handle_client(
                     ..Default::default()
                 },
             };
-            
+
             if let Ok(json) = serde_json::to_string(&response) {
                 let _ = writeln!(writer, "{}", json);
             }
@@ -2084,21 +2144,31 @@ fn handle_client(
     app_state: Arc<Mutex<Vec<String>>>,
     schedule_state: Arc<Mutex<Vec<HelperSchedule>>>,
     app_watcher_handle: Arc<Mutex<Option<AppWatcherHandle>>>,
+    enforcement_state: Arc<enforcer::SharedState>,
     stream: TcpStream,
 ) {
     let reader = BufReader::new(stream.try_clone().unwrap());
     let mut writer = stream;
-    
+
     for line in reader.lines() {
         if let Ok(line) = line {
             if line.trim().is_empty() {
                 continue;
             }
-            
+
             let response = match serde_json::from_str::<IpcCommand>(&line) {
                 Ok(cmd) => {
-                    log(&format!("Received command: {:?}", cmd));
-                    handle_command(&state, &app_state, &schedule_state, &app_watcher_handle, cmd)
+                    if !matches!(cmd, IpcCommand::GetEnforcementState { .. }) {
+                        log(&format!("Received command: {:?}", cmd));
+                    }
+                    handle_command(
+                        &state,
+                        &app_state,
+                        &schedule_state,
+                        &app_watcher_handle,
+                        &enforcement_state,
+                        cmd,
+                    )
                 }
                 Err(e) => IpcResponse {
                     success: false,
@@ -2106,7 +2176,7 @@ fn handle_client(
                     ..Default::default()
                 },
             };
-            
+
             if let Ok(json) = serde_json::to_string(&response) {
                 let _ = writeln!(writer, "{}", json);
             }
@@ -2317,7 +2387,15 @@ fn main() {
     let app_state_clone = Arc::clone(&app_state);
     let schedule_state_clone = Arc::clone(&schedule_state);
     thread::spawn(move || app_existence_checker(state_clone, app_state_clone, schedule_state_clone));
-    
+
+    // Website-blocking enforcement loop. This is the loop that used to
+    // live in the Tauri app's `commands/enforcer.rs`. It now runs here
+    // so the enforcement keeps going even if the ReDD Block window is
+    // closed / the main app is quit.
+    let enforcement_state = enforcer::SharedState::new();
+    enforcer::spawn(Arc::clone(&enforcement_state));
+    log("Website-blocking enforcement loop started");
+
     // Start IPC server
     #[cfg(not(target_os = "windows"))]
     {
@@ -2338,11 +2416,21 @@ fn main() {
                 let app_state_clone = Arc::clone(&app_state);
                 let schedule_state_clone = Arc::clone(&schedule_state);
                 let watcher_clone = Arc::clone(&app_watcher_handle);
-                thread::spawn(move || handle_client(state_clone, app_state_clone, schedule_state_clone, watcher_clone, stream));
+                let enforcement_clone = Arc::clone(&enforcement_state);
+                thread::spawn(move || {
+                    handle_client(
+                        state_clone,
+                        app_state_clone,
+                        schedule_state_clone,
+                        watcher_clone,
+                        enforcement_clone,
+                        stream,
+                    )
+                });
             }
         }
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         // Load auth token for TCP IPC authentication
@@ -2382,7 +2470,17 @@ fn main() {
                 let app_state_clone = Arc::clone(&app_state);
                 let schedule_state_clone = Arc::clone(&schedule_state);
                 let watcher_clone = Arc::clone(&app_watcher_handle);
-                thread::spawn(move || handle_client(state_clone, app_state_clone, schedule_state_clone, watcher_clone, stream));
+                let enforcement_clone = Arc::clone(&enforcement_state);
+                thread::spawn(move || {
+                    handle_client(
+                        state_clone,
+                        app_state_clone,
+                        schedule_state_clone,
+                        watcher_clone,
+                        enforcement_clone,
+                        stream,
+                    )
+                });
             }
         }
     }

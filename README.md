@@ -7,8 +7,8 @@ Built by computer scientists at the University of Oxford (Dr Ulrik Lyngs) and th
 ## Features
 
 - **Cross-Platform** — Works on macOS, Windows, iOS (iPad/iPhone), and Android (source code for the Android version is here: https://github.com/kasnder/redd-block-android)
-- **Website Blocking** — System-level blocking works across all browsers (hosts file on desktop, Screen Time on iOS)
-- **App Blocking** — Automatically blocks distracting apps (minimizes/hides on desktop, Screen Time shield overlay on iOS)
+- **Website Blocking** — Browser extension + native-messaging host on desktop (Windows/macOS), Screen Time on iOS. Works in Chrome, Brave, Edge, and Firefox. On Windows the extension is silently force-installed and locked via user-scope browser policies; on macOS ReDD Block prompts the user to install the extension and the enforcement loop keeps it enabled.
+- **App Blocking** — Automatically blocks distracting apps (minimizes/hides on desktop via the privileged helper daemon, Screen Time shield overlay on iOS)
 - **Flexible Blocklists** — Create multiple lists with custom names, colors, and emojis
 - **One-Off Blocks** — Quick blocks for immediate focus sessions
 - **Scheduled Blocks** — Set recurring blocks on specific days/times (e.g., block social media Mon-Fri 9am-5pm)
@@ -21,6 +21,8 @@ Built by computer scientists at the University of Oxford (Dr Ulrik Lyngs) and th
 
 ### Desktop (macOS / Windows)
 
+Website blocking runs through the browser extension ([reddfocus-open-source](https://github.com/ulyngs/reddfocus-open-source)) using [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging). The Tauri binary itself acts as the native host when launched with `--native-host` — no separate helper process for websites. App blocking still uses the privileged helper daemon.
+
 ```mermaid
 flowchart TB
     subgraph Frontend["Frontend (HTML/JS/CSS)"]
@@ -29,26 +31,45 @@ flowchart TB
 
     subgraph Tauri["Tauri Backend (Rust)"]
         IPC[IPC Commands]
-        Data[Data Store]
+        Data["Data Store<br/>redd-block-data.json"]
+        NativeHost["Native Messaging Host<br/>(same binary, --native-host)"]
+        Enforcer["Extension Enforcer<br/>(background thread)"]
+    end
+
+    subgraph Browser["Browser + ReDD Focus Extension"]
+        ExtBG[background.js]
     end
 
     subgraph Helper["Helper Daemon (Privileged)"]
-        HostsMgr[Hosts Manager]
         AppWatcher[App Watcher]
-        State[Persisted State]
+        State[Persisted App State]
     end
 
     subgraph System["System Resources"]
-        Hosts["/etc/hosts"]
         Apps[Running Apps]
+        Profiles[Browser Profiles]
     end
 
     UI <-->|invoke/listen| IPC
-    IPC <-->|TCP localhost| Helper
+    IPC <-->|Unix socket (mac) / TCP (win)| Helper
     IPC --> Data
-    HostsMgr -->|read/write| Hosts
+    Browser -->|launches on connect| NativeHost
+    NativeHost -->|reads + watches| Data
+    NativeHost -->|pushes blocklist| ExtBG
+    ExtBG -->|redirects tabs to blocked.html| Browser
     AppWatcher -->|hide/minimize| Apps
+    Enforcer -->|scans| Profiles
+    Enforcer -.->|quit if extension disabled| Browser
 ```
+
+Key flows:
+
+- **Install time:** the Tauri app writes native-messaging manifests into each supported browser's user-scope location (JSON files on macOS, HKCU registry keys on Windows) and drops a small launcher shim that execs the Tauri binary with `--native-host`.
+- **Install time (Windows only):** ReDD Block additionally writes `ExtensionInstallForcelist` / `ExtensionSettings` policy entries under `HKCU\Software\Policies\...`. Chrome, Brave, Edge, and Firefox honor those policies at startup: they silently fetch the ReDD Focus extension from the Web Store / AMO and lock it in place, so Windows users don't have to install the extension themselves and can't disable or remove it from the browser UI. Firefox additionally auto-grants private-window access via the same policy blob; on Chromium browsers "Allow in Incognito" is still a user toggle (the enforcement loop nags until it's on). No admin is required — everything is per-user HKCU. On macOS the equivalent path (managed preferences) needs `sudo`, so macOS users install the extension manually and the enforcement loop nags them to keep it enabled.
+- **Every time a tab changes:** the extension compares the new URL against a blocklist pushed from the native host.
+- **Blocklist updates:** the native host watches `redd-block-data.json` (+ 30 s poll for schedule edges), derives active domains, and pushes them to the extension over stdio.
+- **Enforcement loop:** a background thread checks the extension's state across browsers; if the user disables it while blocks are active (or never enabled "Allow in Incognito" — which no policy can auto-grant on Chromium), ReDD Block nags and then quits the browser after a 30-second grace period.
+- **Uninstall:** the reverse — manifests are removed, force-install policy entries are deleted, and ReDD Focus becomes removable through the regular browser UI again.
 
 ### iOS (iPad / iPhone)
 

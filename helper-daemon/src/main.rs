@@ -533,6 +533,11 @@ fn remove_block_from_hosts(content: &str) -> String {
     result
 }
 
+/// Kept around for potential rollback if extension-based blocking needs to be
+/// supplemented with hosts-file entries (e.g. a future Safari Technology
+/// Preview quirk). Currently unused because website blocking lives in the
+/// browser extension.
+#[allow(dead_code)]
 fn add_block_to_hosts(content: &str, domains: &[String]) -> String {
     let mut clean = remove_block_from_hosts(content);
     
@@ -784,63 +789,36 @@ fn chrono_now() -> LocalTimeInfo {
     LocalTimeInfo { hour, minute, weekday_mon0 }
 }
 
-/// Sync hosts file: writes the union of all non-expired manual block domains + active schedule domains
+/// Website blocking is now handled by the browser extension + native
+/// messaging host, not by the helper daemon. This function remains as a
+/// migration hook: any ReDD Block markers left in `/etc/hosts` (or the
+/// Windows equivalent) from older versions are scrubbed on the first call,
+/// but the daemon never writes new entries.
+///
+/// The `state` / `schedule_state` params are still accepted so every call
+/// site can keep its existing signature; domain data is ignored.
 fn sync_hosts_file(
-    state: &Arc<Mutex<Vec<BlockState>>>,
-    schedule_state: &Arc<Mutex<Vec<HelperSchedule>>>,
+    _state: &Arc<Mutex<Vec<BlockState>>>,
+    _schedule_state: &Arc<Mutex<Vec<HelperSchedule>>>,
 ) {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-    let mut seen = HashSet::new();
-    let mut all_domains: Vec<String> = Vec::new();
-    {
-        let blocks = state.lock().unwrap();
-        for block in blocks.iter().filter(|b| b.end_time > now) {
-            for d in &block.domains {
-                if seen.insert(d.clone()) {
-                    all_domains.push(d.clone());
-                }
-            }
-        }
-    }
-    // Add domains from active schedule segments
-    let schedules = schedule_state.lock().unwrap().clone();
-    let schedule_domains = get_active_schedule_domains(&schedules);
-    for d in schedule_domains {
-        if seen.insert(d.clone()) {
-            all_domains.push(d);
-        }
-    }
-    
+    cleanup_legacy_hosts_markers();
+}
+
+/// One-shot migration: strip any leftover `# === BEGIN REDD BLOCK ...` region
+/// (and the very old `# ReDD Block Start/End` markers) from the system hosts
+/// file. Never panics on I/O failure; not having write permission is the
+/// normal case when the helper daemon is not running.
+fn cleanup_legacy_hosts_markers() {
     let content = read_hosts_file();
-    
-    if all_domains.is_empty() {
-        // Remove block from hosts
-        let clean = remove_block_from_hosts(&content);
-        if clean != content {
-            if write_hosts_file(&clean) {
-                flush_dns_cache();
-                log("Hosts file cleared (no active domains)");
-            } else {
-                log("Failed to clear hosts file (no active domains) - skipping DNS flush");
-            }
-        }
+    let clean = remove_block_from_hosts(&content);
+    if clean == content {
+        return;
+    }
+    if write_hosts_file(&clean) {
+        flush_dns_cache();
+        log("Removed legacy ReDD Block hosts entries (migration to extension-based blocking)");
     } else {
-        // Write merged domains to hosts
-        let new_content = add_block_to_hosts(&content, &all_domains);
-        if new_content != content {
-            if write_hosts_file(&new_content) {
-                flush_dns_cache();
-                log(&format!("Hosts file updated: {} domains", all_domains.len()));
-            } else {
-                log(&format!(
-                    "Failed to update hosts file for {} domains - skipping DNS flush",
-                    all_domains.len()
-                ));
-            }
-        }
+        log("Legacy ReDD Block markers still in hosts file but write failed; will retry later");
     }
 }
 
@@ -971,7 +949,10 @@ fn is_protected_app(name: &str) -> bool {
 }
 
 /// Check if a domain is protected (localhost, loopback, reserved).
-/// These must never be added to the hosts file block list.
+/// These must never be added to the hosts file block list. Currently unused
+/// because the helper daemon no longer writes the hosts file; retained for
+/// future fallback paths.
+#[allow(dead_code)]
 fn is_protected_domain(domain: &str) -> bool {
     let lower = domain.trim().to_lowercase();
     matches!(lower.as_str(),
@@ -2287,6 +2268,12 @@ fn main() {
         }
     }
     
+    // Migration path for users upgrading from the hosts-file era: strip any
+    // `# === BEGIN REDD BLOCK ===` region we may have left behind so web
+    // traffic is never silently blackholed by leftover entries. Website
+    // blocking now lives in the browser extension + native messaging host.
+    cleanup_legacy_hosts_markers();
+
     // Load persisted state
     let (initial_block, initial_apps, initial_schedules) = load_state();
     let state = Arc::new(Mutex::new(initial_block));

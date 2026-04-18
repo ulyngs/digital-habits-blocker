@@ -43,6 +43,25 @@ const tauriAPI = {
     openAppPicker: () => invoke('open_app_picker'),
     blockWebsites: (domains) => invoke('block_websites', { domains }),
 
+    // Browser-extension native-messaging bridge (website blocking on desktop).
+    // Installed in the background at startup; the actual blocklist is pushed
+    // by the native host whenever redd-block-data.json changes — no command
+    // needs to be invoked here per-block.
+    installBrowserExtensionManifests: () => invoke('install_browser_extension_manifests'),
+    uninstallBrowserExtensionManifests: () => invoke('uninstall_browser_extension_manifests'),
+    installBrowserExtensionForceInstallPolicies: () =>
+        invoke('install_browser_extension_force_install_policies'),
+    uninstallBrowserExtensionForceInstallPolicies: () =>
+        invoke('uninstall_browser_extension_force_install_policies'),
+    checkExtensionStatus: () => invoke('check_extension_status'),
+    getNativeHostBlocklistPreview: () => invoke('get_native_host_blocklist_preview'),
+    startExtensionEnforcement: () => invoke('start_extension_enforcement'),
+    stopExtensionEnforcement: () => invoke('stop_extension_enforcement'),
+    isExtensionEnforcementRunning: () => invoke('is_extension_enforcement_running'),
+    onExtensionEnforcement: (callback) => listen('extension-enforcement', callback),
+    openBrowserExtensionsPage: (browser) => invoke('open_browser_extensions_page', { browser }),
+    focusMainWindow: () => invoke('focus_main_window'),
+
     // App blocking via helper daemon (persistent, survives app close)
     setBlockedAppsViaHelper: (apps) => invoke('set_blocked_apps_via_helper', { apps }),
 
@@ -943,6 +962,21 @@ async function runPostAcceptanceStartup() {
             await syncActiveBlocksToHelper();
             // Then sync schedules to helper so both enforcement sources are aligned.
             await syncSchedulesToHelper();
+            // Idempotent: drop browser native-messaging manifests into the user
+            // scope for each supported browser. Doing this every startup is cheap
+            // (a few filesystem writes / one HKCU key per browser) and keeps the
+            // bridge healthy if the user switches browsers or reinstalls one.
+            ensureBrowserExtensionManifests();
+            // Background enforcement loop: periodically checks each running
+            // browser and nags the user if the extension is missing / disabled
+            // while blocks are active. See commands/enforcer.rs for the
+            // state machine; UI hook is `onExtensionEnforcement` below.
+            setupExtensionEnforcementListener();
+            try {
+                await tauriAPI.startExtensionEnforcement();
+            } catch (e) {
+                console.warn('[startup-sync] enforcer start failed:', e);
+            }
             console.log('[startup-sync] Startup helper reconciliation complete');
         }
         render();
@@ -997,6 +1031,188 @@ async function checkForAppUpdate() {
     } catch (e) {
         // Silently fail if offline
         console.log('[Update] Could not check for updates:', e.message);
+    }
+}
+
+// Wire the enforcement event stream into the UI. Each event carries a
+// `browser`, `kind`, optional `remainingMs`, and a `reason`. The Rust side
+// emits this whenever it escalates state; we turn it into in-app toasts +
+// (optionally) native notifications. Idempotent — safe to call twice.
+let extensionEnforcementListenerAttached = false;
+function setupExtensionEnforcementListener() {
+    if (extensionEnforcementListenerAttached) return;
+    extensionEnforcementListenerAttached = true;
+    tauriAPI.onExtensionEnforcement((event) => {
+        const payload = event?.payload || {};
+        console.log('[enforcer-ui]', payload);
+        renderEnforcementBanner(payload);
+    }).catch((e) => {
+        console.warn('[enforcer-ui] failed to attach listener:', e);
+        extensionEnforcementListenerAttached = false;
+    });
+}
+
+// Persistent top-of-window banner. The previous bottom-right toast auto-
+// hid after 6 s which made it easy to miss; worse, it lived *inside* the
+// ReDD Block window, so a user who had Chrome in the foreground (exactly
+// the situation we care about) would never see it. The replacement has
+// two halves:
+//
+//   1. A system notification fired by the Rust side on state transitions
+//      (see `notify_user_of_failure` / `notify_user_of_quit` in
+//      commands/enforcer.rs). That's the "even if the window is hidden"
+//      channel.
+//   2. This in-app banner, which stays visible for the *whole* failing
+//      period and carries a single-click "Re-enable ReDD Focus in
+//      <browser>" button that shells out to the right browser via a
+//      Tauri command, so the user lands directly on the relevant toggle.
+//
+// The banner is injected on-demand (no markup in index.html) and nukes
+// itself on `cancelled`. Terminal events (`quit_attempted` /
+// `quit_failed`) keep the banner visible but switch the CTA from
+// "re-enable before we close the browser" to "the browser was closed;
+// re-enable and reopen it".
+function renderEnforcementBanner(payload) {
+    if (!payload || !payload.browser) return;
+    const id = 'extension-enforcement-banner';
+    let banner = document.getElementById(id);
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = id;
+        // High z-index so it sits above modals, but not above the window
+        // drag region; offset by the titlebar height so it doesn't fight
+        // with the transparent-title-bar chrome on macOS.
+        banner.style.cssText = [
+            'position:fixed',
+            'top:0',
+            'left:0',
+            'right:0',
+            'z-index:10000',
+            'padding:14px 20px',
+            'background:linear-gradient(135deg,#dc2626,#b91c1c)',
+            'color:#fff',
+            'font:14px/1.4 -apple-system,"Segoe UI",sans-serif',
+            'box-shadow:0 4px 16px rgba(0,0,0,0.25)',
+            'display:none',
+            'align-items:center',
+            'justify-content:space-between',
+            'gap:16px',
+            'flex-wrap:wrap',
+        ].join(';');
+        document.body.appendChild(banner);
+    }
+
+    if (payload.kind === 'cancelled') {
+        clearTimeout(banner.__hideTimer);
+        banner.style.display = 'none';
+        return;
+    }
+
+    const seconds = Math.max(0, Math.ceil((payload.remainingMs || 0) / 1000));
+    const browser = payload.browser;
+    const reason = payload.reason || 'extension check failed';
+
+    let title, subtitle, ctaLabel;
+    if (payload.kind === 'quit_attempted') {
+        title = `${browser} was closed`;
+        subtitle = `ReDD Focus was ${reason}. Re-enable it and reopen ${browser} to resume browsing.`;
+        ctaLabel = `Re-enable ReDD Focus in ${browser}`;
+    } else if (payload.kind === 'quit_failed') {
+        title = `${browser} couldn't be closed`;
+        subtitle = `ReDD Focus was ${reason} and we couldn't close ${browser}. Please quit it manually and re-enable the extension.`;
+        ctaLabel = `Re-enable ReDD Focus in ${browser}`;
+    } else {
+        // Ongoing nag.
+        title = `${browser} will close in ${seconds}s`;
+        subtitle = `ReDD Focus is ${reason}. Re-enable it to stay in ${browser}.`;
+        ctaLabel = `Re-enable ReDD Focus in ${browser}`;
+    }
+
+    banner.innerHTML = `
+        <div style="flex:1 1 auto;min-width:280px">
+            <div style="font-weight:700;font-size:15px">${escapeHtml(title)}</div>
+            <div style="opacity:.92;margin-top:4px">${escapeHtml(subtitle)}</div>
+        </div>
+        <button type="button"
+                id="${id}-cta"
+                style="flex:0 0 auto;
+                       padding:10px 18px;
+                       border:0;
+                       border-radius:8px;
+                       background:#fff;
+                       color:#b91c1c;
+                       font-weight:700;
+                       font-size:13px;
+                       cursor:pointer;
+                       box-shadow:0 2px 6px rgba(0,0,0,0.15);">
+            ${escapeHtml(ctaLabel)}
+        </button>
+    `;
+    banner.style.display = 'flex';
+
+    // Re-wire the CTA button each render because innerHTML nuked it.
+    const cta = document.getElementById(`${id}-cta`);
+    if (cta) {
+        cta.onclick = async () => {
+            cta.disabled = true;
+            cta.style.opacity = '.6';
+            try {
+                await tauriAPI.openBrowserExtensionsPage(browser);
+            } catch (e) {
+                console.warn('[enforcer-ui] openBrowserExtensionsPage failed:', e);
+            } finally {
+                // Re-enable after a short delay; if the user is coming
+                // back they may need to click again.
+                setTimeout(() => {
+                    cta.disabled = false;
+                    cta.style.opacity = '1';
+                }, 2500);
+            }
+        };
+    }
+
+    // Terminal events eventually fade so the UI doesn't get stuck with a
+    // red banner after the issue is settled. Ongoing nags stay pinned.
+    clearTimeout(banner.__hideTimer);
+    if (payload.kind === 'quit_attempted' || payload.kind === 'quit_failed') {
+        banner.__hideTimer = setTimeout(() => {
+            banner.style.display = 'none';
+        }, 30000);
+    }
+}
+
+// Ensure browser extension native-messaging manifests are installed so the
+// redd-block native host can talk to the extension. Safe to call repeatedly;
+// the Rust side is idempotent. Errors are logged but never surfaced to the
+// user here — the diagnostics panel exposes a manual "Fix" flow if needed.
+//
+// On Windows we additionally drop the `ExtensionInstallForcelist` /
+// `ExtensionSettings` policy entries under HKCU so the browser silently
+// fetches ReDD Focus from the Web Store / AMO and locks it in place. The
+// policy call is skipped on non-Windows (the Rust side returns a clean
+// "not supported" report that we log and ignore).
+async function ensureBrowserExtensionManifests() {
+    if (isIOS) return;
+    try {
+        const report = await tauriAPI.installBrowserExtensionManifests();
+        console.log('[extension-install] manifests result:', report);
+        if (!report || !report.success) {
+            console.warn('[extension-install] Some browsers failed:', report?.results);
+        }
+    } catch (e) {
+        console.warn('[extension-install] install call failed:', e);
+    }
+    try {
+        const policyReport = await tauriAPI.installBrowserExtensionForceInstallPolicies();
+        console.log('[extension-install] force-install result:', policyReport);
+        if (policyReport && policyReport.supported && !policyReport.success) {
+            console.warn(
+                '[extension-install] Some force-install policies failed:',
+                policyReport?.results,
+            );
+        }
+    } catch (e) {
+        console.warn('[extension-install] force-install call failed:', e);
     }
 }
 
@@ -4755,6 +4971,10 @@ function renderScheduledCalendarInterval(schedule, blockStart, blockEnd, blockli
     const fullStartTimeStr = formatTime(blockStart);
     const fullEndTimeStr = formatTime(blockEnd);
     let currentDay = new Date(startDay);
+    // Skip days whose visible slice of this occurrence has already ended.
+    // See the analogous check in renderScheduledCalendarBlocks for why we
+    // use end-of-slice rather than start-of-slice.
+    const nowTs = Date.now();
 
     while (currentDay <= endDay) {
         const dateStr = localDateKey(currentDay);
@@ -4765,6 +4985,15 @@ function renderScheduledCalendarInterval(schedule, blockStart, blockEnd, blockli
             dayStart.setHours(0, 0, 0, 0);
             const dayEnd = new Date(currentDay);
             dayEnd.setHours(23, 59, 59, 999);
+
+            // The slice for this day ends either at blockEnd (if the
+            // occurrence terminates today) or at midnight (if it spills
+            // into tomorrow).
+            const sliceEndTs = Math.min(blockEnd.getTime(), dayEnd.getTime());
+            if (sliceEndTs <= nowTs) {
+                currentDay.setDate(currentDay.getDate() + 1);
+                continue;
+            }
 
             const {
                 topPosition,
@@ -4821,6 +5050,13 @@ function renderPreviewBlock(blockStart, blockEnd, blocklist, skipClear = false, 
 
     // Render preview in each day it spans
     let currentDay = new Date(startDay);
+    // Drop per-day slices whose end has already passed. Matches the
+    // behavior in renderScheduledCalendarBlocks / renderScheduledCalendarInterval
+    // so the draft preview for a repeating schedule doesn't render as if
+    // the next occurrence is back on last Monday. Harmless for instant /
+    // always-on previews (blockStart is effectively now, so nothing is
+    // ever in the past).
+    const nowTs = Date.now();
 
     while (currentDay <= endDay) {
         const dateStr = localDateKey(currentDay);
@@ -4832,6 +5068,14 @@ function renderPreviewBlock(blockStart, blockEnd, blocklist, skipClear = false, 
             dayStart.setHours(0, 0, 0, 0);
             const dayEnd = new Date(currentDay);
             dayEnd.setHours(23, 59, 59, 999);
+
+            // Slice for this day ends at blockEnd (occurrence ends
+            // today) or at midnight (spills into tomorrow).
+            const sliceEndTs = Math.min(blockEnd.getTime(), dayEnd.getTime());
+            if (sliceEndTs <= nowTs) {
+                currentDay.setDate(currentDay.getDate() + 1);
+                continue;
+            }
 
             const {
                 topPosition,
@@ -6039,47 +6283,49 @@ async function updateHostsFile(silent = false) {
     }
 
     if (!domainsChanged) {
+        // App blocking still needs to be reconciled through the helper because
+        // blocklists can change their .apps field without the website set
+        // changing (e.g. a user adds an app to an already-active blocklist).
+        await updateBlockedApps();
         return { success: true, unchanged: true };
     }
 
-    // Try to use helper daemon first (works on all platforms)
+    // Desktop website blocking is now handled entirely by the browser
+    // extension + native messaging host: the native host watches
+    // `redd-block-data.json`, derives the active domains, and pushes them
+    // to the extension. We do **not** touch the hosts file from here any
+    // more (that was the pre-extension code path). The helper daemon is
+    // only used for *app* blocking (enforced by the daemon via watchers),
+    // so we keep the syncs below for that side of things.
     try {
-        console.log('[updateHostsFile] Checking helper status...');
         const status = await tauriAPI.checkHelperStatus();
-        console.log('[updateHostsFile] Helper status:', status);
-
         if (status.running && status.version_ok) {
-            console.log('[updateHostsFile] Helper running with correct version, using helper to update blocks');
             helperAvailable = true;
             await syncKeepBlockingPreferenceToHelper();
             await syncActiveBlocksToHelper();
             await syncSchedulesToHelper();
-            lastBlockedDomains = allDomains;
-            await updateBlockedApps();
-            return { success: true };
         } else {
-            console.log('[updateHostsFile] Helper NOT running, falling back');
+            console.log('[updateHostsFile] Helper not available; website blocking still works via browser extension');
         }
     } catch (e) {
-        console.warn('Helper not available, falling back to direct method:', e);
+        console.warn('[updateHostsFile] Helper status check failed:', e);
     }
 
-    // For silent cleanup without the helper, defer instead of triggering an elevation prompt.
-    if (silent && allDomains.size < lastBlockedDomains.size) {
-        return { success: true, deferred: true };
+    // App blocking is independent of the extension — keep running it here.
+    await updateBlockedApps();
+
+    // Opportunistically refresh native-messaging manifests so the extension
+    // bridge stays healthy across browser reinstalls. Cheap and idempotent.
+    ensureBrowserExtensionManifests();
+
+    lastBlockedDomains = allDomains;
+    // `silent` used to mean "defer an elevation prompt when clearing the
+    // hosts file". Extension-based blocking never prompts, so the flag is
+    // a no-op now; keep the parameter for call-site compatibility.
+    if (silent) {
+        // satisfy lint — flag explicitly acknowledged
     }
-
-    // Fallback to direct hosts file modification (macOS)
-    console.log('[updateHostsFile] Calling fallback block-websites');
-    const result = await tauriAPI.blockWebsites(domainsArray);
-
-    if (result && result.success) {
-        lastBlockedDomains = allDomains;
-        // Update blocked apps based on active blocks and schedules
-        await updateBlockedApps();
-    }
-
-    return result || { success: true };
+    return { success: true };
 }
 
 // Update blocked apps sent to the helper. Only one-off (manual) block apps are sent here.
@@ -7693,7 +7939,12 @@ function navigateWeek(direction) {
     handleTimeChange(); // Re-render preview block after navigation
 }
 
-// Scroll to today's column and current time
+// Scroll to today's column and current time.
+// Today is aligned to the left edge of the viewport (just after the
+// sticky 50px time axis) rather than centered, so the user sees today
+// + the upcoming days at a glance and has to deliberately scroll left
+// to look at the past. Past days are still rendered (the 21-day anchor
+// layout is unchanged) so horizontal-scrolling left still works.
 function scrollToToday(smooth = true) {
     const today = new Date();
     const todayStart = getWeekStart(today);
@@ -7708,13 +7959,21 @@ function scrollToToday(smooth = true) {
     const scrollContainer = document.querySelector('.week-calendar-scroll');
     if (!scrollContainer) return;
 
-    // Scroll to today's column (horizontal)
     const todayColumn = document.querySelector('.day-column.today');
-    const headerTimeSpacerWidth = 50; // width of time spacer in header
 
     if (todayColumn) {
-        // Calculate horizontal scroll: offset from left of content area
-        const scrollTargetX = todayColumn.offsetLeft + headerTimeSpacerWidth - scrollContainer.offsetWidth / 2 + todayColumn.offsetWidth / 2;
+        // Empirically `todayColumn.offsetLeft` is today's left edge in
+        // the scroll content coordinate system (i.e. it already counts
+        // the 50px time axis before the first day). The time axis is
+        // position:sticky at left:0 inside .week-calendar-scroll, so it
+        // overlays any content in viewport x ∈ [0, 50]. To avoid today
+        // disappearing under the time axis, we need today's left edge
+        // to sit at viewport x = 50 (just to the right of the axis),
+        // which translates to:
+        //   scrollLeft + headerTimeSpacerWidth = todayColumn.offsetLeft
+        //   scrollLeft = todayColumn.offsetLeft - headerTimeSpacerWidth
+        const headerTimeSpacerWidth = 50;
+        const scrollTargetX = Math.max(0, todayColumn.offsetLeft - headerTimeSpacerWidth);
 
         // Scroll vertically to 2 hours before current time
         // Header row is sticky at 28px, content starts below it
@@ -8128,6 +8387,31 @@ function renderScheduledCalendarBlocks() {
         });
     }
 
+    // You can't re-do the past, so any scheduled block whose end time has
+    // already passed isn't useful on the calendar and (worse) opening the
+    // override modal on it is misleading. We hide:
+    //   - repeating segments on weekDays where their wall-clock end is < now
+    //   - the first half of an overnight block whose midnight boundary is
+    //     already in the past
+    //   - the overnight continuation on next-day whose end is already in
+    //     the past
+    //   - one-shot occurrences fully in the past
+    // The current-moment comparison is intentionally "end <= now" rather
+    // than "start <= now" so an in-progress block (e.g. today's morning
+    // segment still running) keeps showing up at full extent.
+    const nowTs = now.getTime();
+    const dateAtHourMinute = (date, hour, minute) => {
+        const d = new Date(date);
+        d.setHours(hour, minute, 0, 0);
+        return d.getTime();
+    };
+    const nextDayMidnight = (date) => {
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + 1);
+        return d.getTime();
+    };
+
     appData.schedules.forEach(schedule => {
         const blocklist = appData.blocklists.find(bl => bl.id === schedule.blocklistId);
         if (!blocklist) return;
@@ -8177,46 +8461,57 @@ function renderScheduledCalendarBlocks() {
                 const isOvernight = endMinutes <= startMinutes;
 
                 if (isOvernight) {
-                    // Render first part: from start until midnight (end of day)
+                    // Render first part: from start until midnight (end of day).
+                    // Skip entirely if midnight on this weekDay is already in the past.
+                    const overnightPart1EndTs = nextDayMidnight(weekDay.date);
+                    const renderPart1 = overnightPart1EndTs > nowTs;
+
                     const topPosition1 = (startMinutes / 60) * 40;
                     const height1 = ((1440 - startMinutes) / 60) * 40; // 1440 = 24 * 60 (midnight)
 
-                    const blockEl1 = document.createElement('div');
-                    blockEl1.className = 'calendar-block scheduled';
-                    blockEl1.dataset.scheduleId = schedule.id;
-                    blockEl1.dataset.segmentIndex = segmentIdx;
-                    blockEl1.dataset.day = weekDay.dayIndex;
-                    blockEl1.style.top = `${topPosition1}px`;
-                    blockEl1.style.height = `${height1}px`;
-
-                    if (blocklist.color) {
-                        blockEl1.style.background = blocklist.color;
-                        blockEl1.style.opacity = '0.7';
-                        blockEl1.style.color = getContrastTextColor(blocklist.color);
-                    }
-
+                    // Hoisted out of the `if (renderPart1)` block below so
+                    // the overnight continuation (part 2) can still use
+                    // them when part 1 has already elapsed.
                     const startTimeStr = `${String(segment.startHour).padStart(2, '0')}:${String(segment.startMinute).padStart(2, '0')}`;
                     const endTimeStr = `${String(segment.endHour).padStart(2, '0')}:${String(segment.endMinute).padStart(2, '0')}`;
 
-                    blockEl1.innerHTML = `
+                    if (renderPart1) {
+                        const blockEl1 = document.createElement('div');
+                        blockEl1.className = 'calendar-block scheduled';
+                        blockEl1.dataset.scheduleId = schedule.id;
+                        blockEl1.dataset.segmentIndex = segmentIdx;
+                        blockEl1.dataset.day = weekDay.dayIndex;
+                        blockEl1.style.top = `${topPosition1}px`;
+                        blockEl1.style.height = `${height1}px`;
+
+                        if (blocklist.color) {
+                            blockEl1.style.background = blocklist.color;
+                            blockEl1.style.opacity = '0.7';
+                            blockEl1.style.color = getContrastTextColor(blocklist.color);
+                        }
+
+                        blockEl1.innerHTML = `
                         <span class="block-emoji">${blocklist.emoji || '🚫'}</span>
                         <span class="block-label">${escapeHtml(blocklist.name)}</span>
                         <span class="block-time">${startTimeStr} - ${endTimeStr}</span>
                         <span class="schedule-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg></span>
                     `;
 
-                    blockEl1.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        openScheduledBlockOverrideModal(schedule, segmentIdx, weekDay.dayIndex);
-                    });
+                        blockEl1.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            openScheduledBlockOverrideModal(schedule, segmentIdx, weekDay.dayIndex);
+                        });
 
-                    track.appendChild(blockEl1);
+                        track.appendChild(blockEl1);
+                    }
 
                     // Render second part: from midnight until end time on the next day
                     const nextDay = allVisibleDays[weekDayIdx + 1];
                     if (nextDay) {
                         const nextTrack = document.querySelector(`.day-track[data-date="${nextDay.dateStr}"]`);
-                        if (nextTrack) {
+                        // Skip if the overnight continuation's own end time is already in the past.
+                        const overnightPart2EndTs = dateAtHourMinute(nextDay.date, segment.endHour, segment.endMinute);
+                        if (nextTrack && overnightPart2EndTs > nowTs) {
                             const topPosition2 = 0;
                             const height2 = Math.max(20, (endMinutes / 60) * 40);
 
@@ -8250,7 +8545,11 @@ function renderScheduledCalendarBlocks() {
                         }
                     }
                 } else {
-                    // Normal same-day block
+                    // Normal same-day block. Skip if this specific day's
+                    // segment has already ended.
+                    const sameDayEndTs = dateAtHourMinute(weekDay.date, segment.endHour, segment.endMinute);
+                    if (sameDayEndTs <= nowTs) return;
+
                     const topPosition = (startMinutes / 60) * 40;
                     const height = Math.max(20, ((endMinutes - startMinutes) / 60) * 40);
 
@@ -9997,6 +10296,24 @@ async function uninstallHelperAndConfirmRemoved() {
         };
     }
 
+    // Helper teardown implies a full uninstall — also pull the browser
+    // native-messaging manifests so no stale host manifests point at a
+    // no-longer-installed binary, and drop any force-install policy keys we
+    // wrote so the user can uninstall ReDD Focus through their browser UI
+    // again. Best-effort.
+    try {
+        const extResult = await tauriAPI.uninstallBrowserExtensionManifests();
+        console.log('[uninstall-flow] Removed extension manifests:', extResult);
+    } catch (e) {
+        console.warn('[uninstall-flow] Failed to remove extension manifests:', e);
+    }
+    try {
+        const policyResult = await tauriAPI.uninstallBrowserExtensionForceInstallPolicies();
+        console.log('[uninstall-flow] Removed force-install policies:', policyResult);
+    } catch (e) {
+        console.warn('[uninstall-flow] Failed to remove force-install policies:', e);
+    }
+
     return {
         success: true,
         usedFallback: !!result.error
@@ -10260,6 +10577,19 @@ async function refreshDiagnosticsModalContent({ showLoading = false } = {}) {
             html += '</div>';
         }
 
+        // Browser extension + native messaging diagnostics. Best-effort:
+        // if either call fails we just skip the section; the helper-side
+        // diagnostics are still useful on their own.
+        try {
+            const [extStatus, preview] = await Promise.all([
+                tauriAPI.checkExtensionStatus(),
+                tauriAPI.getNativeHostBlocklistPreview(),
+            ]);
+            html += renderExtensionDiagnosticsHtml(extStatus, preview);
+        } catch (extErr) {
+            html += `<div class="diagnostics-section"><div class="diagnostics-section-title">Browser extension</div><div class="diagnostics-error">Failed to query: ${escapeHtml(String(extErr))}</div></div>`;
+        }
+
         content.innerHTML = html;
         restoreDiagnosticsScrollState(content, scrollState);
     } catch (e) {
@@ -10282,6 +10612,70 @@ async function refreshDiagnosticsModalContent({ showLoading = false } = {}) {
             });
         };
     }
+}
+
+// Render the "Browser extension" section of the diagnostics modal from the
+// output of `check_extension_status` + `get_native_host_blocklist_preview`.
+// Kept purely cosmetic — no state changes — so we can call it from any
+// refresh path without surprise side effects.
+function renderExtensionDiagnosticsHtml(status, preview) {
+    if (!status) return '';
+    const browsers = Array.isArray(status.browsers) ? status.browsers : [];
+    let html = '<div class="diagnostics-section">';
+    html += '<div class="diagnostics-section-title">Browser extension</div>';
+
+    const host = status.nativeHostName ? escapeHtml(status.nativeHostName) : 'com.ulriklyngs.mindshield';
+    const hostPath = status.hostScriptPath ? escapeHtml(status.hostScriptPath) : '(not installed)';
+    html += `<div class="diagnostics-field"><span class="diagnostics-label">Native host:</span> <span class="diagnostics-value">${host}</span></div>`;
+    html += `<div class="diagnostics-field"><span class="diagnostics-label">Launcher:</span> <span class="diagnostics-value">${hostPath}</span></div>`;
+
+    if (preview) {
+        const src = preview.source ? escapeHtml(preview.source) : '(no data file yet)';
+        const count = Array.isArray(preview.blocklist) ? preview.blocklist.length : 0;
+        html += `<div class="diagnostics-field"><span class="diagnostics-label">Data file:</span> <span class="diagnostics-value">${src}</span></div>`;
+        html += `<div class="diagnostics-field"><span class="diagnostics-label">Derived blocklist:</span> <span class="diagnostics-value">${count} domain${count === 1 ? '' : 's'}</span></div>`;
+        if (count > 0) {
+            const shown = preview.blocklist.slice(0, 20).map(escapeHtml).join(', ');
+            const extra = count > 20 ? ` … (+${count - 20} more)` : '';
+            html += `<div class="diagnostics-field"><span class="diagnostics-label">Sample:</span> <span class="diagnostics-value" style="word-break:break-all">${shown}${extra}</span></div>`;
+        }
+    }
+
+    if (browsers.length === 0) {
+        html += '<div class="diagnostics-field diag-error">No browser status available.</div>';
+    } else {
+        for (const b of browsers) {
+            const okManifest = !!b.manifestInstalled;
+            const okBrowser = !!b.browserInstalled;
+            if (!okBrowser) continue; // don't waste screen real-estate on browsers the user doesn't have
+            html += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.08)">';
+            html += `<div class="diagnostics-field"><strong>${escapeHtml(b.browser)}</strong></div>`;
+            html += `<div class="diagnostics-field"><span class="diagnostics-label">Manifest installed:</span> <span class="diagnostics-value ${okManifest ? 'diag-ok' : 'diag-error'}">${okManifest ? 'Yes' : 'No'}</span></div>`;
+            if (b.forceInstallApplied != null) {
+                const fi = !!b.forceInstallApplied;
+                html += `<div class="diagnostics-field"><span class="diagnostics-label">Force-install policy:</span> <span class="diagnostics-value ${fi ? 'diag-ok' : ''}">${fi ? 'Active' : 'Not applied'}</span></div>`;
+            }
+            const profiles = Array.isArray(b.profiles) ? b.profiles : [];
+            if (profiles.length === 0) {
+                html += '<div class="diagnostics-field" style="opacity:.7">No profiles scanned.</div>';
+            } else {
+                for (const p of profiles) {
+                    const privateBr = p.privateBrowsing == null ? '?' : p.privateBrowsing ? 'Yes' : 'No';
+                    html += `<div class="diagnostics-field" style="margin-left:12px">`;
+                    html += `<span class="diagnostics-label">${escapeHtml(p.name)}${p.isDefault ? ' (default)' : ''}:</span> `;
+                    html += `<span class="diagnostics-value ${p.installed ? 'diag-ok' : 'diag-error'}">installed=${p.installed ? 'Yes' : 'No'}</span> `;
+                    html += `<span class="diagnostics-value ${p.enabled ? 'diag-ok' : 'diag-error'}">enabled=${p.enabled ? 'Yes' : 'No'}</span> `;
+                    html += `<span class="diagnostics-value">private=${privateBr}</span>`;
+                    if (p.note) html += ` <span class="diagnostics-value" style="opacity:.6">${escapeHtml(p.note)}</span>`;
+                    html += `</div>`;
+                }
+            }
+            html += '</div>';
+        }
+    }
+
+    html += '</div>';
+    return html;
 }
 
 // Diagnostics modal

@@ -22,32 +22,46 @@ Primary code surfaces:
 
 - `src/app.js` (frontend orchestration and UX state)
 - `src-tauri/src/commands/data.rs` (app data persistence)
-- `src-tauri/src/commands/helper.rs` (desktop helper bridge and lifecycle commands)
+- `src-tauri/src/commands/helper.rs` (desktop helper bridge and lifecycle commands — app blocking only)
 - `src-tauri/src/commands/apps.rs` (desktop app picker utilities)
-- `src-tauri/src/lib.rs` (command registration and platform window setup)
-- `helper-daemon/src/main.rs` (desktop privileged enforcement engine)
+- `src-tauri/src/commands/extension.rs` (native-messaging manifest install/uninstall + per-browser status probes)
+- `src-tauri/src/commands/enforcer.rs` (background thread that nags + quits browsers if the extension is disabled while blocks are active)
+- `src-tauri/src/blocklist.rs` (single source of truth for deriving the "currently active domains" set; shared by the native-messaging host)
+- `src-tauri/src/native_host.rs` (native-messaging host loop — the Tauri binary enters this when launched with `--native-host`)
+- `src-tauri/src/lib.rs` (command registration, platform window setup, CLI-flag branching into the native host)
+- `helper-daemon/src/main.rs` (desktop privileged enforcement engine — app blocking only; hosts-file writes removed, one-shot migration cleanup retained)
 - `tauri-plugin-screentime/` (iOS blocking plugin stack): `src/commands.rs`, `src/mobile.rs` (Rust bridge), `ios/Sources/ScreentimePlugin.swift` (authorization, ManagedSettings, DeviceActivityCenter, activity picker), `ios/Sources/ScheduleData.swift` and `src-tauri/gen/apple/Shared/ScheduleData.swift` (App Group schedule payload), `src-tauri/gen/apple/ReddBlockMonitor/DeviceActivityMonitorExtension.swift` (DeviceActivityMonitor for scheduled windows).
+- `reddfocus-open-source/Shared (Extension)/Resources/background.js` (browser extension: opens a native-messaging port to `com.ulriklyngs.mindshield`, redirects matching tabs to `blocked.html`).
 
 ---
 
 ## 2) Runtime architecture at a glance
 
-There are two enforcement families:
+There are three enforcement families:
 
-- **Desktop (macOS/Windows):** helper daemon is the privileged enforcement runtime.
-- **iOS:** Screen Time plugin/API is the enforcement runtime.
+- **Desktop websites:** browser extension + native-messaging host inside the Tauri binary.
+- **Desktop apps:** helper daemon is the privileged enforcement runtime.
+- **iOS:** Screen Time plugin/API is the enforcement runtime (both websites and apps).
 
 ```mermaid
 flowchart TD
-    userInput[UserInput_UI] --> appFrontend[AppFrontend_src_app_js]
-    appFrontend --> tauriBackend[TauriBackend_Commands]
+    userInput[User_Input_UI] --> appFrontend[Frontend_src_app_js]
+    appFrontend --> tauriBackend[Tauri_Backend]
     tauriBackend --> platformBranch{Platform}
-    platformBranch -->|Desktop| helperIpc[IPC_to_Helper]
+
+    platformBranch -->|Desktop websites| nhHost[Tauri binary in --native-host mode]
+    nhHost --> extBridge[Browser extension bridge]
+    extBridge --> extEnforce[Tab redirect to blocked.html]
+
+    platformBranch -->|Desktop apps| helperIpc[IPC_to_Helper]
     helperIpc --> helperCore[HelperDaemon_main_rs]
-    helperCore --> desktopEnforce[HostsAndAppWatcher]
+    helperCore --> appWatcher[App watcher minimize/hide]
+
     platformBranch -->|iOS| stPlugin[ScreenTimePlugin]
-    stPlugin --> iosEnforce[ScreenTimeEnforcement]
+    stPlugin --> iosEnforce[ScreenTime_enforcement]
 ```
+
+The Tauri binary is the native-messaging host for every supported desktop browser (Chrome, Brave, Edge, Firefox). When the browser spawns it, `main()` detects the `--native-host` CLI flag and enters `native_host::run()` instead of booting the window/tray/UI stack (`src-tauri/src/lib.rs`, `src-tauri/src/main.rs`).
 
 ---
 
@@ -89,7 +103,7 @@ This state is authoritative for desktop enforcement decisions and merging behavi
 
 ## 3.3 iOS enforcement state
 
-iOS does not use helper/hosts. Enforcement is delegated to Screen Time API through plugin calls from `src/app.js` (`plugin:screentime|...` commands).
+iOS does not use the helper or the native-messaging host. Enforcement is delegated to the Screen Time API through plugin calls from `src/app.js` (`plugin:screentime|...` commands).
 
 ## 3.4 Desktop app-data authority and path selection
 
@@ -178,123 +192,121 @@ flowchart TD
 
 ## 4) Desktop helper internals
 
-Core constants and command model in `helper-daemon/src/main.rs`:
+The helper daemon is now **app-blocking only**. It no longer owns website enforcement.
 
-- hosts markers:
-  - `# === BEGIN REDD BLOCK (reddfocus.org) ===`
-  - `# === END REDD BLOCK (reddfocus.org) ===`
-- hosts path:
-  - macOS: `/etc/hosts`
-  - Windows: `C:\Windows\System32\drivers\etc\hosts`
-- IPC command enum includes:
+Core command model in `helper-daemon/src/main.rs`:
+
+- IPC command enum:
   - `start-block`, `clear-block`, `set-schedules`, `set-blocked-apps`,
   - `set-keep-blocking-on-uninstall`, `restore-hosts`, `uninstall`, `ping`, `get-version`, `get-status`.
+- `start-block`, `clear-block`, `set-schedules` still update helper-owned state so app-blocking schedules and one-off app blocks continue to work.
+- `restore-hosts` and the internal `sync_hosts_file()` entry point are retained but neutered — they invoke `cleanup_legacy_hosts_markers()`, which performs a one-shot migration sweep that strips any managed `# === BEGIN REDD BLOCK === / END ===` section (and legacy `# ReDD Block Start/End` markers) from `/etc/hosts` or `C:\Windows\System32\drivers\etc\hosts`. After the first call in a process, the function becomes a no-op.
+- `add_block_to_hosts()` and `is_protected_domain()` are preserved as `#[allow(dead_code)]` so the migration machinery and historical git blame context are intact, but they are not called by any live code path.
+
+In other words, the only time the helper touches the hosts file now is to undo its own past writes on upgrade.
 
 ---
 
 ## 5) Website blocking pipeline (desktop, technical)
 
-## 5.1 End-to-end command path
+Desktop website enforcement is done by a **browser extension + native-messaging host** rather than by editing `/etc/hosts`. The Tauri binary itself is the native-messaging host; when launched with `--native-host` it skips the UI/tray and enters `native_host::run()`.
 
-For desktop, website enforcement prefers the helper path whenever the helper is ready:
+## 5.1 End-to-end data flow
 
-1. `src/app.js` computes current desired blocked-domain state.
-2. Tauri commands in `src-tauri/src/commands/helper.rs` send JSON IPC (`start-block`, `clear-block`, `set-schedules`, `restore-hosts`).
-3. Helper `handle_command()` (`helper-daemon/src/main.rs`) updates authoritative state.
-4. Helper calls `sync_hosts_file()` to rebuild effective domains and write hosts.
-5. Helper calls `flush_dns_cache()`.
-
-If the helper is not ready, desktop can still use fallback paths in limited cases, but helper-owned enforcement is the preferred architecture.
+1. `src/app.js` mutates the canonical `redd-block-data.json` (blocklists, activeBlocks, schedules) through the normal `save_data` Tauri command.
+2. The Tauri binary, running as a native-messaging host under the browser, watches `redd-block-data.json` via the `notify` crate and an additional 30s polling tick (so schedule start/end boundaries transition without a file change).
+3. On every change, `native_host::run()` calls `blocklist::derive_active_domains()` — the same pure-function derivation `src/app.js` uses — to compute the union of currently-active manual blocks and currently-active schedule-driven domains, filtered against `PROTECTED_DOMAINS`.
+4. The derived set is serialized as a length-prefixed JSON frame (`{ "type": "blocklist", "domains": [...] }`) and written to stdout.
+5. The browser extension (`reddfocus-open-source/Shared (Extension)/Resources/background.js`) reads the frame via its `chrome.runtime.connectNative("com.ulriklyngs.mindshield")` port, caches the list in memory, and redirects matching `chrome.tabs.onUpdated` events to the bundled `blocked.html` page.
 
 ```mermaid
 flowchart TD
-    uiIntent[UI_BlockingIntent] --> appDecision[App_Computes_Effective_Intent]
-    appDecision --> readyCheck{Helper_Ready}
-    readyCheck -->|Yes| tauriCmd[Tauri_Helper_Command]
-    readyCheck -->|No| fallbackPath[Fallback_Website_Path_When_Allowed]
-    tauriCmd --> helperCmd[Helper_handle_command]
-    helperCmd --> mergeDomains[ResolveEffectiveDomains]
-    mergeDomains --> hostsTransform[remove_old_section_plus_add_new]
-    hostsTransform --> hostsWrite[write_hosts_file]
-    hostsWrite --> dnsFlush[flush_dns_cache]
-    dnsFlush --> enforced[Website_Enforcement_Updated]
-    fallbackPath --> enforced
+    uiIntent[UI_BlockingIntent] --> appJs[src/app.js]
+    appJs --> saveData[save_data Tauri cmd]
+    saveData --> canonicalFile[(redd-block-data.json)]
+
+    canonicalFile -.notify+30s poll.-> nativeHost[Tauri binary --native-host]
+    nativeHost --> derive[blocklist::derive_active_domains]
+    derive --> frame[length-prefixed JSON frame]
+    frame --> extPort[chrome.runtime.connectNative]
+    extPort --> bgScript[background.js cache]
+    bgScript --> tabRedirect[chrome.tabs.onUpdated -> blocked.html]
 ```
 
-## 5.2 Hosts transformation internals
+## 5.2 Native-messaging host install / uninstall
 
-Helper hosts functions in `helper-daemon/src/main.rs`:
+Tauri commands in `src-tauri/src/commands/extension.rs`:
 
-- `remove_block_from_hosts(content)`:
-  - removes the managed section between
-    - `# === BEGIN REDD BLOCK (reddfocus.org) ===`
-    - `# === END REDD BLOCK (reddfocus.org) ===`
-  - also strips legacy markers (`# ReDD Block Start/End`).
+- `install_browser_extension_manifests()` is invoked on first launch (and opportunistically on every `updateHostsFile()` call in `src/app.js` now that direct helper writes are gone). It:
+  - writes a small user-scope shim (`.sh` on macOS, `.bat` on Windows) that re-execs the currently-running Tauri binary with `--native-host`,
+  - writes the per-browser native-messaging manifest file (JSON) into each browser's expected location on macOS,
+  - writes the manifest file plus a `HKCU\Software\...\NativeMessagingHosts\com.ulriklyngs.mindshield` registry entry on Windows using the `windows` crate directly (no `winreg` dependency),
+  - is idempotent: it overwrites existing manifests in place, so upgrades and path changes are self-healing.
+- `uninstall_browser_extension_manifests()` is invoked from the EULA-decline / helper uninstall flow in `src/app.js` and removes all of the files and registry keys it created.
 
-- `add_block_to_hosts(content, domains)`:
-  - first calls `remove_block_from_hosts` (replace-not-append semantics),
-  - sanitizes each domain:
-    - strips `https://`/`http://`,
-    - strips URL paths,
-    - lowercases,
-  - skips protected domains via `is_protected_domain`,
-  - writes both IPv4 and IPv6 entries:
-    - `0.0.0.0 domain`, `0.0.0.0 www.domain`,
-    - `:: domain`, `:: www.domain`.
+Supported browsers are defined by `DEFAULT_CHROMIUM_IDS` (Chrome, Brave, Edge, Chromium, Arc, Opera, Vivaldi) and `DEFAULT_FIREFOX_IDS` (Firefox, LibreWolf, Zen, Waterfox).
 
-- `sync_hosts_file(state, schedule_state)`:
-  - computes union set from active manual blocks and active schedule domains,
-  - deduplicates via set semantics,
-  - writes final rendered hosts content.
+## 5.2a Force-install (Windows only)
 
-## 5.3 Write safety and rollback mechanics
+In addition to the native-messaging manifest, on Windows we also drop the standard browser-policy force-install entries so ReDD Focus is silently fetched from the Web Store / AMO and locked in place — the user does not have to manually install the extension, and cannot remove or disable it from the browser UI while the policy is present.
 
-`write_hosts_file(content)` enforces multiple hard safety checks:
+- `install_browser_extension_force_install_policies()` is called right after `install_browser_extension_manifests()` from `ensureBrowserExtensionManifests()` in `src/app.js`. On non-Windows it returns a clean `{supported: false}` no-op report.
+- It writes, under `HKCU\Software\Policies\...` (user-scope, no admin):
+  - `Google\Chrome\ExtensionInstallForcelist\<N> = "<id>;https://clients2.google.com/service/update2/crx"`,
+  - `BraveSoftware\Brave\ExtensionInstallForcelist\<N>` = same format,
+  - `Microsoft\Edge\ExtensionInstallForcelist\<N>` = same format,
+  - `Mozilla\Firefox\ExtensionSettings` = a merged JSON object with `{ "<gecko-id>": { "installation_mode": "force_installed", "install_url": "<amo-xpi-url>", "private_browsing": true } }`. `FIREFOX_INSTALL_URL` points at the stable AMO "latest" redirect (`https://addons.mozilla.org/firefox/downloads/latest/reddfocus/latest.xpi`), whose `guid` (`mindshield@example.com`) matches `DEFAULT_FIREFOX_IDS`. Because `private_browsing: true` is part of the same policy blob, Firefox on Windows auto-grants private-window access with no user action required. The `Option<&str>` shape of the constant is preserved so future forks can disable the Firefox leg simply by setting it back to `None`.
+- Idempotent: when a forcelist value already references our extension ID we leave it alone; otherwise we pick the first free integer-named slot so we don't clobber other policies the user's IT department or another tool may have installed.
+- `uninstall_browser_extension_force_install_policies()` enumerates all forcelist values, deletes those that reference our ID, and prunes our key out of the Firefox `ExtensionSettings` JSON (or deletes the value entirely if we were the only entry). Called from the same EULA-decline / helper uninstall flow that removes the manifests.
 
-- refuses writes that omit `localhost` entry,
-- on unsafe content:
-  - attempts `restore_hosts_from_backup()`,
-  - if restore fails, writes a minimal valid hosts file as last resort.
+Caveats:
 
-Backup mechanics:
+- Chromium has no policy to auto-grant "Allow in Incognito". Users must still toggle that themselves, or the enforcer loop (section 5.5) nags / quits them.
+- On macOS the equivalent (managed preferences plists under `/Library/Managed Preferences/...`) requires `sudo`, so macOS keeps relying on the enforcer loop instead of force-install.
+- A determined user with admin can still delete the policy keys by hand. Force-install is meant for the self-binding use case, not adversarial enforcement.
 
-- `ensure_backup_exists()` creates `hosts.redd-backup` on first write,
-- backup is cleaned of managed block entries before saving,
-- `restore_hosts_from_backup()` validates backup still contains `localhost`.
+## 5.3 Native-messaging host runtime
 
-## 5.4 Platform-specific write strategy
+`src-tauri/src/native_host.rs`:
 
-- **Windows**:
-  - direct write with `fs::write(HOSTS_PATH, content)`,
-  - avoids rename approach due to common lock contention from AV/DNS services.
+- `send_frame()` writes `u32 length | json payload` to stdout, matching Chrome's native-messaging wire format.
+- `spawn_stdin_reader()` consumes browser-originated frames on a background thread, currently used as a liveness heartbeat (the extension sends `ping` messages).
+- `run()` sends an initial blocklist on connect, installs a `notify::RecommendedWatcher` on the canonical data path *and* on its parent directory (so atomic-rename saves are caught), and layers a 30-second polling timer for schedule boundary transitions that have no associated file change.
+- All output from the host is mirrored into a `.log` file under the Tauri app-data dir so crashes and desync can be diagnosed post-hoc.
 
-- **macOS**:
-  - atomic-leaning approach: write temp file then `rename`,
-  - direct-write fallback if rename fails.
+## 5.4 Blocklist derivation (single source of truth)
 
-## 5.5 DNS flush internals
+`src-tauri/src/blocklist.rs` is the only place domain derivation lives on the native-host side:
 
-`flush_dns_cache()` does per-OS commands:
+- `load_derived_app_data()` parses `redd-block-data.json` into typed structs.
+- `derive_active_domains(data, now)` returns the `HashSet<String>` of domains currently in effect by:
+  - unioning active `manual_blocks` (non-expired, non-paused),
+  - unioning domains from schedules whose current local-time window is active (via `local_time_info()` — `libc::localtime_r` on Unix, `GetLocalTime` on Windows),
+  - normalizing each domain (`normalize_domain`) to strip scheme/path/`www.`/case,
+  - filtering out `PROTECTED_DOMAINS` (Apple, Microsoft, OS update endpoints, signing/CRL/OCSP services, etc.) as a hard safety net.
+- `candidate_data_paths()` and `resolve_data_path()` mirror the same canonical-vs-legacy path selection `src-tauri/src/commands/data.rs` uses, so the host reads exactly the file the UI writes.
 
-- macOS:
-  - `dscacheutil -flushcache`
-  - `killall -HUP mDNSResponder`
-- Windows:
-  - `ipconfig /flushdns` with hidden-window creation flags.
+This module is deliberately independent of Tauri's window/runtime so it can be called in the headless `--native-host` mode.
 
-This ensures OS resolver sees hosts changes quickly (browser cache may still delay visible behavior).
+## 5.5 Enforcement loop (keeping the extension honest)
+
+Because a user can disable the browser extension and resume browsing, `src-tauri/src/commands/enforcer.rs` runs a background thread while any block is active:
+
+- It probes each supported browser's profile preferences (Chromium: `Preferences`/`Secure Preferences`; Firefox: `extensions.json`) via the Rust port of `profile-scan` in `commands/extension.rs::check_extension_status()`.
+- Running browsers are detected via `pgrep` on macOS and the Windows ToolHelp API (`CreateToolhelp32Snapshot`) on Windows.
+- If a running browser is missing or has disabled the extension while blocks are active, the enforcer emits `extension-enforcement` events to the frontend:
+  - `nag` during the grace period → `renderEnforcementToast()` in `src/app.js` shows a persistent warning,
+  - `quit_attempted` / `quit_failed` once the grace period expires → `osascript` on macOS, `taskkill /F` on Windows.
+- The enforcer is started from `runPostAcceptanceStartup()` via the `start_extension_enforcement` command and stopped on helper uninstall.
 
 ## 5.6 Domain normalization and protection
 
-Both frontend and helper enforce protections:
+Both frontend and host enforce protections:
 
-- frontend:
-  - `PROTECTED_DOMAINS` in `src/app.js`,
-  - `isProtectedDomain()`.
-- helper:
-  - protected-domain filter before hosts rendering.
+- frontend: `PROTECTED_DOMAINS` in `src/app.js`, `isProtectedDomain()`.
+- host: `PROTECTED_DOMAINS` in `blocklist.rs` filters the derived set before any frame leaves the process.
 
-This defense-in-depth prevents accidental self-breakage if UI validation is bypassed.
+This defense-in-depth is what allows the UI to never ship a blocklist that would brick the OS, regardless of user authoring.
 
 ---
 
@@ -396,26 +408,22 @@ App-owned active blocks carry the UX/runtime state, including pause fields.
 
 ## 7.2 Runtime behavior
 
-- Start path adds/updates manual block state and triggers hosts sync.
-- Expiry path runs in helper `expiry_checker()` loop (1s cadence).
-- Expired manual blocks are removed by time and persisted.
-
-This gives near-real-time end behavior for website enforcement without requiring app UI to stay open.
+- Start path adds/updates manual block state in `redd-block-data.json`; the native-messaging host picks up the change via its `notify` watcher and pushes a fresh blocklist frame to the extension.
+- For apps, the same state change still flows through `start_block_via_helper(...)` so the helper's app watcher rebuilds its effective blocked-apps set.
+- Expiry path for apps runs in helper `expiry_checker()` loop (1s cadence); expired manual app blocks are removed by time and persisted.
+- Expiry for website blocks is handled entirely on the native-host side: `derive_active_domains()` simply stops returning the domains once `end_time <= now`, and the 30s poll guarantees that boundary is observed even if no file write occurs.
 
 Technical details:
 
-- start command path:
+- start command path (website):
   - frontend block start / `updateHostsFile()` flow in `src/app.js`,
-  - Tauri `start_block_via_helper(...)`,
-  - helper `IpcCommand::StartBlock` -> `start_block(...)`.
-- clear path:
-  - scoped clear by blocklist identity uses `clear_block_via_helper(blocklist_id)`,
-  - helper `clear_block(...)` mutates only targeted manual block(s),
-  - resulting domain set is recomputed through `sync_hosts_file(...)`.
-- expiry loop behavior:
-  - `expiry_checker()` runs every second,
-  - retains only blocks with `end_time > now`,
-  - on change, triggers hosts sync + state persist.
+  - `save_data` persists the new `activeBlocks` entry,
+  - native-messaging host's `notify` watcher fires,
+  - `derive_active_domains(...)` recomputes and `send_frame(...)` pushes the new set to every connected browser.
+- start command path (apps): unchanged — still goes via `start_block_via_helper(...)` → `IpcCommand::StartBlock` → `start_block(...)`.
+- clear path (website): remove the entry from `activeBlocks` and save; the host reacts the same way.
+- clear path (apps): scoped clear by blocklist identity uses `clear_block_via_helper(blocklist_id)`; helper `clear_block(...)` mutates only targeted manual block(s) and recomputes its app-watcher state.
+- expiry loop behavior (apps only now): `expiry_checker()` runs every second, retains only blocks with `end_time > now`, on change triggers app-watcher sync + state persist.
 
 ## 7.3 Pause/resume architecture (one-off + schedule)
 
@@ -435,7 +443,7 @@ Enforcement behavior:
 - on manual resume or natural pause expiry:
   - pause fields are cleared,
   - app re-syncs helper schedule/manual block state,
-  - hosts and app watcher state are recomputed and re-applied.
+  - the native-messaging host picks up the data change and pushes a refreshed blocklist to every connected browser; the helper's app watcher state is recomputed and re-applied.
 
 Schedule pause can be triggered even when no segment is currently active; this suppresses upcoming segment activation until pause end or manual resume.
 
@@ -469,25 +477,25 @@ Helper schedule records include:
 
 ## 8.2 Evaluator loop
 
-`schedule_evaluator()` in helper runs every 30s:
+Schedule evaluation runs in two independent places now, one for apps and one for websites:
 
-- computes active schedule domains/apps from local time,
-- skips schedules paused at current time (`isPaused && pauseEndTime > now`),
-- compares with previous active set,
-- applies transitions:
-  - hosts sync when active domains changed,
-  - watcher/app updates when active apps changed.
+- **Apps (helper):** `schedule_evaluator()` in `helper-daemon/src/main.rs` runs every 30s, computes active schedule apps from local time, skips schedules paused at current time (`isPaused && pauseEndTime > now`), and toggles the app watcher as needed.
+- **Websites (native host):** `native_host::run()` reacts to `redd-block-data.json` changes via `notify` *and* polls every 30s. On each tick it re-runs `blocklist::derive_active_domains()`, which evaluates schedule segments against local time, skips paused schedules the same way, and pushes the resulting domain set to the browser as a new frame.
 
 ```mermaid
 flowchart TD
-    tick30s[Every30Seconds] --> readSched[ReadSchedules]
-    readSched --> pauseFilter[Skip_Paused_Schedules]
-    pauseFilter --> activeDomains[ComputeActiveScheduleDomains]
-    pauseFilter --> activeApps[ComputeActiveScheduleApps]
-    activeDomains --> domainChanged{DomainsChanged}
-    activeApps --> appsChanged{AppsChanged}
-    domainChanged -->|Yes| syncHosts[sync_hosts_file]
-    appsChanged -->|Yes| updateWatcher[StartStopWatcherAndHideApps]
+    tick30s[Every_30_seconds] --> branch{Scope}
+
+    branch -->|Apps| readSched[Helper_reads_schedules]
+    readSched --> pauseFilter[Skip_paused_schedules]
+    pauseFilter --> activeApps[Compute_active_schedule_apps]
+    activeApps --> appsChanged{Apps_changed}
+    appsChanged -->|Yes| updateWatcher[Start_stop_watcher_and_hide_apps]
+
+    branch -->|Websites| nhTick[Native_host_polls_and_derives]
+    nhTick --> activeDomains[Compute_active_domains]
+    activeDomains --> domainsChanged{Domains_changed}
+    domainsChanged -->|Yes| pushFrame[send_frame_to_extension]
 ```
 
 ## 8.3 Future schedule activation
@@ -662,7 +670,7 @@ Uninstall command path:
 - attempt graceful helper `uninstall` command,
 - fallback to force cleanup path if needed.
 
-Fallback cleanup now also tries to converge hosts-file cleanup rather than only removing helper artifacts.
+Fallback cleanup now also tries to converge hosts-file cleanup (to strip any legacy `# === BEGIN/END REDD BLOCK ===` markers) and removes the browser native-messaging manifests and shim scripts via `uninstall_browser_extension_manifests()` on top of removing helper artifacts.
 
 ## 11.4 Desktop helper: full UI-to-helper flow (start, stop, override, install, uninstall)
 
@@ -695,9 +703,11 @@ flowchart TD
     A[User_Stop_Or_Override] --> B{Single_Or_Override_All}
     B -->|Single| C[clear_block_via_helper_with_blocklist_id]
     B -->|Override_All| D[clear_block_via_helper_or_full_cleanup_path]
-    C --> E[Helper_mutates_state]
+    C --> E[Helper_mutates_app_state]
     D --> E
-    E --> F[sync_hosts_file_and_app_state]
+    E --> F[Recompute_app_watcher]
+    A --> G[save_data]
+    G --> H[Native_host_recomputes_and_pushes_blocklist]
 ```
 
 **Helper install**
@@ -724,7 +734,7 @@ flowchart TD
     D --> F{Uninstall_IPC_Succeeded}
     F -->|Yes| G[Helper_Self_Removes]
     F -->|No| E
-    E --> H[Attempt_restore_hosts_then_remove_helper_artifacts]
+    E --> H[Cleanup_legacy_hosts_markers_uninstall_ext_manifests_and_remove_helper_artifacts]
     G --> I[Return_Success]
     H --> I
 ```
@@ -741,11 +751,13 @@ Desktop diagnostics now expose:
 
 - helper status (`installed`, `running`, `version`, `version_ok`)
 - expected helper version
-- hosts file contents
+- hosts file contents (used only to confirm legacy markers are gone)
 - helper state file contents
 - relevant artifact paths
 - helper log tail
 - install log tail where available
+- browser extension status per browser (`check_extension_status`): whether the native-messaging manifest is installed, whether the extension is installed, and whether it is enabled
+- native host blocklist preview (`get_native_host_blocklist_preview`): the domain set `derive_active_domains()` would produce right now from the canonical data file
 
 The UI path is `openDiagnosticsModal()` in `src/app.js`.
 
@@ -802,9 +814,11 @@ Cleanup path includes:
 
 - clearing in-memory state,
 - persisting empty helper state,
-- restoring hosts,
+- running the one-shot `cleanup_legacy_hosts_markers()` sweep (leftover from pre-extension versions),
 - deleting helper state file,
 - self-removal from OS startup mechanism.
+
+Browser native-messaging manifests are cleaned up from the frontend/Tauri side (`uninstall_browser_extension_manifests()`) when the user explicitly chooses to uninstall; the helper does not touch them.
 
 Self-removal internals:
 
@@ -919,26 +933,37 @@ App Group storage carries:
 - macOS: `/var/lib/redd-block/helper-state.json`
 - Windows: `%PROGRAMDATA%\ReDD Block\helper-state.json`
 
-## 14.3 Hosts backup (desktop only)
+## 14.3 Legacy hosts backup (desktop only)
 
 - macOS: `/etc/hosts.redd-backup`
 - Windows: `C:\Windows\System32\drivers\etc\hosts.redd-backup`
 
-## 14.4 Diagnostics-related artifacts
+These files were created by pre-extension builds and are no longer written to. The helper's one-shot migration cleanup leaves them in place as a rollback artifact but never creates new ones.
+
+## 14.4 Native-messaging artifacts (desktop only)
+
+- User-scope host shim launcher script (`.sh` on macOS, `.bat` on Windows) under the user's Tauri app-data directory.
+- Per-browser native-messaging manifest files:
+  - macOS: under each browser's `NativeMessagingHosts/` directory in `~/Library/Application Support/...` (Chromium family) or `~/Library/Application Support/Mozilla/NativeMessagingHosts/` (Firefox family).
+  - Windows: JSON manifest file under the user's Tauri app-data directory, plus `HKCU\Software\...\NativeMessagingHosts\com.ulriklyngs.mindshield` registry entries pointing at it.
+- Native host log: same Tauri app-data directory, used for post-hoc debugging of the `--native-host` loop.
+
+## 14.5 Diagnostics-related artifacts
 
 - macOS helper log: `/var/log/redd-block-helper.log`
 - Windows helper log: `%PROGRAMDATA%\ReDD Block\helper.log`
 - Windows install log: `%PROGRAMDATA%\ReDD Block\install.log`
+- Native host log: see section 14.4.
 
 ---
 
 ## 15) Safety and security mechanisms
 
-- protected domain filtering (frontend + helper),
+- protected domain filtering (frontend + native host via `blocklist::PROTECTED_DOMAINS`),
 - protected app filtering (frontend + helper),
-- hosts backup/restore safety net,
-- localhost validity checks before/after writes,
-- constrained privileged operations in helper lifecycle paths,
+- legacy hosts backup/restore safety net, retained for rollback from pre-extension builds,
+- browser-extension enforcement loop as a second line of defense against users simply disabling the extension,
+- constrained privileged operations in helper lifecycle paths (helper now only touches app-blocking-related privileged state),
 - compatibility defaults for missing fields/version drift paths.
 
 These reduce risk of system networking breakage and self-lockout.
@@ -947,11 +972,13 @@ These reduce risk of system networking breakage and self-lockout.
 
 ## 16) Known technical constraints and non-obvious behaviors
 
-- schedule transitions are loop-driven, so boundary effects are interval-bounded,
-- browser-level caching can delay visible effect after hosts changes even when helper completed correctly,
-- helper upgrade mismatch can disable helper-available paths until reinstall/update,
+- schedule transitions are loop-driven, so boundary effects are interval-bounded (30s native-host poll for websites, 30s helper evaluator for apps),
+- website blocking applies only while a supported browser is in use, because enforcement is at the extension layer (not DNS/hosts); users can still reach blocked sites via unsupported/unmanaged browsers until the enforcer loop quits them,
+- existing open tabs in a managed browser continue to render until navigation triggers `chrome.tabs.onUpdated`; new navigations are redirected immediately,
+- disabling/removing the browser extension silently defeats website blocking; `enforcer.rs` is what closes this gap by nagging and eventually quitting the browser,
+- helper upgrade mismatch can disable helper-available paths (for app blocking) until reinstall/update,
 - on Windows, the helper process is not restarted on crash (scheduled task runs at logon only),
 - if the helper exits unexpectedly, the app re-verifies readiness before start block and can fall back into repair/reinstall UX,
-- desktop app-block timing still depends on effective blocked-app state transitions, not hosts model,
+- desktop app-block timing still depends on effective blocked-app state transitions, independent of the website/native-host pipeline,
 - local desktop dev builds and installed release builds currently share one machine-global helper installation, IPC endpoint, and helper-state surface,
-- iOS behavior differs by Screen Time API constraints and should not be reasoned about through the desktop helper model.
+- iOS behavior differs by Screen Time API constraints and should not be reasoned about through the desktop helper or native-host model.

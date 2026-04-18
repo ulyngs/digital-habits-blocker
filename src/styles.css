@@ -2994,7 +2994,10 @@ body.ios .blocklist-action-btn svg {
 }
 
 .legal-onboarding-checkbox-text {
-    cursor: default;
+    /* Rendered as a <label for="eula-agree-checkbox">, so clicking the
+       text (but not the inline EULA link, which stops propagation in JS)
+       toggles the checkbox. */
+    cursor: pointer;
     flex: 1;
     min-width: 0;
 }

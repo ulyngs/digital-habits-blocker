@@ -25,13 +25,49 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 mod commands;
 
+#[cfg(not(target_os = "ios"))]
+pub mod blocklist;
+#[cfg(not(target_os = "ios"))]
+pub mod native_host;
+
+/// Returns true iff the process was launched with the `--native-host` CLI
+/// flag. Checked by `main()` before any Tauri initialization so we can
+/// cleanly branch into the native messaging loop without bringing up a
+/// window / tray icon / etc.
+#[cfg(not(target_os = "ios"))]
+pub fn is_native_host_invocation() -> bool {
+    std::env::args().any(|a| a == "--native-host")
+}
+
+#[cfg(target_os = "ios")]
+pub fn is_native_host_invocation() -> bool {
+    false
+}
+
+/// Delegate to the native-host event loop. Only called when the CLI flag is
+/// present. The browser holds the stdio pipes; we never return `Ok(())`
+/// cleanly (exit code matters: Chrome treats non-zero as "host crashed").
+#[cfg(not(target_os = "ios"))]
+pub fn run_native_host() -> std::io::Result<()> {
+    native_host::run()
+}
+
+#[cfg(target_os = "ios")]
+pub fn run_native_host() -> std::io::Result<()> {
+    Err(std::io::Error::other("native host unsupported on iOS"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        // Desktop-only: system notifications used by the extension
+        // enforcer so a browser-level problem is visible even when the
+        // ReDD Block window is hidden behind Chrome / Firefox.
+        .plugin(tauri_plugin_notification::init());
 
     // On iOS, also register the Screen Time plugin
     #[cfg(target_os = "ios")]
@@ -326,7 +362,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// All commands for desktop platforms (includes helper, apps)
+/// All commands for desktop platforms (includes helper, apps, extension)
 #[cfg(not(target_os = "ios"))]
 fn all_commands() -> impl Fn(tauri::ipc::Invoke) -> bool {
     tauri::generate_handler![
@@ -339,7 +375,7 @@ fn all_commands() -> impl Fn(tauri::ipc::Invoke) -> bool {
         commands::open_app_picker,
         commands::get_running_apps,
         commands::minimize_app,
-        // Helper commands (desktop only)
+        // Helper commands (desktop only — app blocking)
         commands::check_helper_status,
         commands::install_helper,
         commands::uninstall_helper,
@@ -352,6 +388,18 @@ fn all_commands() -> impl Fn(tauri::ipc::Invoke) -> bool {
         commands::block_websites,
         commands::clean_hosts_file,
         commands::get_helper_diagnostics,
+        // Browser-extension commands (website blocking)
+        commands::install_browser_extension_manifests,
+        commands::uninstall_browser_extension_manifests,
+        commands::install_browser_extension_force_install_policies,
+        commands::uninstall_browser_extension_force_install_policies,
+        commands::check_extension_status,
+        commands::get_native_host_blocklist_preview,
+        commands::start_extension_enforcement,
+        commands::stop_extension_enforcement,
+        commands::is_extension_enforcement_running,
+        commands::open_browser_extensions_page,
+        commands::focus_main_window,
     ]
 }
 

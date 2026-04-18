@@ -25,6 +25,10 @@
     "fs:allow-write-text-file",
     "shell:default",
     "shell:allow-execute",
-    "opener:default"
+    "opener:default",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission"
   ]
 }

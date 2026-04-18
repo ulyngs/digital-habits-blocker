@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 use super::extension::{check_extension_status, heartbeat_file, BrowserStatus, ProfileStatus};
@@ -48,11 +48,14 @@ const HEARTBEAT_STALE_AFTER: Duration = Duration::from_secs(4);
 
 /// Per-browser quit + process-detection metadata. The `proc_name` is the
 /// executable name as the OS reports it; `app_name` is the user-facing title
-/// used in nags.
+/// used in nags. `private_mode_name` is the browser's own term for private
+/// browsing ("Incognito", "InPrivate", "Private Windows", …) — used to
+/// compose action-button copy on the nag alert.
 #[derive(Clone, Debug)]
 struct BrowserMeta {
     label: &'static str,
     app_name: &'static str,
+    private_mode_name: &'static str,
     proc_names: &'static [&'static str],
 }
 
@@ -61,6 +64,7 @@ fn browser_table() -> Vec<BrowserMeta> {
         BrowserMeta {
             label: "Chrome",
             app_name: "Google Chrome",
+            private_mode_name: "Incognito mode",
             #[cfg(target_os = "windows")]
             proc_names: &["chrome.exe"],
             #[cfg(not(target_os = "windows"))]
@@ -69,6 +73,7 @@ fn browser_table() -> Vec<BrowserMeta> {
         BrowserMeta {
             label: "Brave",
             app_name: "Brave",
+            private_mode_name: "Private mode",
             #[cfg(target_os = "windows")]
             proc_names: &["brave.exe"],
             #[cfg(not(target_os = "windows"))]
@@ -77,6 +82,7 @@ fn browser_table() -> Vec<BrowserMeta> {
         BrowserMeta {
             label: "Edge",
             app_name: "Microsoft Edge",
+            private_mode_name: "InPrivate mode",
             #[cfg(target_os = "windows")]
             proc_names: &["msedge.exe"],
             #[cfg(not(target_os = "windows"))]
@@ -85,12 +91,96 @@ fn browser_table() -> Vec<BrowserMeta> {
         BrowserMeta {
             label: "Firefox",
             app_name: "Firefox",
+            private_mode_name: "Private Windows",
             #[cfg(target_os = "windows")]
             proc_names: &["firefox.exe"],
             #[cfg(not(target_os = "windows"))]
             proc_names: &["firefox"],
         },
     ]
+}
+
+/// Categorised reason a browser is currently failing the enforcement
+/// check. Keeps `notify_user_of_failure` and the alert-button picker in
+/// lockstep — the user-facing button text should always match the
+/// actual reason the block isn't being enforced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailureKind {
+    /// Native host heartbeat is stale — the extension is almost
+    /// certainly disabled / crashed.
+    HeartbeatStale,
+    /// Native-messaging manifest never got written to disk. Shouldn't
+    /// happen unless the user deleted it manually.
+    ManifestMissing,
+    /// We couldn't read any profile — rare; surface as a generic open.
+    NoProfile,
+    /// Extension isn't installed in the user's default profile.
+    ExtensionNotInstalled,
+    /// Extension is installed but disabled.
+    ExtensionDisabled,
+    /// Extension is installed + enabled, but not permitted in private
+    /// / incognito windows.
+    PrivateBrowsingDisallowed,
+    /// Catch-all for states we didn't specifically categorise.
+    Unknown,
+}
+
+fn failure_kind_for(hb: HeartbeatStatus, status: Option<&BrowserStatus>) -> FailureKind {
+    if matches!(hb, HeartbeatStatus::Stale(_)) {
+        return FailureKind::HeartbeatStale;
+    }
+    let status = match status {
+        Some(s) => s,
+        None => return FailureKind::Unknown,
+    };
+    if !status.manifest_installed {
+        return FailureKind::ManifestMissing;
+    }
+    let profile = status
+        .profiles
+        .iter()
+        .find(|p| p.is_default)
+        .or_else(|| status.profiles.first());
+    let profile = match profile {
+        Some(p) => p,
+        None => return FailureKind::NoProfile,
+    };
+    if !profile.installed {
+        return FailureKind::ExtensionNotInstalled;
+    }
+    if !profile.enabled {
+        return FailureKind::ExtensionDisabled;
+    }
+    if profile.private_browsing != Some(true) {
+        return FailureKind::PrivateBrowsingDisallowed;
+    }
+    FailureKind::Unknown
+}
+
+/// Copy for the primary action button on the macOS nag alert. Must tell
+/// the user *specifically* what's wrong so they can skip the diagnostic
+/// step — e.g. "Turn ReDD Focus on in Google Chrome" when the extension
+/// is simply disabled, vs "Enable ReDD Focus in Incognito mode in
+/// Google Chrome" when the extension is fine but just not permitted in
+/// private windows.
+fn action_button_label(kind: FailureKind, meta: &BrowserMeta) -> String {
+    match kind {
+        FailureKind::HeartbeatStale | FailureKind::ExtensionDisabled => {
+            format!("Turn ReDD Focus on in {}", meta.app_name)
+        }
+        FailureKind::ExtensionNotInstalled | FailureKind::ManifestMissing => {
+            format!("Install ReDD Focus in {}", meta.app_name)
+        }
+        FailureKind::PrivateBrowsingDisallowed => {
+            format!(
+                "Enable ReDD Focus in {} in {}",
+                meta.private_mode_name, meta.app_name
+            )
+        }
+        FailureKind::NoProfile | FailureKind::Unknown => {
+            format!("Open ReDD Focus settings in {}", meta.app_name)
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -300,6 +390,7 @@ fn tick(app: &AppHandle, state: &mut HashMap<String, Instant>) -> Result<(), Str
         }
 
         // Failing check + browser running + block active => escalate.
+        let kind = failure_kind_for(hb, browser_result.as_ref());
         let reason = match hb {
             HeartbeatStatus::Stale(age) => format!(
                 "extension not responding (last ping {}s ago)",
@@ -315,7 +406,7 @@ fn tick(app: &AppHandle, state: &mut HashMap<String, Instant>) -> Result<(), Str
                 // We only do this on the transition into a failing state so
                 // the user gets one notification per episode, not one every
                 // 5 s tick.
-                notify_user_of_failure(app, meta.label, meta.app_name, &reason);
+                notify_user_of_failure(app, &meta, kind, &reason);
                 let deadline = Instant::now() + DEFAULT_GRACE;
                 state.insert(meta.label.into(), deadline);
                 emit_event(
@@ -370,37 +461,129 @@ fn emit_event(app: &AppHandle, event: EnforcementEvent) {
     }
 }
 
-/// Fire an OS-level banner notification on the transition into a failing
-/// state. This is the "hey, look at me even if my window is hidden behind
-/// Chrome" channel. We deliberately don't re-fire on every tick — the
-/// in-app banner covers the ongoing-nag case; the system notification is
-/// just the initial attention-grab.
+/// Escalate on the transition into a failing state. On macOS this is a
+/// modal `display alert` with action buttons: the primary button names
+/// exactly what's wrong ("Turn ReDD Focus on in Google Chrome", "Enable
+/// ReDD Focus in Incognito mode in Google Chrome", …) and, when
+/// clicked, opens the right extensions page directly. The alert is
+/// spawned in a detached thread so we never block the enforcer loop,
+/// and auto-dismisses before the grace period expires so it doesn't
+/// linger if the user's away from their desk.
 ///
-/// Clicking the notification on both macOS and Windows brings the ReDD
-/// Block window forward (standard notification-activation behavior), at
-/// which point the user sees the in-app banner with a "Re-enable"
-/// button. We don't attach action buttons to the notification itself
-/// because those require platform-specific registration and don't
-/// materially improve the flow.
-///
-/// Errors (e.g. user denied notification permission) are logged and
-/// swallowed: enforcement must keep running even without notifications.
-fn notify_user_of_failure(app: &AppHandle, label: &str, app_name: &str, reason: &str) {
+/// On Windows we fall back to the plugin's banner notification — toast
+/// notifications *can* carry buttons but need a registered AUMID and a
+/// proper bundle, which is future work. The in-app banner (with its
+/// own Fix button) covers this case once the user opens ReDD Block.
+fn notify_user_of_failure(
+    app: &AppHandle,
+    meta: &BrowserMeta,
+    kind: FailureKind,
+    reason: &str,
+) {
     let grace_secs = DEFAULT_GRACE.as_secs();
-    let title = format!("{app_name} will close in {grace_secs}s");
+    let title = format!("{} will close in {grace_secs}s", meta.app_name);
     let body = format!(
-        "ReDD Focus isn't enforcing your block in {app_name} ({reason}). \
-         Open ReDD Block to fix it."
+        "ReDD Focus isn't enforcing your block in {} ({reason}). \
+         Fix it now to keep your block active.",
+        meta.app_name
     );
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
+    log::info!(
+        "[enforcer] notifying user of failure ({}): kind={kind:?} title={title}",
+        meta.label
+    );
+
+    #[cfg(target_os = "macos")]
     {
-        log::warn!("[enforcer] system notification failed ({label}): {e}");
+        let button = action_button_label(kind, meta);
+        show_action_alert_async(app.clone(), meta.label, button, title, body);
     }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Silence unused-variable lints on Windows; `kind` drives alert
+        // copy which is macOS-only for now.
+        let _ = kind;
+        match app.notification().builder().title(&title).body(&body).show() {
+            Ok(()) => log::info!("[enforcer] plugin notification dispatched ({})", meta.label),
+            Err(e) => log::warn!(
+                "[enforcer] plugin notification failed ({}): {e}",
+                meta.label
+            ),
+        }
+    }
+}
+
+/// Run `osascript display alert` in a detached thread so the enforcer
+/// loop isn't blocked while the user decides. The alert auto-dismisses
+/// 5 s before we'd force-quit the browser, so a late click never races
+/// with the quit itself. If the user clicks the action button we open
+/// the browser's extensions page via the existing tauri command — this
+/// keeps the chromium-id deep-linking behaviour (`?id=<ext-id>`) in
+/// one place.
+#[cfg(target_os = "macos")]
+fn show_action_alert_async(
+    app: AppHandle,
+    label: &'static str,
+    button_label: String,
+    title: String,
+    message: String,
+) {
+    let giving_up_after = DEFAULT_GRACE.as_secs().saturating_sub(5).max(5);
+    std::thread::spawn(move || {
+        let escape = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "display alert \"{title}\" message \"{message}\" \
+             buttons {{\"Dismiss\", \"{action}\"}} \
+             default button \"{action}\" as critical \
+             giving up after {giving_up_after}",
+            title = escape(&title),
+            message = escape(&message),
+            action = escape(&button_label),
+        );
+        match std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+        {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stdout = stdout.trim();
+                // `display alert` returns e.g.
+                // `button returned:Turn ReDD Focus on in Google Chrome, gave up:false`
+                // (or `gave up:true` with an empty button when it
+                // auto-dismissed).
+                let clicked_action = stdout.contains(&format!(
+                    "button returned:{}",
+                    button_label
+                ));
+                log::info!(
+                    "[enforcer] alert closed ({label}): clicked_action={clicked_action} out={stdout}"
+                );
+                if clicked_action {
+                    let browser = label.to_string();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = crate::commands::extension::open_browser_extensions_page(
+                            browser.clone(),
+                        )
+                        .await
+                        {
+                            log::warn!(
+                                "[enforcer] open_browser_extensions_page failed ({browser}): {e}"
+                            );
+                        }
+                    });
+                    // Also bring ReDD Block forward so the in-app banner
+                    // (with its own Re-enable button + countdown) is
+                    // right there once the user deals with the browser.
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+            Err(e) => log::warn!("[enforcer] osascript alert spawn failed ({label}): {e}"),
+        }
+    });
 }
 
 /// Fire a terminal notification after we've actually quit the browser, so
@@ -430,14 +613,56 @@ fn notify_user_of_quit(
              Please quit it manually and re-enable the extension."
         )
     };
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
+    log::info!("[enforcer] notifying user of quit ({label}): {title}");
+    send_system_notification(app, &title, &body, label);
+}
+
+/// Send a system notification via the Tauri plugin, and on macOS *also*
+/// fire an `osascript`-backed notification as a fallback. Why the
+/// fallback? The plugin uses `notify-rust`, which on macOS dev builds
+/// posts notifications under `com.apple.Terminal` — meaning the user's
+/// Terminal.app needs to be granted notification permission in System
+/// Settings, otherwise the banner is dropped silently (the plugin
+/// swallows the error inside a spawned task). `osascript` uses the
+/// Script Editor identity which is typically permitted, and in any case
+/// firing both is cheap and one of them almost always lands.
+///
+/// In release / installed builds the plugin posts under the real bundle
+/// identifier and macOS prompts on first use; the fallback is still
+/// harmless and handles edge cases where the user has explicitly denied
+/// notifications for ReDD Block.
+fn send_system_notification(app: &AppHandle, title: &str, body: &str, label: &str) {
+    match app.notification().builder().title(title).body(body).show() {
+        Ok(()) => log::info!("[enforcer] plugin notification dispatched ({label})"),
+        Err(e) => log::warn!("[enforcer] plugin notification failed ({label}): {e}"),
+    }
+
+    #[cfg(target_os = "macos")]
+    osascript_notification_fallback(title, body, label);
+}
+
+/// Shell out to `osascript display notification` as a best-effort
+/// fallback on macOS. Uses a subprocess so a hang in AppleScript can't
+/// wedge the enforcer thread (we don't wait for stdout). Strings are
+/// embedded using the AppleScript-safe escape of backslash + double
+/// quote.
+#[cfg(target_os = "macos")]
+fn osascript_notification_fallback(title: &str, body: &str, label: &str) {
+    fn escape_applescript(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+    let script = format!(
+        "display notification \"{body}\" with title \"{title}\"",
+        body = escape_applescript(body),
+        title = escape_applescript(title),
+    );
+    match std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .spawn()
     {
-        log::warn!("[enforcer] system notification failed ({label}): {e}");
+        Ok(_) => log::info!("[enforcer] osascript notification dispatched ({label})"),
+        Err(e) => log::warn!("[enforcer] osascript notification spawn failed ({label}): {e}"),
     }
 }
 

@@ -290,13 +290,63 @@ body.dark-mode .title-bar button:hover {
     background: #d97706;
 }
 
-#behaviour-change-banner:not(.hidden)+.extension-enforcer-action-banner {
+#behaviour-change-banner:not(.hidden)+.extension-enforcer-action-banner,
+.extension-enforcer-action-banner:not(.hidden)+.extension-enforcer-action-banner {
     margin-top: 0;
 }
 
 .extension-enforcer-action-banner .update-banner-btn {
     background: rgba(255, 255, 255, 0.22);
     border-color: rgba(255, 255, 255, 0.36);
+}
+
+.extension-enforcer-action-banner .update-banner-content {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.extension-enforcer-message {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.extension-enforcer-action-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.2;
+}
+
+.extension-enforcer-action-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.extension-enforcer-browser-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    object-fit: contain;
+}
+
+.extension-enforcer-action-headline {
+    font-weight: 700;
+}
+
+.extension-enforcer-action-countdown {
+    opacity: 0.95;
+    white-space: nowrap;
+}
+
+.extension-enforcer-action-instruction {
+    font-size: 15px;
+    line-height: 1.2;
+    opacity: 0.9;
+    font-style: italic;
 }
 
 /* Main Content */

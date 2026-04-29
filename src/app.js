@@ -4,6 +4,10 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask, message } from '@tauri-apps/plugin-dialog';
+import iconChromeUrl from './images/icon-chrome.svg';
+import iconEdgeUrl from './images/icon-edge.svg';
+import iconFirefoxUrl from './images/icon-firefox.svg';
+import iconSafariUrl from './images/icon-safari.svg';
 
 // Compatibility layer wrapping Tauri APIs
 const tauriAPI = {
@@ -1583,8 +1587,7 @@ async function updateBehaviourChangeBanner(state) {
 }
 
 let enforcerUiAlertsAttached = false;
-let enforcerActionBannerPayload = null;
-let enforcerActionBannerDeadline = 0;
+const enforcerActionBannerStates = new Map();
 let enforcerActionBannerInterval = null;
 
 function setupEnforcerUiAlerts() {
@@ -1621,6 +1624,17 @@ function browserKeyFromLabel(label) {
     return 'chrome';
 }
 
+function browserIconUrl(key) {
+    switch (key) {
+        case 'firefox': return iconFirefoxUrl;
+        case 'edge': return iconEdgeUrl;
+        case 'safari': return iconSafariUrl;
+        case 'brave':
+        case 'chrome':
+        default: return iconChromeUrl;
+    }
+}
+
 function enforcerCopy(payload) {
     const browser = payload.label || payload.browser || 'your browser';
     const seconds = Math.max(0, Number(payload.remaining_secs ?? payload.remainingSecs ?? 0));
@@ -1628,14 +1642,18 @@ function enforcerCopy(payload) {
 
     if (issue === 'missing') {
         return {
-            title: `${browser} needs ReDD Focus`,
+            headline: `ReDD Focus isn't installed in ${browser}.`,
+            countdown: `Auto-closing ${browser} in ${seconds}s`,
+            instruction: `Install ReDD Focus for ${browser}.`,
             body: `ReDD Focus is not installed in ${browser}. Install it within ${seconds}s or ${browser} will be closed.`,
             action: 'Install ReDD Focus',
         };
     }
     if (issue === 'disabled') {
         return {
-            title: `ReDD Focus is turned off in ${browser}`,
+            headline: `ReDD Focus is turned off in ${browser}.`,
+            countdown: `Auto-closing ${browser} in ${seconds}s`,
+            instruction: `In ${browser} extensions, turn ReDD Focus back on.`,
             body: `Turn ReDD Focus back on within ${seconds}s or ${browser} will be closed.`,
             action: `Open ${browser} Extensions`,
         };
@@ -1643,23 +1661,32 @@ function enforcerCopy(payload) {
     if (issue === 'private') {
         const key = browserKeyFromLabel(browser);
         const instruction = key === 'chrome'
-            ? ' In Chrome, find ReDD Focus, then click Details > Allow in Incognito.'
-            : '';
+            ? 'In Chrome extensions, find ReDD Focus, then click Details > Allow in Incognito.'
+            : `In ${browser} extensions, allow ReDD Focus in private/incognito windows.`;
         return {
             title: '',
-            body: `Allow ReDD Focus in private/incognito windows in ${browser} within ${seconds}s or ${browser} will be closed.${instruction}`,
+            headline: `ReDD Focus can't block in private/incognito windows.`,
+            countdown: `Auto-closing ${browser} in ${seconds}s`,
+            instruction,
+            body: `ReDD Focus can't block in private/incognito windows. Auto-closing ${browser} in ${seconds}s. ${instruction}`,
             action: `Open ${browser} Extensions`,
         };
     }
     if (issue === 'access') {
         return {
-            title: `ReDD Block cannot verify ${browser}`,
+            headline: `ReDD Block can't verify ReDD Focus in ${browser}.`,
+            countdown: `Auto-closing ${browser} in ${seconds}s`,
+            instruction: browser === 'Safari'
+                ? 'Grant ReDD Block Full Disk Access.'
+                : `Grant access so ReDD Block can verify ${browser}.`,
             body: `Grant access so ReDD Block can verify ReDD Focus before ${browser} is closed.`,
             action: browser === 'Safari' ? 'Open Full Disk Access' : `Open ${browser} Settings`,
         };
     }
     return {
-        title: `${browser} needs attention`,
+        headline: `ReDD Focus isn't ready in ${browser}.`,
+        countdown: `Auto-closing ${browser} in ${seconds}s`,
+        instruction: `Fix ReDD Focus in ${browser} extensions.`,
         body: `ReDD Focus is not ready in ${browser}. Fix it within ${seconds}s or ${browser} will be closed.`,
         action: `Open ${browser} Extensions`,
     };
@@ -1667,6 +1694,88 @@ function enforcerCopy(payload) {
 
 function enforcerCopyText(copy) {
     return copy.title ? `${copy.title}. ${copy.body}` : copy.body;
+}
+
+function renderEnforcerActionCopy(banner, payload, copy) {
+    const key = enforcerBannerKey(payload);
+    const icon = banner.querySelector('.extension-enforcer-browser-icon');
+    const headline = banner.querySelector('.extension-enforcer-action-headline');
+    const countdown = banner.querySelector('.extension-enforcer-action-countdown');
+    const instruction = banner.querySelector('.extension-enforcer-action-instruction');
+    const fallbackText = banner.querySelector('.extension-enforcer-action-text');
+
+    if (copy.headline) {
+        if (icon) {
+            icon.src = browserIconUrl(key);
+            icon.alt = '';
+            icon.title = payload.label || payload.browser || key;
+        }
+        if (headline) headline.textContent = copy.headline;
+        if (countdown) countdown.textContent = copy.countdown || '';
+        if (instruction) instruction.textContent = copy.instruction || '';
+        fallbackText?.classList.add('hidden');
+        return;
+    }
+
+    fallbackText?.classList.remove('hidden');
+    if (fallbackText) fallbackText.textContent = enforcerCopyText(copy);
+    if (headline) headline.textContent = '';
+    if (countdown) countdown.textContent = '';
+    if (instruction) instruction.textContent = '';
+}
+
+function enforcerBannerKey(payload) {
+    return browserKeyFromLabel(payload?.label || payload?.browser || 'chrome');
+}
+
+function enforcerBannerId(key) {
+    return `extension-enforcer-action-banner-${key}`;
+}
+
+function ensureEnforcerActionBanner(payload) {
+    const key = enforcerBannerKey(payload);
+    let banner = document.getElementById(enforcerBannerId(key));
+    if (banner) return { banner, key };
+
+    banner = document.createElement('div');
+    banner.id = enforcerBannerId(key);
+    banner.className = 'update-banner extension-enforcer-action-banner';
+    banner.dataset.browser = key;
+    banner.innerHTML = `
+        <div class="update-banner-content">
+            <div class="extension-enforcer-message">
+                <div class="extension-enforcer-action-main">
+                    <img class="extension-enforcer-browser-icon" aria-hidden="true">
+                    <div class="extension-enforcer-action-copy">
+                        <div>
+                            <strong class="extension-enforcer-action-headline"></strong>
+                            <span class="extension-enforcer-action-countdown"></span>
+                        </div>
+                        <em class="extension-enforcer-action-instruction"></em>
+                    </div>
+                </div>
+                <span class="extension-enforcer-action-text hidden"></span>
+            </div>
+            <button class="update-banner-btn extension-enforcer-action-btn" type="button"></button>
+        </div>
+        <button class="update-banner-dismiss extension-enforcer-action-dismiss" title="Dismiss" type="button">×</button>
+    `;
+
+    const setupBanner = document.getElementById('behaviour-change-banner');
+    const existingBanners = document.querySelectorAll('.extension-enforcer-action-banner');
+    const lastExistingBanner = existingBanners[existingBanners.length - 1];
+    if (lastExistingBanner) {
+        lastExistingBanner.insertAdjacentElement('afterend', banner);
+    } else if (setupBanner) {
+        setupBanner.insertAdjacentElement('afterend', banner);
+    } else {
+        document.querySelector('.app-container')?.prepend(banner);
+    }
+
+    banner.querySelector('.extension-enforcer-action-dismiss')?.addEventListener('click', () => {
+        banner.classList.add('hidden');
+    });
+    return { banner, key };
 }
 
 function enforcerClosedCopy(payload) {
@@ -1678,23 +1787,31 @@ function enforcerClosedCopy(payload) {
             ? ' In Chrome, find ReDD Focus, then click Details > Allow in Incognito.'
             : '';
         return {
+            headline: `${browser} was closed because ReDD Focus can't block in private/incognito windows.`,
+            instruction: instruction.trim(),
             body: `${browser} was closed down because ReDD Focus is not allowed in private/incognito windows.${instruction}`,
             action: `Open ${browser} Extensions`,
         };
     }
     if (issue === 'disabled') {
         return {
+            headline: `${browser} was closed because ReDD Focus is turned off.`,
+            instruction: `In ${browser} extensions, turn ReDD Focus back on.`,
             body: `${browser} was closed down because ReDD Focus is turned off.`,
             action: `Open ${browser} Extensions`,
         };
     }
     if (issue === 'missing') {
         return {
+            headline: `${browser} was closed because ReDD Focus isn't installed.`,
+            instruction: `Install ReDD Focus for ${browser}.`,
             body: `${browser} was closed down because ReDD Focus is not installed.`,
             action: 'Install ReDD Focus',
         };
     }
     return {
+        headline: `${browser} was closed because ReDD Focus isn't ready.`,
+        instruction: `Fix ReDD Focus in ${browser} extensions.`,
         body: `${browser} was closed down because ReDD Focus is not ready.`,
         action: `Open ${browser} Extensions`,
     };
@@ -1719,19 +1836,25 @@ async function openEnforcerFix(payload) {
 }
 
 function updateEnforcerActionBannerCountdown() {
-    if (!enforcerActionBannerPayload) return;
-    const remainingSecs = Math.max(0, Math.ceil((enforcerActionBannerDeadline - Date.now()) / 1000));
-    enforcerActionBannerPayload = {
-        ...enforcerActionBannerPayload,
-        remaining_secs: remainingSecs,
-        remainingSecs,
-    };
+    if (enforcerActionBannerStates.size === 0) return;
+    for (const [key, state] of enforcerActionBannerStates) {
+        const remainingSecs = Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000));
+        const payload = {
+            ...state.payload,
+            remaining_secs: remainingSecs,
+            remainingSecs,
+        };
+        state.payload = payload;
 
-    const copy = enforcerCopy(enforcerActionBannerPayload);
-    const text = document.getElementById('extension-enforcer-action-text');
-    if (text) text.textContent = enforcerCopyText(copy);
+        const banner = document.getElementById(enforcerBannerId(key));
+        const copy = enforcerCopy(payload);
+        if (banner) renderEnforcerActionCopy(banner, payload, copy);
 
-    if (remainingSecs <= 0 && enforcerActionBannerInterval) {
+        if (remainingSecs <= 0) {
+            enforcerActionBannerStates.delete(key);
+        }
+    }
+    if (enforcerActionBannerStates.size === 0 && enforcerActionBannerInterval) {
         clearInterval(enforcerActionBannerInterval);
         enforcerActionBannerInterval = null;
     }
@@ -1739,37 +1862,17 @@ function updateEnforcerActionBannerCountdown() {
 
 function renderEnforcerActionBanner(payload) {
     if (!payload || !payload.browser) return;
-    let banner = document.getElementById('extension-enforcer-action-banner');
-    if (!banner) {
-        banner = document.createElement('div');
-        banner.id = 'extension-enforcer-action-banner';
-        banner.className = 'update-banner extension-enforcer-action-banner';
-        banner.innerHTML = `
-            <div class="update-banner-content">
-                <span id="extension-enforcer-action-text"></span>
-                <button id="extension-enforcer-action-btn" class="update-banner-btn" type="button"></button>
-            </div>
-            <button id="extension-enforcer-action-dismiss" class="update-banner-dismiss" title="Dismiss" type="button">×</button>
-        `;
-        const setupBanner = document.getElementById('behaviour-change-banner');
-        if (setupBanner) {
-            setupBanner.insertAdjacentElement('afterend', banner);
-        } else {
-            document.querySelector('.app-container')?.prepend(banner);
-        }
-        document.getElementById('extension-enforcer-action-dismiss')?.addEventListener('click', () => {
-            banner.classList.add('hidden');
-        });
-    }
+    const { banner, key } = ensureEnforcerActionBanner(payload);
 
     const remainingSecs = Math.max(0, Number(payload.remaining_secs ?? payload.remainingSecs ?? 0));
-    enforcerActionBannerPayload = { ...payload, remaining_secs: remainingSecs, remainingSecs };
-    enforcerActionBannerDeadline = Date.now() + remainingSecs * 1000;
+    enforcerActionBannerStates.set(key, {
+        payload: { ...payload, remaining_secs: remainingSecs, remainingSecs },
+        deadline: Date.now() + remainingSecs * 1000,
+    });
 
     const copy = enforcerCopy(payload);
-    const text = document.getElementById('extension-enforcer-action-text');
-    const action = document.getElementById('extension-enforcer-action-btn');
-    if (text) text.textContent = enforcerCopyText(copy);
+    const action = banner.querySelector('.extension-enforcer-action-btn');
+    renderEnforcerActionCopy(banner, payload, copy);
     if (action) {
         action.textContent = copy.action;
         action.onclick = () => openEnforcerFix(payload);
@@ -1782,36 +1885,34 @@ function renderEnforcerActionBanner(payload) {
 
 function renderEnforcerClosedBanner(payload) {
     if (!payload || !payload.browser) return;
-    if (enforcerActionBannerInterval) {
+    const { banner, key } = ensureEnforcerActionBanner(payload);
+    enforcerActionBannerStates.delete(key);
+    if (enforcerActionBannerStates.size === 0 && enforcerActionBannerInterval) {
         clearInterval(enforcerActionBannerInterval);
         enforcerActionBannerInterval = null;
     }
-    enforcerActionBannerPayload = null;
-    enforcerActionBannerDeadline = 0;
-
-    renderEnforcerActionBanner({ ...payload, remaining_secs: 0, remainingSecs: 0 });
-    if (enforcerActionBannerInterval) {
-        clearInterval(enforcerActionBannerInterval);
-        enforcerActionBannerInterval = null;
-    }
-    enforcerActionBannerPayload = null;
 
     const copy = enforcerClosedCopy(payload);
-    const text = document.getElementById('extension-enforcer-action-text');
-    const action = document.getElementById('extension-enforcer-action-btn');
-    if (text) text.textContent = copy.body;
+    const action = banner.querySelector('.extension-enforcer-action-btn');
+    renderEnforcerActionCopy(banner, payload, {
+        headline: copy.headline,
+        countdown: '',
+        instruction: copy.instruction,
+        body: copy.body,
+    });
     if (action) {
         action.textContent = copy.action;
         action.onclick = () => openEnforcerFix(payload);
     }
+    banner.classList.remove('hidden');
 }
 
-function hideEnforcerActionBanner() {
-    const banner = document.getElementById('extension-enforcer-action-banner');
+function hideEnforcerActionBanner(browser) {
+    const key = browserKeyFromLabel(browser);
+    const banner = document.getElementById(enforcerBannerId(key));
     if (banner) banner.classList.add('hidden');
-    enforcerActionBannerPayload = null;
-    enforcerActionBannerDeadline = 0;
-    if (enforcerActionBannerInterval) {
+    enforcerActionBannerStates.delete(key);
+    if (enforcerActionBannerStates.size === 0 && enforcerActionBannerInterval) {
         clearInterval(enforcerActionBannerInterval);
         enforcerActionBannerInterval = null;
     }
@@ -11100,6 +11201,7 @@ function updateOverrideAllButtonVisibility() {}
 
 // Variable to track override-all challenge text
 let overrideAllChallengeText = '';
+let refreshGraceSetting = async () => {};
 
 // Setup the configurable browser-extension grace period.
 // Backend reads `settings.extensionGraceSeconds` from the data file
@@ -11110,6 +11212,7 @@ function setupGraceSetting() {
     const errorEl = document.getElementById('grace-error');
     const lockedHint = document.getElementById('grace-locked-hint');
     if (!input) return;
+    let lastGood = parseInt(input.value, 10) || 60;
 
     const showError = (msg) => {
         if (!errorEl) return;
@@ -11118,10 +11221,12 @@ function setupGraceSetting() {
     };
 
     // Load current value and reflect locked state.
-    const refresh = async () => {
+    refreshGraceSetting = async () => {
         try {
             const secs = await invoke('get_extension_grace_seconds');
             input.value = secs;
+            lastGood = secs;
+            showError('');
             // Locked-hint UX: probe by attempting to set to current+1
             // and checking the error. Cheaper alternative would be a
             // dedicated `is_locked` command, but this avoids a new
@@ -11132,9 +11237,8 @@ function setupGraceSetting() {
             console.warn('[grace] read failed:', e);
         }
     };
-    refresh();
+    refreshGraceSetting();
 
-    let lastGood = parseInt(input.value, 10) || 60;
     input.addEventListener('change', async () => {
         const raw = parseInt(input.value, 10);
         if (!Number.isFinite(raw)) {
@@ -11438,6 +11542,7 @@ async function performOverrideAll() {
 
         // Re-render the UI
         render();
+        await refreshGraceSetting();
 
         // Reset the blocklist selection UI
         const blocklistSelect = document.getElementById('blocklist-select');

@@ -209,7 +209,9 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
         }
 
         if default_profile_passes(browser_status) {
-            cancel_timer(app, state, key, true);
+            if !cancel_timer(app, state, key, true) {
+                emit_resolved(app, key);
+            }
             continue;
         }
 
@@ -326,7 +328,12 @@ fn default_profile_issue(b: &BrowserStatus) -> ExtensionIssue {
     ExtensionIssue::Unknown
 }
 
-fn cancel_timer(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>, key: BrowserKey, emit: bool) {
+fn cancel_timer(
+    app: &AppHandle,
+    state: &Arc<Mutex<EnforcerState>>,
+    key: BrowserKey,
+    emit: bool,
+) -> bool {
     let removed = state
         .lock()
         .map(|mut s| s.timers.remove(&key))
@@ -336,14 +343,19 @@ fn cancel_timer(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>, key: Browser
         close_system_action_alert(timer.alert_pid);
     }
     if was_removed && emit {
-        let _ = app.emit(
-            "enforcer://grace-resolved",
-            ResolvedEvent {
-                browser: key,
-                label: key.label(),
-            },
-        );
+        emit_resolved(app, key);
     }
+    was_removed
+}
+
+fn emit_resolved(app: &AppHandle, key: BrowserKey) {
+    let _ = app.emit(
+        "enforcer://grace-resolved",
+        ResolvedEvent {
+            browser: key,
+            label: key.label(),
+        },
+    );
 }
 
 fn emit_update(

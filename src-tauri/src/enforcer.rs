@@ -140,6 +140,13 @@ pub struct ResolvedEvent {
     pub label: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ClosedEvent {
+    pub browser: BrowserKey,
+    pub label: &'static str,
+    pub issue: ExtensionIssue,
+}
+
 #[derive(Debug)]
 struct TimerState {
     deadline: Instant,
@@ -264,6 +271,7 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
                 }
             }
             quit_browser(key);
+            emit_closed(app, key, issue);
             notify_killed(app, key);
             crate::commands::reveal_app(app);
         } else {
@@ -362,6 +370,17 @@ fn emit_update(
             remaining_secs: remaining.as_secs(),
             total_secs: total.as_secs(),
             issue: default_profile_issue(browser_status),
+        },
+    );
+}
+
+fn emit_closed(app: &AppHandle, key: BrowserKey, issue: ExtensionIssue) {
+    let _ = app.emit(
+        "enforcer://browser-closed",
+        ClosedEvent {
+            browser: key,
+            label: key.label(),
+            issue,
         },
     );
 }

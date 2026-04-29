@@ -69,6 +69,7 @@ const tauriAPI = {
     onBlocksUpdated: (callback) => listen('blocks-updated', callback),
     onEnforcerGraceUpdate: (callback) => listen('enforcer://grace-update', callback),
     onEnforcerGraceResolved: (callback) => listen('enforcer://grace-resolved', callback),
+    onEnforcerBrowserClosed: (callback) => listen('enforcer://browser-closed', callback),
     onMenuZoomIn: (callback) => listen('menu-zoom-in', callback),
     onMenuZoomOut: (callback) => listen('menu-zoom-out', callback),
     onMenuZoomReset: (callback) => listen('menu-zoom-reset', callback),
@@ -1602,6 +1603,12 @@ function setupEnforcerUiAlerts() {
     }).catch((e) => {
         console.warn('[enforcer-ui] failed to attach grace-resolved listener:', e);
     });
+    tauriAPI.onEnforcerBrowserClosed((event) => {
+        const payload = event?.payload || {};
+        renderEnforcerClosedBanner(payload);
+    }).catch((e) => {
+        console.warn('[enforcer-ui] failed to attach browser-closed listener:', e);
+    });
 }
 
 function browserKeyFromLabel(label) {
@@ -1662,6 +1669,37 @@ function enforcerCopyText(copy) {
     return copy.title ? `${copy.title}. ${copy.body}` : copy.body;
 }
 
+function enforcerClosedCopy(payload) {
+    const browser = payload.label || payload.browser || 'your browser';
+    const issue = payload.issue || 'unknown';
+    if (issue === 'private') {
+        const key = browserKeyFromLabel(browser);
+        const instruction = key === 'chrome'
+            ? ' In Chrome, find ReDD Focus, then click Details > Allow in Incognito.'
+            : '';
+        return {
+            body: `${browser} was closed down because ReDD Focus is not allowed in private/incognito windows.${instruction}`,
+            action: `Open ${browser} Extensions`,
+        };
+    }
+    if (issue === 'disabled') {
+        return {
+            body: `${browser} was closed down because ReDD Focus is turned off.`,
+            action: `Open ${browser} Extensions`,
+        };
+    }
+    if (issue === 'missing') {
+        return {
+            body: `${browser} was closed down because ReDD Focus is not installed.`,
+            action: 'Install ReDD Focus',
+        };
+    }
+    return {
+        body: `${browser} was closed down because ReDD Focus is not ready.`,
+        action: `Open ${browser} Extensions`,
+    };
+}
+
 async function openEnforcerFix(payload) {
     const browser = payload.label || payload.browser || 'Chrome';
     const key = browserKeyFromLabel(browser);
@@ -1713,7 +1751,12 @@ function renderEnforcerActionBanner(payload) {
             </div>
             <button id="extension-enforcer-action-dismiss" class="update-banner-dismiss" title="Dismiss" type="button">×</button>
         `;
-        document.querySelector('.app-container')?.prepend(banner);
+        const setupBanner = document.getElementById('behaviour-change-banner');
+        if (setupBanner) {
+            setupBanner.insertAdjacentElement('afterend', banner);
+        } else {
+            document.querySelector('.app-container')?.prepend(banner);
+        }
         document.getElementById('extension-enforcer-action-dismiss')?.addEventListener('click', () => {
             banner.classList.add('hidden');
         });
@@ -1735,6 +1778,32 @@ function renderEnforcerActionBanner(payload) {
         enforcerActionBannerInterval = setInterval(updateEnforcerActionBannerCountdown, 1000);
     }
     banner.classList.remove('hidden');
+}
+
+function renderEnforcerClosedBanner(payload) {
+    if (!payload || !payload.browser) return;
+    if (enforcerActionBannerInterval) {
+        clearInterval(enforcerActionBannerInterval);
+        enforcerActionBannerInterval = null;
+    }
+    enforcerActionBannerPayload = null;
+    enforcerActionBannerDeadline = 0;
+
+    renderEnforcerActionBanner({ ...payload, remaining_secs: 0, remainingSecs: 0 });
+    if (enforcerActionBannerInterval) {
+        clearInterval(enforcerActionBannerInterval);
+        enforcerActionBannerInterval = null;
+    }
+    enforcerActionBannerPayload = null;
+
+    const copy = enforcerClosedCopy(payload);
+    const text = document.getElementById('extension-enforcer-action-text');
+    const action = document.getElementById('extension-enforcer-action-btn');
+    if (text) text.textContent = copy.body;
+    if (action) {
+        action.textContent = copy.action;
+        action.onclick = () => openEnforcerFix(payload);
+    }
 }
 
 function hideEnforcerActionBanner() {

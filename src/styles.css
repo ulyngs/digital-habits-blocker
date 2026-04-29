@@ -286,6 +286,19 @@ body.dark-mode .title-bar button:hover {
     background: rgba(255, 255, 255, 0.15);
 }
 
+.extension-enforcer-action-banner {
+    background: #d97706;
+}
+
+#behaviour-change-banner:not(.hidden)+.extension-enforcer-action-banner {
+    margin-top: 0;
+}
+
+.extension-enforcer-action-banner .update-banner-btn {
+    background: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.36);
+}
+
 /* Main Content */
 .main-content {
     flex: 1;

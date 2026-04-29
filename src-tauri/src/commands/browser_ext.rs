@@ -62,3 +62,96 @@ pub async fn browser_profiles_compliant() -> Result<bool, String> {
     .await
     .map_err(|e| format!("join error: {e}"))
 }
+
+/// Open the browser's extension-management UI so the user can enable
+/// ReDD Focus or allow it in private/incognito windows.
+#[tauri::command]
+pub fn open_browser_extension_settings(browser: String) -> Result<(), String> {
+    let browser = browser.trim();
+    let normalized = browser.to_ascii_lowercase();
+    let chromium_id = crate::native_host_install::CHROMIUM_EXT_ID;
+    let url = match normalized.as_str() {
+        "firefox" => "about:addons".to_string(),
+        "safari" => "x-apple.systempreferences:com.apple.ExtensionsPreferences?".to_string(),
+        _ => format!("chrome://extensions/?id={chromium_id}"),
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        if normalized == "safari" {
+            let out = std::process::Command::new("/usr/bin/open")
+                .arg(&url)
+                .output()
+                .map_err(|e| format!("spawn /usr/bin/open: {e}"))?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                return Err(format!(
+                    "`open {url}` exited with {}: {}",
+                    out.status,
+                    stderr.trim()
+                ));
+            }
+            return Ok(());
+        }
+
+        let app_name = match normalized.as_str() {
+            "brave" => "Brave Browser",
+            "edge" => "Microsoft Edge",
+            "firefox" => "Firefox",
+            _ => "Google Chrome",
+        };
+        let out = std::process::Command::new("/usr/bin/open")
+            .args(["-a", app_name, &url])
+            .output()
+            .map_err(|e| format!("spawn /usr/bin/open: {e}"))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(format!(
+                "`open -a {app_name}` exited with {}: {}",
+                out.status,
+                stderr.trim()
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let exe = match normalized.as_str() {
+            "brave" => Some("brave.exe"),
+            "edge" => Some("msedge.exe"),
+            "firefox" => Some("firefox.exe"),
+            "chrome" => Some("chrome.exe"),
+            _ => None,
+        };
+        let args: Vec<String> = match exe {
+            Some(browser_exe) => vec![
+                "/c".into(),
+                "start".into(),
+                "".into(),
+                browser_exe.into(),
+                url.clone(),
+            ],
+            None => vec!["/c".into(), "start".into(), "".into(), url.clone()],
+        };
+        let out = std::process::Command::new("cmd")
+            .args(&args)
+            .output()
+            .map_err(|e| format!("spawn cmd start: {e}"))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            return Err(format!(
+                "`cmd /c start` exited with {}: {}",
+                out.status,
+                stderr.trim()
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let _ = url;
+        Err("open_browser_extension_settings unsupported on this platform".into())
+    }
+}

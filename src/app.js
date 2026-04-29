@@ -67,12 +67,16 @@ const tauriAPI = {
 
     // Event listening
     onBlocksUpdated: (callback) => listen('blocks-updated', callback),
+    onEnforcerGraceUpdate: (callback) => listen('enforcer://grace-update', callback),
+    onEnforcerGraceResolved: (callback) => listen('enforcer://grace-resolved', callback),
     onMenuZoomIn: (callback) => listen('menu-zoom-in', callback),
     onMenuZoomOut: (callback) => listen('menu-zoom-out', callback),
     onMenuZoomReset: (callback) => listen('menu-zoom-reset', callback),
     onMenuHelpReportIssue: (callback) => listen('menu-help-report-issue', callback),
     onMenuHelpContactUs: (callback) => listen('menu-help-contact-us', callback),
     onMenuHelpWhoWeAre: (callback) => listen('menu-help-who-we-are', callback),
+    openBrowserExtensionSettings: (browser) => invoke('open_browser_extension_settings', { browser }),
+    activateApp: () => invoke('activate_app'),
 };
 
 async function openUrl(url, openWith) {
@@ -928,6 +932,7 @@ async function runPostAcceptanceStartup() {
             // Run first-launch migration off the legacy helper + check
             // Automation TCC (macOS) + extension compliance. Idempotent;
             // a no-op on subsequent launches past the current version.
+            setupEnforcerUiAlerts();
             await runDesktopOnboarding();
             await checkHelperStatus();
             console.log('[startup-sync] Desktop startup helperAvailable:', helperAvailable);
@@ -1013,14 +1018,15 @@ async function checkForAppUpdate() {
 //      ReDD Focus extension not yet compliant in any detected
 //      browser → same screen as #2 but framed as "Welcome" (no
 //      cleanup language). Dismissal persisted in localStorage so we
-//      don't nag every launch — the slim extension-compliance
-//      banner takes over after that.
+//      don't nag every launch — enforcement alerts handle urgent
+//      extension failures after that.
 //
 // While the screen is open, the enforcer is paused (set in
 // commands::enforcement::auto_start when migration was pending at
 // launch). We resume it explicitly when the user dismisses post.
 let migrationOnboardingActive = false;
 let migrationOnboardingDismissed = false;
+let migrationCompliancePollTimer = null;
 const EXT_ONBOARDING_DISMISSED_KEY = 'reddBlockExtOnboardingDismissed';
 const BEHAVIOUR_CHANGE_DISMISSED_KEY = 'reddBlockBehaviourChangeDismissed';
 
@@ -1070,9 +1076,8 @@ async function runDesktopOnboarding() {
         }
 
         // Returning user with extension already set up, OR user has
-        // dismissed the welcome — fall back to the slim banner for
-        // ongoing nagging.
-        updateExtensionComplianceBanner(state);
+        // dismissed the welcome. Urgent failures are handled by the
+        // enforcer's system alert instead of another in-app banner.
         await updateBehaviourChangeBanner(state);
     } catch (e) {
         console.warn('[onboarding] state check failed:', e);
@@ -1127,9 +1132,11 @@ async function showMigrationOnboarding(phase, state, opts = {}) {
     setTimeout(focusBack, 250);
 
     if (phase === 'pre') {
+        stopMigrationCompliancePolling();
         wireMigrationPrePhase();
     } else if (phase === 'post') {
         wireMigrationPostPhase(state);
+        startMigrationCompliancePolling();
     }
 }
 
@@ -1138,6 +1145,7 @@ function hideMigrationOnboarding() {
     const main = document.getElementById('main-content');
     if (screen) screen.classList.add('hidden');
     if (main) main.classList.remove('hidden');
+    stopMigrationCompliancePolling();
     migrationOnboardingActive = false;
     migrationOnboardingDismissed = true;
 }
@@ -1240,15 +1248,13 @@ function wireMigrationPostPhase(state) {
             console.warn('[migration] enforcer_start failed:', e);
         }
         // Persist dismissal so we don't surface this full-screen
-        // again on every launch — the slim extension-compliance
-        // banner takes over for ongoing nagging. Stored locally
-        // (per-install) which is fine for a UX hint.
+        // again on every launch. Stored locally (per-install), which
+        // is fine for a UX hint.
         try { localStorage.setItem(EXT_ONBOARDING_DISMISSED_KEY, String(Date.now())); }
         catch (_) { /* localStorage may be disabled; harmless */ }
         hideMigrationOnboarding();
         try {
             const fresh = await invoke('onboarding_state');
-            updateExtensionComplianceBanner(fresh);
             await updateBehaviourChangeBanner(fresh);
         } catch (e) { /* no-op */ }
     };
@@ -1431,8 +1437,32 @@ function renderBrowserInstallButtons(state) {
             hint.className = 'migration-browser-hint';
             hint.textContent = status === 'needs-enable'
                 ? `Enable ReDD Focus in ${entry.label}'s extensions settings.`
-                : `Allow ReDD Focus in private/incognito browsing in ${entry.label}'s extensions settings.`;
+                : `In ${entry.label} extension settings, find ReDD Focus and click Details > Allow in Incognito.`;
             row.appendChild(hint);
+
+            if (status === 'needs-private') {
+                const action = document.createElement('div');
+                action.className = 'migration-browser-action align-end';
+
+                const settingsBtn = document.createElement('button');
+                settingsBtn.type = 'button';
+                settingsBtn.className = 'migration-browser-copy';
+                settingsBtn.textContent = 'Open Extensions';
+                settingsBtn.title = `Open ${entry.label} extension settings`;
+                settingsBtn.addEventListener('click', async () => {
+                    try {
+                        await tauriAPI.openBrowserExtensionSettings(entry.label);
+                        settingsBtn.textContent = 'Opened';
+                        setTimeout(() => { settingsBtn.textContent = 'Open Extensions'; }, 1500);
+                    } catch (e) {
+                        console.warn('[migration] open extension settings failed:', e);
+                        settingsBtn.textContent = 'Failed';
+                        setTimeout(() => { settingsBtn.textContent = 'Open Extensions'; }, 1500);
+                    }
+                });
+                action.appendChild(settingsBtn);
+                row.appendChild(action);
+            }
         }
 
         container.appendChild(row);
@@ -1476,6 +1506,19 @@ async function pollMigrationCompliance() {
         renderBrowserInstallButtons(fresh);
     } catch (e) { /* no-op */ }
 }
+
+function startMigrationCompliancePolling() {
+    stopMigrationCompliancePolling();
+    migrationCompliancePollTimer = setInterval(pollMigrationCompliance, 3000);
+}
+
+function stopMigrationCompliancePolling() {
+    if (migrationCompliancePollTimer) {
+        clearInterval(migrationCompliancePollTimer);
+        migrationCompliancePollTimer = null;
+    }
+}
+
 window.addEventListener('focus', () => {
     if (migrationOnboardingActive) pollMigrationCompliance();
 });
@@ -1538,47 +1581,171 @@ async function updateBehaviourChangeBanner(state) {
     }
 }
 
-function updateExtensionComplianceBanner(state) {
-    const banner = document.getElementById('extension-compliance-banner');
-    const text = document.getElementById('extension-compliance-text');
-    const dismiss = document.getElementById('extension-compliance-dismiss');
-    if (!banner) return;
+let enforcerUiAlertsAttached = false;
+let enforcerActionBannerPayload = null;
+let enforcerActionBannerDeadline = 0;
+let enforcerActionBannerInterval = null;
 
-    if (state.extension_compliant) {
-        banner.classList.add('hidden');
-        return;
+function setupEnforcerUiAlerts() {
+    if (isIOS || enforcerUiAlertsAttached) return;
+    enforcerUiAlertsAttached = true;
+    tauriAPI.onEnforcerGraceUpdate((event) => {
+        const payload = event?.payload || {};
+        renderEnforcerActionBanner(payload);
+    }).catch((e) => {
+        console.warn('[enforcer-ui] failed to attach grace-update listener:', e);
+        enforcerUiAlertsAttached = false;
+    });
+    tauriAPI.onEnforcerGraceResolved((event) => {
+        const payload = event?.payload || {};
+        hideEnforcerActionBanner(payload.browser || payload.label);
+    }).catch((e) => {
+        console.warn('[enforcer-ui] failed to attach grace-resolved listener:', e);
+    });
+}
+
+function browserKeyFromLabel(label) {
+    if (!label) return null;
+    const normalized = String(label).toLowerCase();
+    if (normalized.includes('firefox')) return 'firefox';
+    if (normalized.includes('brave')) return 'brave';
+    if (normalized.includes('edge')) return 'edge';
+    if (normalized.includes('safari')) return 'safari';
+    return 'chrome';
+}
+
+function enforcerCopy(payload) {
+    const browser = payload.label || payload.browser || 'your browser';
+    const seconds = Math.max(0, Number(payload.remaining_secs ?? payload.remainingSecs ?? 0));
+    const issue = payload.issue || 'unknown';
+
+    if (issue === 'missing') {
+        return {
+            title: `${browser} needs ReDD Focus`,
+            body: `ReDD Focus is not installed in ${browser}. Install it within ${seconds}s or ${browser} will be closed.`,
+            action: 'Install ReDD Focus',
+        };
+    }
+    if (issue === 'disabled') {
+        return {
+            title: `ReDD Focus is turned off in ${browser}`,
+            body: `Turn ReDD Focus back on within ${seconds}s or ${browser} will be closed.`,
+            action: `Open ${browser} Extensions`,
+        };
+    }
+    if (issue === 'private') {
+        const key = browserKeyFromLabel(browser);
+        const instruction = key === 'chrome'
+            ? ' In Chrome, find ReDD Focus, then click Details > Allow in Incognito.'
+            : '';
+        return {
+            title: '',
+            body: `Allow ReDD Focus in private/incognito windows in ${browser} within ${seconds}s or ${browser} will be closed.${instruction}`,
+            action: `Open ${browser} Extensions`,
+        };
+    }
+    if (issue === 'access') {
+        return {
+            title: `ReDD Block cannot verify ${browser}`,
+            body: `Grant access so ReDD Block can verify ReDD Focus before ${browser} is closed.`,
+            action: browser === 'Safari' ? 'Open Full Disk Access' : `Open ${browser} Settings`,
+        };
+    }
+    return {
+        title: `${browser} needs attention`,
+        body: `ReDD Focus is not ready in ${browser}. Fix it within ${seconds}s or ${browser} will be closed.`,
+        action: `Open ${browser} Extensions`,
+    };
+}
+
+function enforcerCopyText(copy) {
+    return copy.title ? `${copy.title}. ${copy.body}` : copy.body;
+}
+
+async function openEnforcerFix(payload) {
+    const browser = payload.label || payload.browser || 'Chrome';
+    const key = browserKeyFromLabel(browser);
+    try {
+        if (payload.issue === 'missing' && key && BROWSER_STORE_LINKS[key]?.url) {
+            await openUrl(BROWSER_STORE_LINKS[key].url);
+            return;
+        }
+        if (payload.issue === 'access' && key === 'safari') {
+            await invoke('open_safari_fda_settings');
+            return;
+        }
+        await tauriAPI.openBrowserExtensionSettings(browser);
+    } catch (e) {
+        console.warn('[enforcer-ui] fix action failed:', e);
+    }
+}
+
+function updateEnforcerActionBannerCountdown() {
+    if (!enforcerActionBannerPayload) return;
+    const remainingSecs = Math.max(0, Math.ceil((enforcerActionBannerDeadline - Date.now()) / 1000));
+    enforcerActionBannerPayload = {
+        ...enforcerActionBannerPayload,
+        remaining_secs: remainingSecs,
+        remainingSecs,
+    };
+
+    const copy = enforcerCopy(enforcerActionBannerPayload);
+    const text = document.getElementById('extension-enforcer-action-text');
+    if (text) text.textContent = enforcerCopyText(copy);
+
+    if (remainingSecs <= 0 && enforcerActionBannerInterval) {
+        clearInterval(enforcerActionBannerInterval);
+        enforcerActionBannerInterval = null;
+    }
+}
+
+function renderEnforcerActionBanner(payload) {
+    if (!payload || !payload.browser) return;
+    let banner = document.getElementById('extension-enforcer-action-banner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'extension-enforcer-action-banner';
+        banner.className = 'update-banner extension-enforcer-action-banner';
+        banner.innerHTML = `
+            <div class="update-banner-content">
+                <span id="extension-enforcer-action-text"></span>
+                <button id="extension-enforcer-action-btn" class="update-banner-btn" type="button"></button>
+            </div>
+            <button id="extension-enforcer-action-dismiss" class="update-banner-dismiss" title="Dismiss" type="button">×</button>
+        `;
+        document.querySelector('.app-container')?.prepend(banner);
+        document.getElementById('extension-enforcer-action-dismiss')?.addEventListener('click', () => {
+            banner.classList.add('hidden');
+        });
     }
 
-    const failing = findFirstNonCompliantBrowser(state.browsers);
-    if (text) {
-        text.textContent = failing
-            ? failing === 'Safari'
-                ? `Safari is unavailable until ReDD Block can verify ReDD Focus. Grant Full Disk Access, install ReDD Focus, enable it, and allow it in Private Browsing.`
-                : `ReDD Focus isn't fully enabled in ${failing}. Install, enable it, and allow it in private browsing.`
-            : 'Install the ReDD Focus extension to block websites.';
+    const remainingSecs = Math.max(0, Number(payload.remaining_secs ?? payload.remainingSecs ?? 0));
+    enforcerActionBannerPayload = { ...payload, remaining_secs: remainingSecs, remainingSecs };
+    enforcerActionBannerDeadline = Date.now() + remainingSecs * 1000;
+
+    const copy = enforcerCopy(payload);
+    const text = document.getElementById('extension-enforcer-action-text');
+    const action = document.getElementById('extension-enforcer-action-btn');
+    if (text) text.textContent = enforcerCopyText(copy);
+    if (action) {
+        action.textContent = copy.action;
+        action.onclick = () => openEnforcerFix(payload);
     }
-    if (dismiss) {
-        dismiss.onclick = () => banner.classList.add('hidden');
+    if (!enforcerActionBannerInterval) {
+        enforcerActionBannerInterval = setInterval(updateEnforcerActionBannerCountdown, 1000);
     }
     banner.classList.remove('hidden');
 }
 
-function findFirstNonCompliantBrowser(browsers) {
-    if (!browsers) return null;
-    const labels = {
-        firefox: 'Firefox', chrome: 'Chrome', brave: 'Brave', edge: 'Edge', safari: 'Safari',
-    };
-    for (const key of Object.keys(labels)) {
-        const b = browsers[key];
-        if (!b || !b.present) continue;
-        const def = (b.profiles || []).find(p => p.isDefault) || (b.profiles || [])[0];
-        if (!def) continue;
-        const okInstalled = def.installed;
-        const okEnabled = def.enabled === true;
-        const okPriv = def.privateBrowsing === true;
-        if (!(okInstalled && okEnabled && okPriv)) return labels[key];
+function hideEnforcerActionBanner() {
+    const banner = document.getElementById('extension-enforcer-action-banner');
+    if (banner) banner.classList.add('hidden');
+    enforcerActionBannerPayload = null;
+    enforcerActionBannerDeadline = 0;
+    if (enforcerActionBannerInterval) {
+        clearInterval(enforcerActionBannerInterval);
+        enforcerActionBannerInterval = null;
     }
-    return null;
 }
 
 // Check if the helper daemon is available (desktop only)

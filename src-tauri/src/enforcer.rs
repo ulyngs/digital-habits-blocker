@@ -10,12 +10,14 @@
 // for browser-ext-mvp/enforcer/enforce.mjs).
 
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 use tauri_plugin_notification::NotificationExt;
 
 use crate::profile_scan::{self, BrowserStatus, ProfileStatus};
@@ -113,12 +115,23 @@ impl BrowserKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExtensionIssue {
+    Missing,
+    Disabled,
+    Private,
+    Access,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct GraceEvent {
     pub browser: BrowserKey,
     pub label: &'static str,
     pub remaining_secs: u64,
     pub total_secs: u64,
+    pub issue: ExtensionIssue,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -132,6 +145,8 @@ struct TimerState {
     deadline: Instant,
     total: Duration,
     offense_count: u32,
+    issue: ExtensionIssue,
+    alert_pid: Option<u32>,
 }
 
 #[derive(Default)]
@@ -191,14 +206,23 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
             continue;
         }
 
+        let issue = default_profile_issue(browser_status);
+
         // Failing. Either start a timer or check if it expired.
         let (expired, fresh) = {
             let mut s = match state.lock() {
                 Ok(g) => g,
                 Err(_) => continue,
             };
-            if let Some(t) = s.timers.get(&key) {
-                (Instant::now() >= t.deadline, false)
+            if let Some(t) = s.timers.get_mut(&key) {
+                let expired = Instant::now() >= t.deadline;
+                if !expired && t.issue != issue {
+                    close_system_action_alert(t.alert_pid);
+                    let remaining = t.deadline.saturating_duration_since(Instant::now());
+                    t.alert_pid = show_system_action_alert(key, issue, remaining.as_secs().max(1));
+                    t.issue = issue;
+                }
+                (expired, false)
             } else {
                 let offenses = {
                     let c = s.offenses.entry(key).and_modify(|c| *c += 1).or_insert(1);
@@ -210,12 +234,15 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
                 // configurable — a 5s setting still gave 5s on
                 // repeats, a 300s setting still gave 300s.
                 let grace = current_grace(app);
+                let alert_pid = show_system_action_alert(key, issue, grace.as_secs());
                 s.timers.insert(
                     key,
                     TimerState {
                         deadline: Instant::now() + grace,
                         total: grace,
                         offense_count: offenses,
+                        issue,
+                        alert_pid,
                     },
                 );
                 (false, true)
@@ -223,8 +250,8 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
         };
 
         if fresh {
-            emit_update(app, state, key);
-            notify_grace_started(app, key);
+            emit_update(app, state, key, browser_status);
+            notify_grace_started(app, key, issue);
             continue;
         }
 
@@ -232,13 +259,15 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
             // Pop the timer before killing so a concurrent tick doesn't
             // re-enter this branch.
             if let Ok(mut s) = state.lock() {
-                s.timers.remove(&key);
+                if let Some(timer) = s.timers.remove(&key) {
+                    close_system_action_alert(timer.alert_pid);
+                }
             }
             quit_browser(key);
             notify_killed(app, key);
             crate::commands::reveal_app(app);
         } else {
-            emit_update(app, state, key);
+            emit_update(app, state, key, browser_status);
         }
     }
 }
@@ -258,12 +287,47 @@ fn default_profile_passes(b: &BrowserStatus) -> bool {
     }
 }
 
+fn default_profile_issue(b: &BrowserStatus) -> ExtensionIssue {
+    if !b.present {
+        return ExtensionIssue::Unknown;
+    }
+    let def: Option<&ProfileStatus> = b
+        .profiles
+        .iter()
+        .find(|p| p.is_default)
+        .or_else(|| b.profiles.first());
+    let Some(p) = def else {
+        return ExtensionIssue::Missing;
+    };
+    if p.note
+        .as_deref()
+        .map(|note| note.contains("Full Disk Access") || note.contains("Permission"))
+        .unwrap_or(false)
+    {
+        return ExtensionIssue::Access;
+    }
+    if !p.installed {
+        return ExtensionIssue::Missing;
+    }
+    if p.enabled == Some(false) {
+        return ExtensionIssue::Disabled;
+    }
+    if p.private_browsing != Some(true) {
+        return ExtensionIssue::Private;
+    }
+    ExtensionIssue::Unknown
+}
+
 fn cancel_timer(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>, key: BrowserKey, emit: bool) {
     let removed = state
         .lock()
-        .map(|mut s| s.timers.remove(&key).is_some())
-        .unwrap_or(false);
-    if removed && emit {
+        .map(|mut s| s.timers.remove(&key))
+        .unwrap_or(None);
+    let was_removed = removed.is_some();
+    if let Some(timer) = removed {
+        close_system_action_alert(timer.alert_pid);
+    }
+    if was_removed && emit {
         let _ = app.emit(
             "enforcer://grace-resolved",
             ResolvedEvent {
@@ -274,7 +338,12 @@ fn cancel_timer(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>, key: Browser
     }
 }
 
-fn emit_update(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>, key: BrowserKey) {
+fn emit_update(
+    app: &AppHandle,
+    state: &Arc<Mutex<EnforcerState>>,
+    key: BrowserKey,
+    browser_status: &BrowserStatus,
+) {
     let pair = state.lock().ok().and_then(|s| {
         s.timers.get(&key).map(|t| {
             let remaining = t.deadline.saturating_duration_since(Instant::now());
@@ -292,18 +361,23 @@ fn emit_update(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>, key: BrowserK
             label: key.label(),
             remaining_secs: remaining.as_secs(),
             total_secs: total.as_secs(),
+            issue: default_profile_issue(browser_status),
         },
     );
 }
 
-fn notify_grace_started(app: &AppHandle, key: BrowserKey) {
+fn notify_grace_started(app: &AppHandle, key: BrowserKey, issue: ExtensionIssue) {
     let secs = current_grace(app).as_secs();
+    let issue_sentence = issue_sentence(key, issue);
+    #[cfg(target_os = "macos")]
+    let _ = (app, key, issue_sentence, secs);
+    #[cfg(not(target_os = "macos"))]
     notify(
         app,
         "ReDD Block: action required",
         &format!(
-            "{} extension is missing or disabled. Re-enable within {}s or {} will be closed.",
-            key.label(),
+            "{} Fix it within {}s or {} will be closed.",
+            issue_sentence,
             secs,
             key.label()
         ),
@@ -311,17 +385,23 @@ fn notify_grace_started(app: &AppHandle, key: BrowserKey) {
 }
 
 fn notify_killed(app: &AppHandle, key: BrowserKey) {
+    let body = format!(
+        "{} was closed because the ReDD Focus extension was missing, turned off, or not allowed in private/incognito windows.",
+        key.label()
+    );
+    #[cfg(target_os = "macos")]
+    let _ = app;
+    #[cfg(target_os = "macos")]
+    show_system_killed_alert(key, &body);
+    #[cfg(not(target_os = "macos"))]
     notify(
         app,
-        "ReDD Block",
-        &format!(
-            "{} was closed because the ReDD Block extension was missing or disabled.",
-            key.label()
-        ),
+        "ReDD Block: browser closed",
+        &body,
     );
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 fn notify(app: &AppHandle, title: &str, body: &str) {
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         log::warn!("notification failed: {e}");
@@ -332,6 +412,195 @@ fn notify(app: &AppHandle, title: &str, body: &str) {
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn notify(_app: &AppHandle, _title: &str, _body: &str) {}
+
+fn issue_description(issue: ExtensionIssue) -> &'static str {
+    match issue {
+        ExtensionIssue::Missing => "is not installed",
+        ExtensionIssue::Disabled => "is turned off",
+        ExtensionIssue::Private => "is not allowed in private/incognito windows",
+        ExtensionIssue::Access => "cannot be verified",
+        ExtensionIssue::Unknown => "is not ready",
+    }
+}
+
+fn issue_sentence(key: BrowserKey, issue: ExtensionIssue) -> String {
+    match issue {
+        ExtensionIssue::Private if key == BrowserKey::Chrome => {
+            "In Chrome, the ReDD Focus extension is currently not allowed in private/incognito windows.".to_string()
+        }
+        ExtensionIssue::Private => format!(
+            "In {}, the ReDD Focus extension is currently not allowed in private/incognito windows.",
+            key.label()
+        ),
+        _ => format!("ReDD Focus {} in {}.", issue_description(issue), key.label()),
+    }
+}
+
+fn fix_button_label(key: BrowserKey, issue: ExtensionIssue) -> String {
+    match issue {
+        ExtensionIssue::Missing => "Install ReDD Focus".to_string(),
+        ExtensionIssue::Access if key == BrowserKey::Safari => "Open Full Disk Access".to_string(),
+        _ => format!("Open {} Extensions", key.label()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn show_system_action_alert(key: BrowserKey, issue: ExtensionIssue, secs: u64) -> Option<u32> {
+    let body = if key == BrowserKey::Chrome && issue == ExtensionIssue::Private {
+        format!(
+            "{}\n\nFix it within {} seconds or {} will be closed.\n\nIn Chrome, find ReDD Focus, then click Details > Allow in Incognito.",
+            issue_sentence(key, issue),
+            secs,
+            key.label()
+        )
+    } else {
+        format!(
+            "{}\n\nFix it within {} seconds or {} will be closed.",
+            issue_sentence(key, issue),
+            secs,
+            key.label()
+        )
+    };
+    let fix_label = fix_button_label(key, issue);
+    let script = format!(
+        r#"beep 2
+tell application "System Events" to activate
+display alert "ReDD Block: action required" message {} as critical buttons {{"Later", {}}} default button {} cancel button "Later" giving up after {}"#,
+        applescript_string(&body),
+        applescript_string(&fix_label),
+        applescript_string(&fix_label),
+        secs.max(1)
+    );
+
+    let child = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+
+    let child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            log::warn!("system action alert spawn failed: {e}");
+            return None;
+        }
+    };
+    let pid = child.id();
+
+    std::thread::spawn(move || {
+        match child.wait_with_output() {
+            Ok(out) if String::from_utf8_lossy(&out.stdout).contains(&fix_label) => {
+                if let Err(e) = open_fix_target(key, issue) {
+                    log::warn!("open fix target failed: {e}");
+                }
+            }
+            Ok(out) if !out.status.success() => {
+                log::warn!(
+                    "system action alert failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            Err(e) => log::warn!("system action alert wait failed: {e}"),
+            _ => {}
+        }
+    });
+    Some(pid)
+}
+
+#[cfg(target_os = "windows")]
+fn show_system_action_alert(key: BrowserKey, issue: ExtensionIssue, secs: u64) -> Option<u32> {
+    // Windows toast notifications are already system-level; keep the
+    // modal path macOS-only until we add a proper Win32 action dialog.
+    let _ = (key, issue, secs);
+    None
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn show_system_action_alert(_key: BrowserKey, _issue: ExtensionIssue, _secs: u64) -> Option<u32> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn close_system_action_alert(pid: Option<u32>) {
+    if let Some(pid) = pid {
+        let _ = std::process::Command::new("/bin/kill")
+            .arg(pid.to_string())
+            .output();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn close_system_action_alert(_pid: Option<u32>) {}
+
+#[cfg(target_os = "macos")]
+fn show_system_killed_alert(key: BrowserKey, body: &str) {
+    let script = format!(
+        r#"tell application "System Events" to activate
+display alert "ReDD Block: browser closed" message {} as informational buttons {{"OK"}} default button "OK""#,
+        applescript_string(body)
+    );
+    let child = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+
+    let child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            log::warn!("system killed alert spawn failed for {}: {e}", key.label());
+            return;
+        }
+    };
+
+    std::thread::spawn(move || match child.wait_with_output() {
+        Ok(out) if !out.status.success() => {
+            log::warn!(
+                "system killed alert failed for {}: {}",
+                key.label(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
+        Err(e) => log::warn!("system killed alert wait failed for {}: {e}", key.label()),
+        _ => {}
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_string(value: &str) -> String {
+    format!("{:?}", value)
+}
+
+#[cfg(target_os = "macos")]
+fn open_fix_target(key: BrowserKey, issue: ExtensionIssue) -> Result<(), String> {
+    if matches!(issue, ExtensionIssue::Missing) {
+        let url = match key {
+            BrowserKey::Firefox => "https://addons.mozilla.org/en-US/firefox/addon/reddfocus/",
+            BrowserKey::Safari => "https://apps.apple.com/us/app/redd-focus-hide-distractions/id1660218371",
+            _ => "https://chromewebstore.google.com/detail/redd-focus-hide-distracti/hhblkhfdjijdinijakbmcpkmdfhoadcd",
+        };
+        let out = std::process::Command::new("/usr/bin/open")
+            .arg(url)
+            .output()
+            .map_err(|e| format!("spawn /usr/bin/open: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "open store URL exited with {}: {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        return Ok(());
+    }
+
+    if matches!((key, issue), (BrowserKey::Safari, ExtensionIssue::Access)) {
+        return crate::commands::open_safari_fda_settings();
+    }
+
+    crate::commands::open_browser_extension_settings(key.label().to_string())
+}
 
 // ---- Process detection + quit -----------------------------------------
 
@@ -359,25 +628,26 @@ fn running_browsers() -> std::collections::HashSet<BrowserKey> {
 
 #[cfg(target_os = "macos")]
 fn quit_browser(key: BrowserKey) {
-    // SIGTERM all matching processes, give them HARD_KILL_AFTER to
-    // shut down (browsers persist session/cookies on graceful quit),
-    // then SIGKILL anything still alive. Same primitive as the app
+    // SIGTERM all matching processes so browsers can persist
+    // session/cookies, then wait until the process is actually gone
+    // before reporting closure. If it is still alive after
+    // HARD_KILL_AFTER, escalate to SIGKILL. Same primitive as the app
     // watcher — no AppleScript and no Automation TCC dependency.
     use sysinfo::{ProcessesToUpdate, Signal, System};
 
-    let names = key.process_names();
-    let matches = |name: &str| -> bool {
+    fn matches_browser(key: BrowserKey, name: &str) -> bool {
+        let names = key.process_names();
         let lower = name.to_ascii_lowercase();
         names
             .iter()
             .any(|n| lower.ends_with(&n.to_ascii_lowercase()))
-    };
+    }
 
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
     for proc_ in sys.processes().values() {
         let name = proc_.name().to_string_lossy().to_string();
-        if !matches(&name) {
+        if !matches_browser(key, &name) {
             continue;
         }
         if let Some(false) = proc_.kill_with(Signal::Term) {
@@ -389,13 +659,28 @@ fn quit_browser(key: BrowserKey) {
         }
     }
 
-    std::thread::sleep(HARD_KILL_AFTER);
+    let browser_still_running = |sys: &mut System| -> bool {
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+        sys.processes().values().any(|proc_| {
+            let name = proc_.name().to_string_lossy().to_string();
+            matches_browser(key, &name)
+        })
+    };
+
+    let deadline = Instant::now() + HARD_KILL_AFTER;
+    let mut sys = System::new();
+    while Instant::now() < deadline {
+        if !browser_still_running(&mut sys) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
 
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
     for proc_ in sys.processes().values() {
         let name = proc_.name().to_string_lossy().to_string();
-        if !matches(&name) {
+        if !matches_browser(key, &name) {
             continue;
         }
         log::info!("enforcer: SIGKILL pid={} name='{}'", proc_.pid(), name);

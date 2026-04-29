@@ -238,10 +238,9 @@ fn scan_firefox() -> Option<BrowserStatus> {
             }
         }
 
-        if cfg!(debug_assertions) && firefox_debug_temp_extension_matches(&dir) {
+        if cfg!(debug_assertions) && !s.installed && firefox_debug_temp_extension_matches(&dir) {
             s.installed = true;
-            s.enabled = Some(true);
-            s.note = Some("Temporary about:debugging extension".to_string());
+            s.note = Some("Temporary about:debugging extension path found, but Firefox did not report it as enabled".to_string());
         }
 
         if let Ok(raw) = std::fs::read_to_string(dir.join("extension-preferences.json")) {

@@ -3294,6 +3294,45 @@ body.ios .blocklist-action-btn svg {
     margin-top: 2px;
 }
 
+.migration-browser-action.align-end {
+    justify-content: flex-end;
+}
+
+.migration-browser-row.needs-private {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(120px, 1fr);
+    column-gap: 12px;
+    align-items: start;
+}
+
+.migration-browser-row.needs-private .migration-browser-header {
+    display: contents;
+}
+
+.migration-browser-row.needs-private .migration-browser-name {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.migration-browser-row.needs-private .migration-browser-badge {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    text-align: right;
+}
+
+.migration-browser-row.needs-private .migration-browser-hint {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.migration-browser-row.needs-private .migration-browser-action {
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: flex-end;
+    margin-top: 0;
+}
+
 .migration-browser-hint {
     font-size: 13px;
     color: hsl(222, 18%, 35%);

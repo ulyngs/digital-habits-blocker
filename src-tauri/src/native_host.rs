@@ -35,24 +35,6 @@ use serde_json::Value;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Parse epoch-ms fields saved by the frontend (`startTime` / `endTime`).
-/// `serde_json` may surface large integers as `f64` depending on how the
-/// file was written; `as_u64()` alone would drop those entries entirely.
-fn json_epoch_ms(v: Option<&Value>) -> Option<u64> {
-    let v = v?;
-    if let Some(u) = v.as_u64() {
-        return Some(u);
-    }
-    if let Some(i) = v.as_i64() {
-        return u64::try_from(i).ok();
-    }
-    let f = v.as_f64()?;
-    if !f.is_finite() || f < 0.0 {
-        return None;
-    }
-    Some(f.round() as u64)
-}
-
 /// Return true if argv signals that the browser invoked us as a
 /// native-messaging host. Native-messaging manifests can't pass custom
 /// args, so we sniff for browser-supplied argv markers instead:
@@ -266,8 +248,8 @@ pub fn derive_payload(data_path: &std::path::Path) -> (Vec<String>, Vec<BlockInf
     let mut blocks: Vec<BlockInfo> = Vec::new();
 
     for ab in &active {
-        let start = json_epoch_ms(ab.get("startTime")).unwrap_or(0);
-        let end = json_epoch_ms(ab.get("endTime")).unwrap_or(0);
+        let start = ab.get("startTime").and_then(|v| v.as_u64()).unwrap_or(0);
+        let end = ab.get("endTime").and_then(|v| v.as_u64()).unwrap_or(0);
         let paused = ab.get("isPaused").and_then(|v| v.as_bool()).unwrap_or(false);
         if paused || now_ms < start || now_ms >= end {
             continue;
@@ -458,18 +440,63 @@ fn local_time_components_full(now_ms: u64) -> Option<(u8, u8, u8, u8)> {
     }
 }
 
-/// Canonical app-data path for the native-messaging subprocess.
+/// Canonical app-data path for the running user. Mirrors
+/// `commands::data` path selection for the desktop case. The native
+/// host runs as a child of the user's browser (not as the Tauri app),
+/// so it can't ask Tauri for `app_data_dir()` — we replicate the
+/// resolution logic against the Tauri bundle id.
 ///
-/// Delegates to [`crate::commands::subprocess_canonical_data_path`] so
-/// the host always watches the same `redd-block-data.json` as
-/// [`commands::data::save_data`]. Historically this module duplicated
-/// path logic and diverged (e.g. preferring the Safari App Group mirror
-/// or `/var/lib` only when the file already existed), which broke Chrome
-/// blocking while the main window showed the correct state.
+/// Order:
+///   1. `/var/lib/redd-block` (legacy shared dir from the helper era;
+///      still authoritative if it survived a v1.0.x install).
+///   2. The App Group container — written by `commands::data::save_data`
+///      whenever the user is running on a build with the entitlement.
+///   3. `~/Library/Application Support/com.reddblock/...` — the Tauri
+///      `app_data_dir()` for `identifier = "com.reddblock"`.
+///   4. `~/Library/Application Support/com.redd.block/...` — earlier
+///      bundle id used by some pre-v1.0 builds; keeps native-messaging
+///      working through the migration window.
 pub fn resolve_data_path() -> Option<PathBuf> {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        Some(crate::commands::subprocess_canonical_data_path())
+        let shared = PathBuf::from("/var/lib/redd-block/redd-block-data.json");
+        if shared.exists() {
+            return Some(shared);
+        }
+        let home = dirs::home_dir()?;
+        let group_path = home
+            .join("Library")
+            .join("Group Containers")
+            .join("group.com.reddblock.shared")
+            .join("redd-block-data.json");
+        if group_path.exists() {
+            return Some(group_path);
+        }
+        let app_support = home.join("Library").join("Application Support");
+        for id in ["com.reddblock", "com.redd.block"] {
+            let p = app_support.join(id).join("redd-block-data.json");
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        // Final fallback — return the canonical Tauri path even if it
+        // doesn't exist yet, so file-watch can pick up its first write.
+        Some(app_support.join("com.reddblock").join("redd-block-data.json"))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let shared = PathBuf::from(r"C:\ProgramData\ReDD Block\redd-block-data.json");
+        if shared.exists() {
+            return Some(shared);
+        }
+        let appdata = std::env::var_os("APPDATA").map(PathBuf::from)?;
+        for id in ["com.reddblock", "com.redd.block"] {
+            let p = appdata.join(id).join("redd-block-data.json");
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        Some(appdata.join("com.reddblock").join("redd-block-data.json"))
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

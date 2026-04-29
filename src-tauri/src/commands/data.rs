@@ -189,49 +189,6 @@ fn get_data_path(app: &AppHandle) -> PathBuf {
     }
 }
 
-/// Same JSON path [`get_data_path`] uses, without a [`AppHandle`]. The
-/// native-messaging host is spawned by the browser and must read the
-/// identical file the UI persists via [`save_data`].
-#[cfg(not(target_os = "ios"))]
-pub fn subprocess_canonical_data_path() -> PathBuf {
-    if should_use_shared_data_path() {
-        get_shared_data_path()
-    } else {
-        per_user_data_path_without_app()
-    }
-}
-
-#[cfg(not(target_os = "ios"))]
-fn per_user_data_path_without_app() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| {
-            let profile = std::env::var_os("USERPROFILE").map(PathBuf::from);
-            profile
-                .unwrap_or_else(|| PathBuf::from("C:\\Users\\Public"))
-                .join("AppData")
-                .join("Roaming")
-        });
-        appdata.join("com.reddblock").join("redd-block-data.json")
-    }
-    #[cfg(target_os = "macos")]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("/"))
-            .join("Library")
-            .join("Application Support")
-            .join("com.reddblock")
-            .join("redd-block-data.json")
-    }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("/"))
-            .join("com.reddblock")
-            .join("redd-block-data.json")
-    }
-}
-
 /// Get the system-wide shared directory (same location as helper-state.json).
 #[cfg(not(target_os = "ios"))]
 fn get_shared_dir() -> PathBuf {

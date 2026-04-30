@@ -298,6 +298,8 @@ body.dark-mode .title-bar button:hover {
 .extension-enforcer-action-banner .update-banner-btn {
     background: rgba(255, 255, 255, 0.22);
     border-color: rgba(255, 255, 255, 0.36);
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .extension-enforcer-action-banner .update-banner-content {
@@ -338,8 +340,10 @@ body.dark-mode .title-bar button:hover {
 }
 
 .extension-enforcer-action-countdown {
+    display: block;
     opacity: 0.95;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 .extension-enforcer-action-instruction {

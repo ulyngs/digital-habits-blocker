@@ -356,6 +356,20 @@ pub fn enter_blocking_warning_compact_window(app: &AppHandle) {
         return;
     };
 
+    // On Windows, the main window is typically hidden in the system
+    // tray between sessions. `set_size` / `set_position` on a hidden
+    // window don't reliably take effect when the window is later
+    // shown, and `current_monitor()` returns inconsistent results for
+    // a hidden window — so unminimize + show it FIRST. (On macOS we
+    // leave this to `show_blocking_warning_shell_without_stealing_focus`,
+    // which uses `orderFront:` to avoid stealing focus from the blocked
+    // app the user just tried to launch.)
+    #[cfg(target_os = "windows")]
+    {
+        let _ = w.unminimize();
+        let _ = w.show();
+    }
+
     {
         let Ok(mut slot) = BLOCKING_WARNING_SAVED_GEOM.lock() else {
             return;
@@ -390,16 +404,19 @@ pub fn enter_blocking_warning_compact_window(app: &AppHandle) {
 
     let _ = w.eval(MODE_ON);
 
-    // Resolve the monitor the window currently sits on (or the primary
-    // if we can't pin it down) and size the window to its full logical
-    // dimensions. NOT native fullscreen — just an oversized borderless
-    // panel that physically covers the screen, so the user can't ignore
-    // the warning by dragging another window over it.
+    // Size the window to cover the full display. We prefer
+    // `primary_monitor()` because it returns deterministic values
+    // even for windows that were just shown / are still positioned at
+    // negative coords from a previous session — `current_monitor()`
+    // can return None or the wrong monitor in those edge cases. NOT
+    // native fullscreen — just an oversized borderless panel sized to
+    // the monitor, so the user can't ignore the warning by dragging
+    // another window over it.
     let monitor = w
-        .current_monitor()
+        .primary_monitor()
         .ok()
         .flatten()
-        .or_else(|| w.primary_monitor().ok().flatten());
+        .or_else(|| w.current_monitor().ok().flatten());
 
     if let Some(m) = monitor {
         let scale = m.scale_factor();
@@ -407,12 +424,20 @@ pub fn enter_blocking_warning_compact_window(app: &AppHandle) {
         let pos = m.position();
         let logical_w = size.width as f64 / scale;
         let logical_h = size.height as f64 / scale;
+        log::info!(
+            "blocking warning: sizing main window to {}x{} @ {:?} (scale {:.2})",
+            logical_w as i32,
+            logical_h as i32,
+            (pos.x, pos.y),
+            scale,
+        );
         let _ = w.set_min_size(Some(LogicalSize::new(WARNING_SHELL_MIN_W, WARNING_SHELL_MIN_H)));
         let _ = w.set_size(LogicalSize::new(logical_w, logical_h));
         let _ = w.set_position(PhysicalPosition::new(pos.x, pos.y));
     } else {
         // Fall back to a generous fixed size if monitor metadata isn't
         // available — better than rendering tiny.
+        log::warn!("blocking warning: no monitor metadata — falling back to 1440x900");
         let _ = w.set_min_size(Some(LogicalSize::new(WARNING_SHELL_MIN_W, WARNING_SHELL_MIN_H)));
         let _ = w.set_size(LogicalSize::new(1440.0, 900.0));
         let _ = w.center();

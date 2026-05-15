@@ -86,6 +86,7 @@ targets:
       - sdk: UIKit.framework
       - sdk: WebKit.framework
       - target: ReddBlockMonitor
+      - target: ReddBlockShield
     preBuildScripts:
       - script: export PATH="$HOME/.cargo/bin:$PATH" && cd "${SRCROOT}/../../.." && npx tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
@@ -121,3 +122,31 @@ targets:
       - sdk: DeviceActivity.framework
       - sdk: ManagedSettings.framework
       - sdk: FamilyControls.framework
+  ReddBlockShield:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ReddBlockShield
+      - path: Shared
+    info:
+      path: ReddBlockShield/Info.plist
+      properties:
+        CFBundleDisplayName: ReddBlockShield
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
+    entitlements:
+      path: ReddBlockShield/ReddBlockShield.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.reddblock.shieldconfiguration
+        PRODUCT_NAME: ReddBlockShield
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: JD647S9RT6
+        CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: "YES"
+    dependencies:
+      - sdk: ManagedSettings.framework
+      - sdk: ManagedSettingsUI.framework

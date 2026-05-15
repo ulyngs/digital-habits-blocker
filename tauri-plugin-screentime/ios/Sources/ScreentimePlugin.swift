@@ -26,6 +26,11 @@ class StartBlockArgs: Decodable {
     let domains: [String]
     let appTokenData: [String]?
     let categoryTokenData: [String]?
+    let blocklistEmoji: String?
+    let blocklistName: String?
+    let blocklistColorHex: String?
+    let blockStartMs: Double?
+    let blockEndMs: Double?
 }
 
 class ScheduleBlockArgs: Decodable {
@@ -63,6 +68,10 @@ class ScheduleEntry: Decodable {
     /// Optional pause state propagated from the JS schedule model.
     let isPaused: Bool?
     let pauseEndTimestampMs: Double?
+    /// Blocklist presentation for shield snapshot (optional).
+    let blocklistEmoji: String?
+    let blocklistName: String?
+    let blocklistColorHex: String?
 }
 
 class SetSchedulesArgs: Decodable {
@@ -491,6 +500,78 @@ class ScreentimePlugin: Plugin {
         selection.categoryTokens = categoryTokens
         return selection
     }
+
+    // MARK: - Shield UI snapshot (default / manual ManagedSettingsStore)
+
+    /// Updates App Group `ShieldUISnapshot.manual` after the default store changes. Pass `nil` for an
+    /// axis to leave that axis’s prior snapshot entries unchanged (e.g. `blockApps` does not clear domains).
+    private func persistManualShieldSnapshot(
+        replaceDomains: [String]?,
+        replaceAppTokens: [String]?,
+        replaceCategoryTokens: [String]?,
+        blocklistEmoji: String? = nil,
+        blocklistName: String? = nil,
+        blocklistColorHex: String? = nil,
+        blockStartMs: Double? = nil,
+        blockEndMs: Double? = nil
+    ) {
+        let previous = SharedShieldSnapshotStore.load()
+        let scheduleSection = previous?.schedule
+        var domainMap = previous?.manual?.domainByNormalizedHost ?? [:]
+        var appMap = previous?.manual?.appByTokenData ?? [:]
+        var categoryMap = previous?.manual?.categoryByTokenData ?? [:]
+
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        let startedMs = blockStartMs ?? nowMs
+        let row = ShieldAttribution(
+            sourceId: "manual",
+            enforcementStartedAtMs: startedMs,
+            blocklistEmoji: blocklistEmoji,
+            blocklistName: blocklistName,
+            blocklistColorHex: blocklistColorHex,
+            blockStartedAtMs: startedMs,
+            blockEndsAtMs: blockEndMs
+        )
+
+        if let hosts = replaceDomains {
+            domainMap = [:]
+            for raw in hosts {
+                let key = ShieldSnapshotNormalization.normalizedWebHost(raw)
+                domainMap[key] = row
+            }
+        }
+        if let appTokens = replaceAppTokens {
+            appMap = [:]
+            for t in appTokens {
+                appMap[t] = row
+            }
+        }
+        if let categoryTokens = replaceCategoryTokens {
+            categoryMap = [:]
+            for t in categoryTokens {
+                categoryMap[t] = row
+            }
+        }
+
+        let manualSection: ShieldAttributionSection?
+        if domainMap.isEmpty && appMap.isEmpty && categoryMap.isEmpty {
+            manualSection = nil
+        } else {
+            manualSection = ShieldAttributionSection(
+                domainByNormalizedHost: domainMap,
+                appByTokenData: appMap,
+                categoryByTokenData: categoryMap
+            )
+        }
+
+        let snapshot = ShieldUISnapshot(
+            schemaVersion: ShieldUISnapshot.currentSchemaVersion,
+            updatedAtMs: nowMs,
+            manual: manualSection,
+            schedule: scheduleSection
+        )
+        SharedShieldSnapshotStore.save(snapshot)
+    }
     
     /// Check if Screen Time authorization is granted
     private func isAuthorized() -> Bool {
@@ -510,6 +591,12 @@ class ScreentimePlugin: Plugin {
         let webDomains = Set(args.domains.prefix(50).map { WebDomain(domain: $0) })
         
         store.webContent.blockedByFilter = .specific(webDomains)
+
+        persistManualShieldSnapshot(
+            replaceDomains: Array(args.domains.prefix(50)),
+            replaceAppTokens: nil,
+            replaceCategoryTokens: nil
+        )
         
         var response: [String: Any] = [
             "success": true,
@@ -523,6 +610,7 @@ class ScreentimePlugin: Plugin {
     
     @objc public func unblockWebsites(_ invoke: Invoke) throws {
         store.webContent.blockedByFilter = nil
+        persistManualShieldSnapshot(replaceDomains: [], replaceAppTokens: nil, replaceCategoryTokens: nil)
         invoke.resolve(["success": true])
     }
     
@@ -559,6 +647,12 @@ class ScreentimePlugin: Plugin {
         }
         
         store.shield.applications = tokens
+
+        persistManualShieldSnapshot(
+            replaceDomains: nil,
+            replaceAppTokens: args.tokenData,
+            replaceCategoryTokens: nil
+        )
         
         var response: [String: Any] = [
             "success": true,
@@ -572,6 +666,7 @@ class ScreentimePlugin: Plugin {
     
     @objc public func unblockApps(_ invoke: Invoke) throws {
         store.shield.applications = nil
+        persistManualShieldSnapshot(replaceDomains: nil, replaceAppTokens: [], replaceCategoryTokens: nil)
         invoke.resolve(["success": true])
     }
     
@@ -606,6 +701,17 @@ class ScreentimePlugin: Plugin {
             days: nil
         )
         SharedManualBlockStore.saveManualBlockState(manualState)
+
+        persistManualShieldSnapshot(
+            replaceDomains: Array(args.domains.prefix(50)),
+            replaceAppTokens: args.appTokenData ?? [],
+            replaceCategoryTokens: args.categoryTokenData ?? [],
+            blocklistEmoji: args.blocklistEmoji,
+            blocklistName: args.blocklistName,
+            blocklistColorHex: args.blocklistColorHex,
+            blockStartMs: args.blockStartMs,
+            blockEndMs: args.blockEndMs
+        )
         
         var response: [String: Any] = [
             "success": true,
@@ -628,12 +734,15 @@ class ScreentimePlugin: Plugin {
         
         // Clear manual block state in App Group so extension has no stale data
         SharedManualBlockStore.saveManualBlockState(ScheduleBlockData(domains: [], appTokenData: [], categoryTokenData: [], days: nil))
+
+        persistManualShieldSnapshot(replaceDomains: [], replaceAppTokens: [], replaceCategoryTokens: [])
         
         // Also clear the named "schedule" store used by DeviceActivityMonitor
         // Since we use separate stores for manual vs schedule blocks, both
         // must be cleared for a complete "stop everything" action.
         let scheduleStore = ManagedSettingsStore(named: .init("schedule"))
         scheduleStore.clearAllSettings()
+        ShieldScheduleSnapshotWriter.persistScheduleUnion(activeEntries: [])
         
         // Note: We intentionally do NOT clear currentSelection here.
         // The selection should persist so the user doesn't have to re-pick
@@ -746,7 +855,10 @@ class ScreentimePlugin: Plugin {
                 activeFromTimestampMs: entry.activeFromTimestampMs,
                 activeUntilTimestampMs: entry.activeUntilTimestampMs,
                 isPaused: entry.isPaused,
-                pauseEndTimestampMs: entry.pauseEndTimestampMs
+                pauseEndTimestampMs: entry.pauseEndTimestampMs,
+                blocklistEmoji: entry.blocklistEmoji,
+                blocklistName: entry.blocklistName,
+                blocklistColorHex: entry.blocklistColorHex
             )
             SharedScheduleStore.save(id: entry.id, data: scheduleData)
             
@@ -769,9 +881,7 @@ class ScreentimePlugin: Plugin {
             }
         }
         
-        if !args.schedules.isEmpty {
-            reapplyActiveScheduleBlocksToStore(entries: args.schedules)
-        }
+        reapplyActiveScheduleBlocksToStore(entries: args.schedules)
         
         if errors.isEmpty {
             invoke.resolve([
@@ -810,6 +920,7 @@ class ScreentimePlugin: Plugin {
         // that were applied by the DeviceActivityMonitor extension.
         let scheduleStore = ManagedSettingsStore(named: .init("schedule"))
         scheduleStore.clearAllSettings()
+        ShieldScheduleSnapshotWriter.persistScheduleUnion(activeEntries: [])
         invoke.resolve(["success": true])
     }
     
@@ -907,7 +1018,10 @@ class ScreentimePlugin: Plugin {
         activeFromTimestampMs: Double? = nil,
         activeUntilTimestampMs: Double? = nil,
         isPaused: Bool? = nil,
-        pauseEndTimestampMs: Double? = nil
+        pauseEndTimestampMs: Double? = nil,
+        blocklistEmoji: String? = nil,
+        blocklistName: String? = nil,
+        blocklistColorHex: String? = nil
     ) -> ScheduleBlockData {
         return ScheduleBlockData(
             domains: domains ?? [],
@@ -921,7 +1035,10 @@ class ScreentimePlugin: Plugin {
             activeFromTimestampMs: activeFromTimestampMs,
             activeUntilTimestampMs: activeUntilTimestampMs,
             isPaused: isPaused,
-            pauseEndTimestampMs: pauseEndTimestampMs
+            pauseEndTimestampMs: pauseEndTimestampMs,
+            blocklistEmoji: blocklistEmoji,
+            blocklistName: blocklistName,
+            blocklistColorHex: blocklistColorHex
         )
     }
 
@@ -1039,11 +1156,14 @@ class ScreentimePlugin: Plugin {
     /// After clearing the schedule store, re-apply the union of blocks for all remaining
     /// segments that are currently in their active time window.
     private func reapplyActiveScheduleBlocksToStore(entries: [ScheduleEntry]) {
+        let now = Date()
         var allDomains = Set<WebDomain>()
         var allAppTokens = Set<ApplicationToken>()
         var allCategoryTokens = Set<ActivityCategoryToken>()
+        var activePairs: [(String, ScheduleBlockData)] = []
         for entry in entries where isSegmentActiveNow(entry: entry) {
             guard let data = SharedScheduleStore.load(id: entry.id) else { continue }
+            activePairs.append((entry.id, data))
             for domain in data.domains.prefix(50) {
                 allDomains.insert(WebDomain(domain: domain))
             }
@@ -1063,6 +1183,7 @@ class ScreentimePlugin: Plugin {
         let scheduleStore = ManagedSettingsStore(named: .init("schedule"))
         if allDomains.isEmpty && allAppTokens.isEmpty && allCategoryTokens.isEmpty {
             scheduleStore.clearAllSettings()
+            ShieldScheduleSnapshotWriter.persistScheduleUnion(activeEntries: [], now: now)
             return
         }
         let domainArray = Array(allDomains.prefix(50))
@@ -1081,6 +1202,7 @@ class ScreentimePlugin: Plugin {
         } else {
             scheduleStore.shield.applicationCategories = .specific(allCategoryTokens)
         }
+        ShieldScheduleSnapshotWriter.persistScheduleUnion(activeEntries: activePairs, now: now)
     }
     
     private func statusString(_ status: AuthorizationStatus) -> String {

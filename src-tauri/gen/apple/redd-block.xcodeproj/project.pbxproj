@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0AF84E1F5E868251250C99D3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F8BF923238EA2D436826F594 /* Assets.xcassets */; };
 		0D27C2A7BABEAEBDE0903BD7 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 325913D09EC79272F06DDD87 /* ManagedSettings.framework */; };
+		0E9C6D010000000000000001 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 325913D09EC79272F06DDD87 /* ManagedSettings.framework */; };
 		1264A4422D00248B1F63E6A8 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FEEA0B4D5648E6F576835BB9 /* Security.framework */; };
 		21E90ECB2476B56320F704BA /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5D52354D5701D21663C48685 /* MetalKit.framework */; };
 		235FA88506FBC073FDF9827F /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 6937C8528EFA584D6536FAC9 /* main.mm */; };
@@ -17,14 +18,22 @@
 		5987133B3C135FEE041B69A3 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC7C0149D4E48A40162080AF /* Metal.framework */; };
 		63A9DA958DF40E8B76D722EA /* ScheduleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8C297D85076CA57EBDB081 /* ScheduleData.swift */; };
 		6B9FF732379C3482D15DB617 /* ScheduleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8C297D85076CA57EBDB081 /* ScheduleData.swift */; };
+		B0D3F4A50001000100000001 /* ScheduleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8C297D85076CA57EBDB081 /* ScheduleData.swift */; };
+		B0D3F4A50001000100000002 /* ShieldUISnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5BD7B44814DE0AC19AE3ED /* ShieldUISnapshot.swift */; };
+		B0D3F4A50001000100000003 /* ShieldUISnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5BD7B44814DE0AC19AE3ED /* ShieldUISnapshot.swift */; };
+		B0D3F4A50001000100000004 /* ShieldUISnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5BD7B44814DE0AC19AE3ED /* ShieldUISnapshot.swift */; };
+		6E9C6D010000000000000001 /* ShieldConfigurationExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E9C6D010000000000000001 /* ShieldConfigurationExtension.swift */; };
+		BD9C6D010000000000000001 /* ReddBlockShield Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BD9C6D010000000000000002 /* Assets.xcassets */; };
 		7768AD1CF94959E0C4ACD2B8 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 02EE83FF9862D3193892E70D /* CoreGraphics.framework */; };
 		817E68A2E2B3708F17EF5BCD /* assets in Resources */ = {isa = PBXBuildFile; fileRef = A5866FA7626B81A369EEE50F /* assets */; };
 		87CDADBF89F44C7912BEC7E5 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A6586E05426FBB51180E7F7B /* WebKit.framework */; };
+		8E9C6D010000000000000001 /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9E9C6D010000000000000001 /* ManagedSettingsUI.framework */; };
 		A3BE5EA318939A3F3322E896 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D1F4A73AD78DEC74E4C26F7 /* UIKit.framework */; };
 		AE17B7EB2F23F749C595C6B9 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 594A1ECBC7BC7A3A4238B58D /* LaunchScreen.storyboard */; };
 		D0AAAE953AE9EE0F3B9C1F18 /* ReddBlockMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 96B1304436C5E5A028057DE4 /* ReddBlockMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DA0DC1BC2B3BFEB75542AB8D /* DeviceActivityMonitorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3080BBB269E19E378D0F49 /* DeviceActivityMonitorExtension.swift */; };
 		DC96BB5B7CAA440BC4FB1DA7 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4715E49C9E7020A2DF9CF8D7 /* QuartzCore.framework */; };
+		EE9C6D010000000000000001 /* ReddBlockShield.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FE9C6D010000000000000001 /* ReddBlockShield.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,6 +43,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 07D82C1583CC8C427F543B5C;
 			remoteInfo = ReddBlockMonitor;
+		};
+		E19C6D010000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 177ACE0EF533623A98A110D9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C19C6D010000000000000001;
+			remoteInfo = ReddBlockShield;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -45,6 +61,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				D0AAAE953AE9EE0F3B9C1F18 /* ReddBlockMonitor.appex in Embed Foundation Extensions */,
+				EE9C6D010000000000000001 /* ReddBlockShield.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -68,19 +85,26 @@
 		6937C8528EFA584D6536FAC9 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		6942A89B110F57A4103A405E /* ReDD Block.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ReDD Block.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		744D7F2E51914811C4C6CB0F /* FamilyControls.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FamilyControls.framework; path = System/Library/Frameworks/FamilyControls.framework; sourceTree = SDKROOT; };
+		7E9C6D010000000000000001 /* ShieldConfigurationExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldConfigurationExtension.swift; sourceTree = "<group>"; };
+		BD9C6D010000000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8A73DFF4502DFFDFEE61ECA5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8E9C6D010000000000000002 /* ReddBlockShield.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ReddBlockShield.entitlements; sourceTree = "<group>"; };
 		96B1304436C5E5A028057DE4 /* ReddBlockMonitor.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ReddBlockMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9B0F1D0C7682822B0689B1E3 /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
+		9E9C6D010000000000000001 /* ManagedSettingsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettingsUI.framework; path = System/Library/Frameworks/ManagedSettingsUI.framework; sourceTree = SDKROOT; };
 		A5866FA7626B81A369EEE50F /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		A6586E05426FBB51180E7F7B /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		ABC64B8A0E772CBF7AB9F566 /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
 		BF8C297D85076CA57EBDB081 /* ScheduleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleData.swift; sourceTree = "<group>"; };
+		5F5BD7B44814DE0AC19AE3ED /* ShieldUISnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldUISnapshot.swift; sourceTree = "<group>"; };
 		CC7C0149D4E48A40162080AF /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		DE9C6D010000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DFA00AD0CCABECDF8ECF7255 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F218CEF4FE9A62FB9EECEE9E /* ReddBlockMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ReddBlockMonitor.entitlements; sourceTree = "<group>"; };
 		F8BF923238EA2D436826F594 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FBC960E27B378CD6F483CAB4 /* data.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = data.rs; sourceTree = "<group>"; };
 		FBDB20B425D1E2235B546D61 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
+		FE9C6D010000000000000001 /* ReddBlockShield.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ReddBlockShield.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEEA0B4D5648E6F576835BB9 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -92,6 +116,15 @@
 				2DF72A02AF941C6AA73F550C /* DeviceActivity.framework in Frameworks */,
 				0D27C2A7BABEAEBDE0903BD7 /* ManagedSettings.framework in Frameworks */,
 				4831311F324646763DDE08F6 /* FamilyControls.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BE9C6D010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0E9C6D010000000000000001 /* ManagedSettings.framework in Frameworks */,
+				8E9C6D010000000000000001 /* ManagedSettingsUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -136,14 +169,27 @@
 			children = (
 				6942A89B110F57A4103A405E /* ReDD Block.app */,
 				96B1304436C5E5A028057DE4 /* ReddBlockMonitor.appex */,
+				FE9C6D010000000000000001 /* ReddBlockShield.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		3E9C6D010000000000000001 /* ReddBlockShield */ = {
+			isa = PBXGroup;
+			children = (
+				7E9C6D010000000000000001 /* ShieldConfigurationExtension.swift */,
+				BD9C6D010000000000000002 /* Assets.xcassets */,
+				DE9C6D010000000000000001 /* Info.plist */,
+				8E9C6D010000000000000002 /* ReddBlockShield.entitlements */,
+			);
+			path = ReddBlockShield;
 			sourceTree = "<group>";
 		};
 		5A882EF75FC27ADC5F9D9966 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
 				BF8C297D85076CA57EBDB081 /* ScheduleData.swift */,
+				5F5BD7B44814DE0AC19AE3ED /* ShieldUISnapshot.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -155,6 +201,7 @@
 				9B0F1D0C7682822B0689B1E3 /* DeviceActivity.framework */,
 				744D7F2E51914811C4C6CB0F /* FamilyControls.framework */,
 				325913D09EC79272F06DDD87 /* ManagedSettings.framework */,
+				9E9C6D010000000000000001 /* ManagedSettingsUI.framework */,
 				CC7C0149D4E48A40162080AF /* Metal.framework */,
 				5D52354D5701D21663C48685 /* MetalKit.framework */,
 				4715E49C9E7020A2DF9CF8D7 /* QuartzCore.framework */,
@@ -174,6 +221,7 @@
 				D5F764706D5BDB5E0E6B08C0 /* Externals */,
 				12A0F966D3287BCB70060611 /* redd-block_iOS */,
 				2F7D4DBF03FCE39E86D9AC8D /* ReddBlockMonitor */,
+				3E9C6D010000000000000001 /* ReddBlockShield */,
 				5A882EF75FC27ADC5F9D9966 /* Shared */,
 				AD835A632D5375369FAE5EEE /* Sources */,
 				CE008DEA22AD5CE1E2B4E19B /* src */,
@@ -272,6 +320,7 @@
 			);
 			dependencies = (
 				085976D7C705CD8DAD76C5F9 /* PBXTargetDependency */,
+				F19C6D010000000000000001 /* PBXTargetDependency */,
 			);
 			name = "redd-block_iOS";
 			packageProductDependencies = (
@@ -279,6 +328,25 @@
 			productName = "redd-block_iOS";
 			productReference = 6942A89B110F57A4103A405E /* ReDD Block.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C19C6D010000000000000001 /* ReddBlockShield */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D19C6D010000000000000001 /* Build configuration list for PBXNativeTarget "ReddBlockShield" */;
+			buildPhases = (
+				A19C6D010000000000000001 /* Sources */,
+				BE9C6D010000000000000001 /* Frameworks */,
+				BD9C6D010000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ReddBlockShield;
+			packageProductDependencies = (
+			);
+			productName = ReddBlockShield;
+			productReference = FE9C6D010000000000000001 /* ReddBlockShield.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -294,6 +362,9 @@
 						ProvisioningStyle = Automatic;
 					};
 					1A8486F1E15C1FC8BB2597C6 = {
+						ProvisioningStyle = Automatic;
+					};
+					C19C6D010000000000000001 = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -312,6 +383,7 @@
 			projectRoot = "";
 			targets = (
 				07D82C1583CC8C427F543B5C /* ReddBlockMonitor */,
+				C19C6D010000000000000001 /* ReddBlockShield */,
 				1A8486F1E15C1FC8BB2597C6 /* redd-block_iOS */,
 			);
 		};
@@ -325,6 +397,14 @@
 				0AF84E1F5E868251250C99D3 /* Assets.xcassets in Resources */,
 				AE17B7EB2F23F749C595C6B9 /* LaunchScreen.storyboard in Resources */,
 				817E68A2E2B3708F17EF5BCD /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BD9C6D010000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BD9C6D010000000000000001 /* ReddBlockShield Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -355,11 +435,22 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A19C6D010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B0D3F4A50001000100000001 /* ScheduleData.swift in Sources */,
+				B0D3F4A50001000100000002 /* ShieldUISnapshot.swift in Sources */,
+				6E9C6D010000000000000001 /* ShieldConfigurationExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BC5D429B3E15F6C4090E428F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				63A9DA958DF40E8B76D722EA /* ScheduleData.swift in Sources */,
+				B0D3F4A50001000100000003 /* ShieldUISnapshot.swift in Sources */,
 				235FA88506FBC073FDF9827F /* main.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -370,6 +461,7 @@
 			files = (
 				DA0DC1BC2B3BFEB75542AB8D /* DeviceActivityMonitorExtension.swift in Sources */,
 				6B9FF732379C3482D15DB617 /* ScheduleData.swift in Sources */,
+				B0D3F4A50001000100000004 /* ShieldUISnapshot.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -380,6 +472,11 @@
 			isa = PBXTargetDependency;
 			target = 07D82C1583CC8C427F543B5C /* ReddBlockMonitor */;
 			targetProxy = B43B384D51F4B27F2D853506 /* PBXContainerItemProxy */;
+		};
+		F19C6D010000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C19C6D010000000000000001 /* ReddBlockShield */;
+			targetProxy = E19C6D010000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -404,6 +501,28 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = release;
+		};
+		0F9C6D010000000000000001 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
+				CODE_SIGN_ENTITLEMENTS = ReddBlockShield/ReddBlockShield.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = JD647S9RT6;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ReddBlockShield/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.reddblock.shieldconfiguration;
+				PRODUCT_NAME = ReddBlockShield;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = debug;
 		};
 		1BA01B8C98C32D871F592A6E /* release */ = {
 			isa = XCBuildConfiguration;
@@ -458,6 +577,28 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		1F9C6D010000000000000001 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
+				CODE_SIGN_ENTITLEMENTS = ReddBlockShield/ReddBlockShield.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = JD647S9RT6;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ReddBlockShield/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.reddblock.shieldconfiguration;
+				PRODUCT_NAME = ReddBlockShield;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = release;
 		};
@@ -663,6 +804,15 @@
 			buildConfigurations = (
 				AA056CF5FC62BDEE09B02011 /* debug */,
 				A52CCFB9CA99F7E817032BEF /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		D19C6D010000000000000001 /* Build configuration list for PBXNativeTarget "ReddBlockShield" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0F9C6D010000000000000001 /* debug */,
+				1F9C6D010000000000000001 /* release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = debug;

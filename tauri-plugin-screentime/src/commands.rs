@@ -59,15 +59,9 @@ pub(crate) async fn unblock_apps<R: Runtime>(
 #[command]
 pub(crate) async fn screentime_start_block<R: Runtime>(
     app: AppHandle<R>,
-    domains: Vec<String>,
-    app_token_data: Option<Vec<String>>,
-    category_token_data: Option<Vec<String>>,
+    payload: StartBlockRequest,
 ) -> Result<StartBlockResponse> {
-    app.screentime().start_block(StartBlockRequest {
-        domains,
-        app_token_data,
-        category_token_data,
-    })
+    app.screentime().start_block(payload)
 }
 
 #[command]

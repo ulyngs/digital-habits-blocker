@@ -42,6 +42,10 @@ struct ScheduleBlockData: Codable {
     /// Optional pause state for schedule-backed entries.
     let isPaused: Bool?
     let pauseEndTimestampMs: Double?
+    /// Optional blocklist presentation for shield snapshot (Pass 6).
+    let blocklistEmoji: String?
+    let blocklistName: String?
+    let blocklistColorHex: String?
 
     init(
         domains: [String],
@@ -55,7 +59,10 @@ struct ScheduleBlockData: Codable {
         activeFromTimestampMs: Double? = nil,
         activeUntilTimestampMs: Double? = nil,
         isPaused: Bool? = nil,
-        pauseEndTimestampMs: Double? = nil
+        pauseEndTimestampMs: Double? = nil,
+        blocklistEmoji: String? = nil,
+        blocklistName: String? = nil,
+        blocklistColorHex: String? = nil
     ) {
         self.domains = domains
         self.appTokenData = appTokenData
@@ -69,6 +76,9 @@ struct ScheduleBlockData: Codable {
         self.activeUntilTimestampMs = activeUntilTimestampMs
         self.isPaused = isPaused
         self.pauseEndTimestampMs = pauseEndTimestampMs
+        self.blocklistEmoji = blocklistEmoji
+        self.blocklistName = blocklistName
+        self.blocklistColorHex = blocklistColorHex
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -84,6 +94,9 @@ struct ScheduleBlockData: Codable {
         case activeUntilTimestampMs
         case isPaused
         case pauseEndTimestampMs
+        case blocklistEmoji
+        case blocklistName
+        case blocklistColorHex
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +113,9 @@ struct ScheduleBlockData: Codable {
         self.activeUntilTimestampMs = try container.decodeIfPresent(Double.self, forKey: .activeUntilTimestampMs)
         self.isPaused = try container.decodeIfPresent(Bool.self, forKey: .isPaused)
         self.pauseEndTimestampMs = try container.decodeIfPresent(Double.self, forKey: .pauseEndTimestampMs)
+        self.blocklistEmoji = try container.decodeIfPresent(String.self, forKey: .blocklistEmoji)
+        self.blocklistName = try container.decodeIfPresent(String.self, forKey: .blocklistName)
+        self.blocklistColorHex = try container.decodeIfPresent(String.self, forKey: .blocklistColorHex)
     }
 }
 

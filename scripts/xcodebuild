@@ -1,4 +1,50 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Force ReDD/reddfocus team (JD647S9RT6) so Xcode doesn't fall back to a personal team.
-# Put scripts/ first in PATH when running tauri ios dev.
-exec /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild DEVELOPMENT_TEAM=JD647S9RT6 "$@"
+# Put scripts/ first in PATH when running tauri ios commands.
+
+set -euo pipefail
+
+REAL_XCODEBUILD="/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild"
+
+args=(DEVELOPMENT_TEAM=JD647S9RT6 "$@")
+
+# Allow dev flows to override the export method without changing distribution builds.
+if [[ -n "${XCODEBUILD_EXPORT_OPTIONS_PLIST:-}" ]]; then
+  saw_export_archive=0
+  for arg in "${args[@]}"; do
+    if [[ "$arg" == "-exportArchive" ]]; then
+      saw_export_archive=1
+      break
+    fi
+  done
+
+  if [[ $saw_export_archive -eq 1 ]]; then
+    rewritten=()
+    skip_next=0
+    replaced=0
+
+    for ((i=0; i<${#args[@]}; i++)); do
+      if [[ $skip_next -eq 1 ]]; then
+        skip_next=0
+        continue
+      fi
+
+      if [[ "${args[$i]}" == "-exportOptionsPlist" ]]; then
+        rewritten+=("-exportOptionsPlist" "$XCODEBUILD_EXPORT_OPTIONS_PLIST")
+        skip_next=1
+        replaced=1
+        continue
+      fi
+
+      rewritten+=("${args[$i]}")
+    done
+
+    if [[ $replaced -eq 0 ]]; then
+      rewritten+=("-exportOptionsPlist" "$XCODEBUILD_EXPORT_OPTIONS_PLIST")
+    fi
+
+    args=("${rewritten[@]}")
+  fi
+fi
+
+exec "$REAL_XCODEBUILD" "${args[@]}"

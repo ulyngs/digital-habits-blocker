@@ -65,6 +65,17 @@ pub struct StartBlockRequest {
     pub domains: Vec<String>,
     pub app_token_data: Option<Vec<String>>,
     pub category_token_data: Option<Vec<String>>,
+    /// Blocklist label for shield copy (Pass 5); omit on older clients.
+    #[serde(default)]
+    pub blocklist_emoji: Option<String>,
+    #[serde(default)]
+    pub blocklist_name: Option<String>,
+    #[serde(default)]
+    pub blocklist_color_hex: Option<String>,
+    #[serde(default)]
+    pub block_start_ms: Option<f64>,
+    #[serde(default)]
+    pub block_end_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -113,6 +124,10 @@ pub struct ScheduleEntryRequest {
     pub is_paused: Option<bool>,
     /// Optional pause expiry for this schedule entry.
     pub pause_end_timestamp_ms: Option<f64>,
+    /// Optional blocklist presentation for shield snapshot.
+    pub blocklist_emoji: Option<String>,
+    pub blocklist_name: Option<String>,
+    pub blocklist_color_hex: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

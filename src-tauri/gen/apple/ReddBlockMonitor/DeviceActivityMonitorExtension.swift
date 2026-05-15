@@ -199,8 +199,10 @@ class ReddBlockMonitor: DeviceActivityMonitor {
         var activeDomains = Set<WebDomain>()
         var activeAppTokens = Set<ApplicationToken>()
         var activeCategoryTokens = Set<ActivityCategoryToken>()
+        var activePairs: [(String, ScheduleBlockData)] = []
 
         for (id, data) in allSchedules where isScheduleDataActiveNow(data, now: now) {
+            activePairs.append((id, data))
             NSLog("[ReDD Schedule] active schedule id=%@ domains=%d apps=%d categories=%d", id, data.domains.count, data.appTokenData.count, data.categoryTokenData.count)
             for domain in data.domains.prefix(50) {
                 activeDomains.insert(WebDomain(domain: domain))
@@ -224,6 +226,7 @@ class ReddBlockMonitor: DeviceActivityMonitor {
             appTokens: activeAppTokens,
             categoryTokens: activeCategoryTokens
         )
+        ShieldScheduleSnapshotWriter.persistScheduleUnion(activeEntries: activePairs, now: now)
     }
     
     /// Apply schedule union and clear stale settings when a component is empty.

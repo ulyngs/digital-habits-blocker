@@ -353,8 +353,10 @@ pub async fn onboarding_state(_app: tauri::AppHandle) -> Result<OnboardingState,
     // Migration is invoked explicitly by the frontend (Continue
     // button on the pre-cleanup screen, or the retry CTA). If we
     // re-ran migration here we'd loop admin prompts every time the
-    // window regains focus, since the post-cleanup screen polls this
-    // command to refresh the per-browser checklist.
+    // window regained focus, since the post-cleanup screen used to
+    // call this on every poll tick; the overlay now uses
+    // `scan_browser_profiles_subset` between full refreshes (focus +
+    // 30s) to cut TCC churn.
     let migration_pending = migration_pending_sync();
     // "We just upgraded this launch": there was residue at process
     // start, but it's now cleaned up. Persists for the lifetime of

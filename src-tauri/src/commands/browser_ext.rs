@@ -4,6 +4,7 @@
 // commands are desktop-only; on iOS the Screen Time API handles
 // enforcement and these commands aren't registered.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
@@ -56,6 +57,31 @@ pub async fn scan_browser_profiles() -> Result<profile_scan::ScanResult, String>
     tauri::async_runtime::spawn_blocking(profile_scan::scan)
         .await
         .map_err(|e| format!("join error: {e}"))
+}
+
+/// Scan only the named vendors (`firefox`, `chrome`, `brave`, `edge`,
+/// `safari`). Other entries are empty stubs — merge with a prior full
+/// [`profile_scan::scan`] on the frontend for the migration overlay poll.
+#[tauri::command]
+pub async fn scan_browser_profiles_subset(
+    labels: Vec<String>,
+) -> Result<profile_scan::ScanResult, String> {
+    let label_set: HashSet<String> = labels
+        .into_iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        profile_scan::scan_filter(|vendor| label_set.contains(vendor))
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))
+}
+
+/// Run [`profile_scan::compliant`] on a merged scan without touching disk.
+#[tauri::command]
+pub fn evaluate_scan_compliance(result: profile_scan::ScanResult) -> bool {
+    profile_scan::compliant(&result)
 }
 
 /// Force the app to the foreground after a focus-stealing modal

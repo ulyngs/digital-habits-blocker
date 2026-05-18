@@ -1316,11 +1316,10 @@ let migrationOnboardingActive = false;
 let migrationOnboardingDismissed = false;
 // While the migration post-phase is on screen, the user is bouncing
 // between this window and Safari (or Chrome/Firefox/etc.) toggling
-// extension settings. The window-`focus` listener below already
-// re-polls on tab-back, but a user who has Safari and ReDD Block
-// side-by-side never triggers focus events as they click toggles.
-// Run a low-frequency poll so the checklist ticks itself off within
-// the "up to 10 seconds" window the UI already promises. Cleared
+// extension settings. The window-`focus` listener below runs a full
+// `onboarding_state` on tab-back; a 30s timer runs the same full scan
+// for side-by-side setups that never fire focus; between those, the
+// 2.5s poll only rescans browsers still marked non-compliant. Cleared
 // when the overlay is dismissed.
 let migrationPollIntervalId = null;
 /** Preserves "Show me how" across `renderBrowserInstallButtons` poll refreshes. */
@@ -1328,6 +1327,10 @@ const migrationShowMeHowExpandedKeys = new Set();
 /** Snapshot for re-rendering localized browser rows when language changes mid-overlay. */
 let lastMigrationBrowserState = null;
 const MIGRATION_POLL_MS = 2500;
+/** Full `onboarding_state` (all browsers) at most this often while the post-phase overlay is open. */
+const MIGRATION_FULL_SCAN_INTERVAL_MS = 30_000;
+/** Timestamp (`Date.now`) of the last full `onboarding_state` during migration post-phase. */
+let migrationLastFullScanMs = 0;
 const EXT_ONBOARDING_DISMISSED_KEY = 'reddBlockExtOnboardingDismissed';
 
 async function runDesktopOnboarding() {
@@ -1452,6 +1455,7 @@ function hideMigrationOnboarding() {
     migrationOnboardingDismissed = true;
     migrationShowMeHowExpandedKeys.clear();
     lastMigrationBrowserState = null;
+    migrationLastFullScanMs = 0;
     stopMigrationPolling();
 }
 
@@ -1555,6 +1559,7 @@ function wireMigrationPrePhase() {
 
 function wireMigrationPostPhase(state) {
     renderBrowserInstallButtons(state);
+    migrationLastFullScanMs = Date.now();
     wireEnforcementToggle();
     const doneBtn = document.getElementById('migration-done-btn');
     const skipBtn = document.getElementById('migration-skip-btn');
@@ -2227,14 +2232,73 @@ function renderBrowserInstallButtons(state) {
     }
 }
 
-// While the post-cleanup screen is open, periodically re-check
-// extension compliance so the checklist ticks itself off when the
-// user comes back from the store.
-async function pollMigrationCompliance() {
-    if (!migrationOnboardingActive) return;
+function migrationPostPhaseVisible() {
+    const post = document.getElementById('migration-phase-post');
+    return !!(post && !post.classList.contains('hidden'));
+}
+
+function migrationMergeSubsetIntoBrowsers(prevBrowsers, subset, keys) {
+    const out = { ...prevBrowsers };
+    for (const k of keys) {
+        if (subset && Object.prototype.hasOwnProperty.call(subset, k)) {
+            out[k] = subset[k];
+        }
+    }
+    return out;
+}
+
+function migrationFailingInstalledBrowserKeys(state) {
+    const browsers = state && state.browsers ? state.browsers : {};
+    const keys = [];
+    for (const k of Object.keys(BROWSER_STORE_LINKS)) {
+        const b = browsers[k];
+        if (!b || !b.installed) continue;
+        if (browserComplianceStatus(k, b) !== 'compliant') keys.push(k);
+    }
+    return keys;
+}
+
+// Full multi-browser scan for migration UI (same payload as startup).
+async function migrationRefreshOnboardingFull() {
+    if (!migrationOnboardingActive || !migrationPostPhaseVisible()) return;
     try {
         const fresh = await invoke('onboarding_state');
+        migrationLastFullScanMs = Date.now();
         renderBrowserInstallButtons(fresh);
+    } catch (e) { /* no-op */ }
+}
+
+// While the post-phase checklist is visible, re-check compliance on a
+// short interval: subset disk scans for browsers still failing, plus a
+// full `onboarding_state` every 30s (side-by-side / no-focus safety) and
+// on window focus (see listener below).
+async function pollMigrationCompliance() {
+    if (!migrationOnboardingActive) return;
+    if (!migrationPostPhaseVisible()) return;
+    try {
+        if (!lastMigrationBrowserState) {
+            await migrationRefreshOnboardingFull();
+            return;
+        }
+        const now = Date.now();
+        if (now - migrationLastFullScanMs >= MIGRATION_FULL_SCAN_INTERVAL_MS) {
+            await migrationRefreshOnboardingFull();
+            return;
+        }
+        const failKeys = migrationFailingInstalledBrowserKeys(lastMigrationBrowserState);
+        if (!failKeys.length) return;
+
+        const subset = await invoke('scan_browser_profiles_subset', { labels: failKeys });
+        const prevBrowsers = lastMigrationBrowserState.browsers || {};
+        const mergedBrowsers = migrationMergeSubsetIntoBrowsers(prevBrowsers, subset, failKeys);
+        const extensionCompliant = await invoke('evaluate_scan_compliance', {
+            result: mergedBrowsers,
+        });
+        renderBrowserInstallButtons({
+            ...lastMigrationBrowserState,
+            browsers: mergedBrowsers,
+            extension_compliant: extensionCompliant,
+        });
     } catch (e) { /* no-op */ }
 }
 
@@ -2254,7 +2318,7 @@ window.addEventListener('focus', () => {
     // See kickClockNow() for the why.
     if (typeof kickClockNow === 'function') kickClockNow();
     if (migrationOnboardingActive) {
-        pollMigrationCompliance();
+        void migrationRefreshOnboardingFull();
     } else {
         // When the migration overlay isn't open, refresh the slim
         // banner instead — the user may have just finished allowing

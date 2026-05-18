@@ -269,6 +269,20 @@ pub fn uninstall_legacy_helper_sync() -> Result<bool, String> {
 // ---- Onboarding orchestration --------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
+pub struct StartupOnboardingState {
+    /// True if this build migrated anything in this launch
+    /// (hosts cleaned, helper removed, autostart registered).
+    pub migrated_this_launch: bool,
+    /// True when v1.x residue (markers or legacy artefacts) is still
+    /// present. Drives the "Migration incomplete" banner. False on
+    /// fresh installs and after a successful migration.
+    pub migration_pending: bool,
+    /// True for users crossing the v1 → v2 architecture boundary in
+    /// this launch. Drives the one-time "what's new" welcome card.
+    pub show_upgrade_welcome: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct OnboardingState {
     /// True if this build migrated anything in this launch
     /// (hosts cleaned, helper removed, autostart registered).
@@ -294,6 +308,25 @@ pub struct ElevatedOutcome {
     /// action attempted). Used by the frontend to soften the banner
     /// wording.
     pub user_cancelled: bool,
+}
+
+fn startup_onboarding_state_sync() -> StartupOnboardingState {
+    let migration_pending = migration_pending_sync();
+    // "We just upgraded this launch": there was residue at process
+    // start, but it's now cleaned up. Persists for the lifetime of
+    // the process via snapshot_initial_state.
+    let show_upgrade_welcome = snapshot_initial_state() && !migration_pending;
+    let migrated_this_launch = show_upgrade_welcome;
+    StartupOnboardingState {
+        migrated_this_launch,
+        migration_pending,
+        show_upgrade_welcome,
+    }
+}
+
+#[tauri::command]
+pub fn onboarding_startup_state() -> StartupOnboardingState {
+    startup_onboarding_state_sync()
 }
 
 #[tauri::command]
@@ -357,12 +390,7 @@ pub async fn onboarding_state(_app: tauri::AppHandle) -> Result<OnboardingState,
     // call this on every poll tick; the overlay now uses
     // `scan_browser_profiles_subset` between full refreshes (focus +
     // 30s) to cut TCC churn.
-    let migration_pending = migration_pending_sync();
-    // "We just upgraded this launch": there was residue at process
-    // start, but it's now cleaned up. Persists for the lifetime of
-    // the process via snapshot_initial_state.
-    let show_upgrade_welcome = snapshot_initial_state() && !migration_pending;
-    let migrated_this_launch = show_upgrade_welcome;
+    let startup = startup_onboarding_state_sync();
 
     let browsers = tauri::async_runtime::spawn_blocking(crate::profile_scan::scan)
         .await
@@ -370,9 +398,9 @@ pub async fn onboarding_state(_app: tauri::AppHandle) -> Result<OnboardingState,
     let extension_compliant = crate::profile_scan::compliant(&browsers);
 
     Ok(OnboardingState {
-        migrated_this_launch,
-        migration_pending,
-        show_upgrade_welcome,
+        migrated_this_launch: startup.migrated_this_launch,
+        migration_pending: startup.migration_pending,
+        show_upgrade_welcome: startup.show_upgrade_welcome,
         extension_compliant,
         browsers,
     })

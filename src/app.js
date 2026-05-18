@@ -1290,7 +1290,9 @@ async function checkForAppUpdate() {
 // - Runs the idempotent first-launch migration (strip hosts markers,
 //   uninstall legacy privileged helper, register native-messaging
 //   manifests).
-// - Queries onboarding_state to decide whether to surface the
+// - Queries cheap startup state first, then live onboarding_state only
+//   when the UI genuinely needs current browser compliance truth, to
+//   avoid an unconditional full browser scan on every launch.
 //   Automation permission banner (macOS TCC) and/or the extension
 //   compliance banner.
 // - No-ops on iOS.
@@ -1336,8 +1338,9 @@ const EXT_ONBOARDING_DISMISSED_KEY = 'reddBlockExtOnboardingDismissed';
 async function runDesktopOnboarding() {
     if (isIOS) return;
     try {
-        const pendingAtLaunch = await invoke('migration_pending');
-        const wasUpgrade = await invoke('migration_was_pending_at_launch');
+        const startupState = await invoke('onboarding_startup_state');
+        const pendingAtLaunch = !!startupState?.migration_pending;
+        const wasUpgrade = !!startupState?.show_upgrade_welcome;
 
         if (pendingAtLaunch) {
             // Residue still present → show pre-prompt screen.

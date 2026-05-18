@@ -602,8 +602,9 @@ pub fn run() {
             }
 
             // Refresh per-browser native-messaging manifests on every
-            // launch. Idempotent — overwrites the JSON with the current
-            // exe path so a dragged or reinstalled app still resolves.
+            // launch. Idempotent: skips the write when the JSON on disk
+            // already matches (avoids unnecessary TCC touches on macOS;
+            // still updates when the host path or allowed_origins change).
             #[cfg(not(target_os = "ios"))]
             if let Err(e) = native_host_install::install() {
                 log::warn!("native-host install on startup failed: {e}");

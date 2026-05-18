@@ -144,10 +144,31 @@ fn install_one(browser: BrowserTarget, binary: &str) -> std::io::Result<()> {
     let dir = browser.manifest_dir().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve manifest dir")
     })?;
-    std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{HOST_NAME}.json"));
     let body = manifest_body(browser, binary);
-    std::fs::write(path, serde_json::to_vec_pretty(&body)?)?;
+    let desired = serde_json::to_vec_pretty(&body)?;
+
+    // Idempotent: skip create_dir_all + write when bytes already match.
+    // On recent macOS, touching another app's Application Support tree
+    // (even a no-op write) can surface TCC "access data from other apps"
+    // prompts; skipping avoids re-prompting on every launch when the
+    // manifest is already correct (same pattern as extension_install).
+    if let Ok(existing) = std::fs::read(&path) {
+        if existing == desired {
+            log::info!(
+                "native-host: manifest already current for {browser:?} at {} (skip)",
+                path.display()
+            );
+            return Ok(());
+        }
+    }
+
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(&path, &desired)?;
+    log::info!(
+        "native-host: manifest written for {browser:?} at {}",
+        path.display()
+    );
     Ok(())
 }
 

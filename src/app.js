@@ -1582,6 +1582,7 @@ function wireMigrationPostPhase(state) {
         hideMigrationOnboarding();
         try {
             const fresh = await invoke('onboarding_state');
+            lastBehaviourBannerState = fresh;
             await updateBehaviourChangeBanner(fresh);
         } catch (e) { /* no-op */ }
     };
@@ -2367,6 +2368,9 @@ document.addEventListener('visibilitychange', () => {
 // there. Now × hides for the session and the banner re-evaluates
 // on every launch / focus refresh.
 let behaviourBannerDismissedThisSession = false;
+/** Last live browser-compliance payload used for the slim banner. Reused for cheap re-renders
+ *  (language / enforcement copy changes) without reopening browser-owned folders. */
+let lastBehaviourBannerState = null;
 
 // Persistent low-key reminder banner. Surfaces on every launch
 // whenever any browser the user has installed is missing the
@@ -2387,6 +2391,9 @@ let behaviourBannerDismissedThisSession = false;
 async function updateBehaviourChangeBanner(state) {
     const banner = document.getElementById('behaviour-change-banner');
     if (!banner) return;
+    if (state && typeof state === 'object') {
+        lastBehaviourBannerState = state;
+    }
 
     // Compute "are they done with extension setup yet?". `installed`
     // means the browser app exists on disk (regardless of running
@@ -2439,6 +2446,14 @@ async function updateBehaviourChangeBanner(state) {
             banner.classList.add('hidden');
         });
     }
+}
+
+async function rerenderBehaviourBannerFromLastKnownState() {
+    if (isIOS) return;
+    if (!lastBehaviourBannerState) return;
+    try {
+        await updateBehaviourChangeBanner(lastBehaviourBannerState);
+    } catch (_) { /* no-op */ }
 }
 
 // Build a compact, action-grouped summary of what's still missing
@@ -2513,6 +2528,7 @@ function joinBrowserNames(list) {
 async function openExtensionSetupOverlay() {
     try {
         const fresh = await invoke('onboarding_state');
+        lastBehaviourBannerState = fresh;
         migrationOnboardingDismissed = false;
         // Hide settings if it was the launch point — the migration
         // overlay needs the full window.
@@ -2543,6 +2559,7 @@ async function refreshBehaviourBannerIfStale({ force = false } = {}) {
     lastBannerRefreshAt = now;
     try {
         const fresh = await invoke('onboarding_state');
+        lastBehaviourBannerState = fresh;
         await updateBehaviourChangeBanner(fresh);
     } catch (_) { /* no-op */ }
 }
@@ -4136,13 +4153,14 @@ async function updateMaximizeButton() {
 
 // Setup event listeners
 function setupEventListeners() {
-    // When the user comes back to ReDD Block after visiting System
-    // Settings or the browser extension store, re-run the onboarding
-    // state check so the compliance banner clears once the user has
-    // installed the extension.
+    // Startup owns the initial onboarding decision. After that, focus
+    // returns are handled by the dedicated banner/overlay listeners near
+    // `refreshBehaviourBannerIfStale()`, which throttle live browser
+    // scans and avoid re-running the broader onboarding flow on every
+    // app switch.
     window.addEventListener('focus', () => {
         if (!isIOS && startupInitializationComplete) {
-            runDesktopOnboarding().catch(() => {});
+            rerenderBehaviourBannerFromLastKnownState().catch(() => {});
         }
     });
 
@@ -13797,7 +13815,7 @@ function setupLanguagePicker() {
         appData.settings.language = next;
         applySettingsLanguage();
         saveData();
-        if (!isIOS) void refreshBehaviourBannerIfStale({ force: true });
+        if (!isIOS) void rerenderBehaviourBannerFromLastKnownState();
         setLanguagePickerOpen(false);
     });
 

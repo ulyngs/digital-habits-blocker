@@ -130,33 +130,20 @@ pub fn scan() -> ScanResult {
 ///
 /// The vendor labels passed to the predicate are the lowercase
 /// short names: "firefox", "chrome", "brave", "edge", "safari".
-pub fn scan_filter<F: Fn(&str) -> bool>(should_scan: F) -> ScanResult {
+pub fn scan_filter<F: Fn(&str) -> bool>(_should_scan: F) -> ScanResult {
+    // EXPERIMENT (branch: experiment/stub-profile-scan): all real scan
+    // bodies disabled. We're testing whether the recurring macOS TCC
+    // "would like to access data from other apps" prompt is triggered
+    // by these per-tick reads of other browsers' Application Support
+    // dirs (Chrome/Brave/Edge Preferences, Firefox extensions.json,
+    // Safari plist/pluginkit). Reverting this restores the real scans.
+    log::warn!("profile_scan::scan_filter stubbed for TCC experiment — returning empty");
     ScanResult {
-        firefox: if should_scan("firefox") {
-            scan_firefox().unwrap_or_else(|| empty("firefox"))
-        } else {
-            empty("firefox")
-        },
-        chrome: if should_scan("chrome") {
-            scan_chromium(ChromiumBrowser::Chrome).unwrap_or_else(|| empty("chrome"))
-        } else {
-            empty("chrome")
-        },
-        brave: if should_scan("brave") {
-            scan_chromium(ChromiumBrowser::Brave).unwrap_or_else(|| empty("brave"))
-        } else {
-            empty("brave")
-        },
-        edge: if should_scan("edge") {
-            scan_chromium(ChromiumBrowser::Edge).unwrap_or_else(|| empty("edge"))
-        } else {
-            empty("edge")
-        },
-        safari: if should_scan("safari") {
-            scan_safari()
-        } else {
-            empty("safari")
-        },
+        firefox: empty("firefox"),
+        chrome: empty("chrome"),
+        brave: empty("brave"),
+        edge: empty("edge"),
+        safari: empty("safari"),
     }
 }
 

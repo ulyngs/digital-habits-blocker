@@ -147,10 +147,18 @@ pub fn register() {
             TASK_NAME,
             "/TR",
             &task_run,
+            // Every 5 minutes rather than every 1: the watchdog only
+            // needs to respawn the app if the user has killed it, which
+            // is rare. A 1-minute cadence meant a Task Scheduler wake +
+            // wscript/cmd/tasklist process spawn every 60s forever, even
+            // fully idle — a steady battery drain on laptops (it also
+            // hides from the app's own CPU line, being a separate
+            // process). 5 minutes keeps self-heal effective while cutting
+            // the wake rate 5x.
             "/SC",
             "MINUTE",
             "/MO",
-            "1",
+            "5",
             "/RL",
             "LIMITED",
             "/F",

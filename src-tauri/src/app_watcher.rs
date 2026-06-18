@@ -51,7 +51,15 @@ use tauri::{AppHandle, Emitter};
 
 pub type BlockedApps = Arc<RwLock<HashSet<String>>>;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(1000);
+/// Steady-state poll cadence while a schedule is active but no blocked
+/// app is currently being tracked — the common idle case. We only need
+/// to notice a newly-launched blocked app within a couple of seconds,
+/// so polling slower here roughly halves background CPU/battery cost
+/// versus the old fixed 1s sweep.
+const POLL_INTERVAL: Duration = Duration::from_millis(2000);
+/// Faster cadence while at least one PID is mid-countdown (PreQuit /
+/// PostQuit) so the warning overlay and grace timers stay responsive.
+const POLL_INTERVAL_ACTIVE: Duration = Duration::from_millis(1000);
 /// After the user clicks "Let's go!", how long they get to save +
 /// manually quit before the watcher sends the polite Cmd-Q.
 const PREQUIT_DURATION: Duration = Duration::from_secs(30);
@@ -376,9 +384,20 @@ fn run(
     stop: Arc<AtomicBool>,
 ) {
     let mut entries: HashMap<sysinfo::Pid, PidEntry> = HashMap::new();
+    // One `System` kept alive across sweeps so sysinfo does incremental
+    // diffs — and caches each process's exe path — instead of building a
+    // fresh table and re-reading the whole process list cold every tick.
+    let mut sys = sysinfo::System::new();
     while !stop.load(Ordering::SeqCst) {
-        sweep(app.as_ref(), &apps, &pending_warning_apps, &mut entries);
-        std::thread::sleep(POLL_INTERVAL);
+        sweep(app.as_ref(), &apps, &pending_warning_apps, &mut entries, &mut sys);
+        // Poll fast only while a countdown is in flight; otherwise idle
+        // at the slower cadence to keep background CPU / battery low.
+        let interval = if entries.is_empty() {
+            POLL_INTERVAL
+        } else {
+            POLL_INTERVAL_ACTIVE
+        };
+        std::thread::sleep(interval);
     }
     // On stop: clear any in-flight warnings so the UI doesn't keep
     // showing a stale modal after the watcher's gone. Mid-block PIDs
@@ -408,8 +427,9 @@ fn sweep(
     apps: &BlockedApps,
     pending_warning_apps: &PendingWarningApps,
     entries: &mut HashMap<sysinfo::Pid, PidEntry>,
+    sys: &mut sysinfo::System,
 ) {
-    use sysinfo::{ProcessesToUpdate, System};
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 
     let blocked: Vec<String> = match apps.read() {
         Ok(g) => g.iter().cloned().collect(),
@@ -444,8 +464,17 @@ fn sweep(
         return;
     }
 
-    let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::All, true);
+    // Refresh only what we match on: the process name (always present)
+    // plus the executable path. `OnlyIfNotSet` fetches the exe once per
+    // PID and caches it on the persistent `System`, so steady-state
+    // sweeps skip the per-process exe syscall entirely. We deliberately
+    // skip CPU/memory/disk/user/cmd/env refresh — the default
+    // `refresh_processes` pulls all of that for every process each tick.
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet),
+    );
 
     let now = Instant::now();
     let mut still_alive: HashSet<sysinfo::Pid> = HashSet::new();

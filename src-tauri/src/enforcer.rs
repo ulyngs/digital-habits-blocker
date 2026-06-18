@@ -843,9 +843,15 @@ fn log_non_compliant_summary(
 // ---- Process detection + quit -----------------------------------------
 
 fn running_browsers() -> std::collections::HashSet<BrowserKey> {
-    use sysinfo::{ProcessesToUpdate, System};
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
     let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::All, true);
+    // We only match on process names — skip the default CPU/memory/disk/
+    // exe refresh that `refresh_processes` does for every process.
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing(),
+    );
     let mut out = std::collections::HashSet::new();
     for &key in BrowserKey::enforced() {
         for name in key.process_names() {

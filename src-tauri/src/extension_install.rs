@@ -80,7 +80,7 @@
 //
 // Safari is out of scope (native bundle handles its own extension).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::json;
@@ -190,13 +190,19 @@ fn firefox_policies_json_path() -> PathBuf {
     PathBuf::from("/Applications/Firefox.app/Contents/Resources/distribution/policies.json")
 }
 
+#[cfg(target_os = "macos")]
+fn waterfox_policies_json_path() -> PathBuf {
+    PathBuf::from("/Applications/Waterfox.app/Contents/Resources/distribution/policies.json")
+}
+
+
 /// Drop the install hint for every supported browser. Idempotent —
 /// running it on every app launch keeps the hints in place and
 /// re-creates them if the user removed any manually.
 pub fn install() -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        log::info!("extension_install::install() skipped on macOS — Firefox extension is manual");
+        log::info!("extension_install::install() skipped on macOS — Mozilla extensions are manual");
         return Ok(());
     }
 
@@ -224,10 +230,20 @@ pub fn install() -> std::io::Result<()> {
             log::warn!("extension-install Firefox policy failed: {e}");
         }
         log::info!("tcc-probe: extension_install::install_firefox_policy() done");
+        log::info!("tcc-probe: extension_install::install_waterfox_policy() start");
+        if let Err(e) = install_waterfox_policy() {
+            log::warn!("extension-install Waterfox policy failed: {e}");
+        }
+        log::info!("tcc-probe: extension_install::install_waterfox_policy() done");
     }
     #[cfg(all(not(target_os = "macos"), target_os = "windows"))]
-    if let Err(e) = install_firefox_registry() {
-        log::warn!("extension-install Firefox registry policy failed: {e}");
+    {
+        if let Err(e) = install_firefox_registry() {
+            log::warn!("extension-install Firefox registry policy failed: {e}");
+        }
+        if let Err(e) = install_waterfox_registry() {
+            log::warn!("extension-install Waterfox registry policy failed: {e}");
+        }
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
@@ -236,6 +252,11 @@ pub fn install() -> std::io::Result<()> {
             log::warn!("extension-install Firefox policy failed: {e}");
         }
         log::info!("tcc-probe: extension_install::install_firefox_policy() done");
+        log::info!("tcc-probe: extension_install::install_waterfox_policy() start");
+        if let Err(e) = install_waterfox_policy() {
+            log::warn!("extension-install Waterfox policy failed: {e}");
+        }
+        log::info!("tcc-probe: extension_install::install_waterfox_policy() done");
     }
     log::info!("tcc-probe: extension_install::install() exited");
     Ok(())
@@ -250,12 +271,22 @@ pub fn uninstall() -> std::io::Result<()> {
         }
     }
     #[cfg(target_os = "macos")]
-    if let Err(e) = uninstall_firefox_policy() {
-        log::warn!("extension-uninstall Firefox policy failed: {e}");
+    {
+        if let Err(e) = uninstall_firefox_policy() {
+            log::warn!("extension-uninstall Firefox policy failed: {e}");
+        }
+        if let Err(e) = uninstall_waterfox_policy() {
+            log::warn!("extension-uninstall Waterfox policy failed: {e}");
+        }
     }
     #[cfg(target_os = "windows")]
-    if let Err(e) = uninstall_firefox_registry() {
-        log::warn!("extension-uninstall Firefox registry policy failed: {e}");
+    {
+        if let Err(e) = uninstall_firefox_registry() {
+            log::warn!("extension-uninstall Firefox registry policy failed: {e}");
+        }
+        if let Err(e) = uninstall_waterfox_registry() {
+            log::warn!("extension-uninstall Waterfox registry policy failed: {e}");
+        }
     }
     Ok(())
 }
@@ -619,26 +650,12 @@ fn strip_tombstone_from_prefs(prefs_path: &std::path::Path) -> std::io::Result<(
     Ok(())
 }
 
-// ---- Firefox (enterprise policies, macOS only) -----------------------------
+// ---- Mozilla browser (enterprise policies, macOS only) --------------------
 
-/// Force-install the ReDD Focus extension via Firefox enterprise
-/// policies. Writes (or merges into) `policies.json` inside the
-/// Firefox app bundle's `Resources/distribution/` directory. Firefox
-/// reads this file on launch and treats listed extensions as managed
-/// — silently auto-installs from AMO, locks them ("Managed by your
-/// administrator" badge), and prevents user removal.
-///
-/// Idempotent: re-running merges our entry into whatever's already
-/// there. Preserves any other policies the user / admin has set.
-///
-/// Skips silently if:
-/// - Firefox.app isn't at `/Applications/Firefox.app` (custom-install
-///   users fall back to the existing onboarding flow).
-/// - We don't have write access to the bundle (e.g. non-admin macOS
-///   account).
+/// Force-install the ReDD Focus extension via a Mozilla browser's enterprise
+/// policies. Shared by Firefox and Waterfox — only `policies_path` differs.
 #[cfg(target_os = "macos")]
-fn install_firefox_policy() -> std::io::Result<()> {
-    let policies_path = firefox_policies_json_path();
+fn install_mozilla_policy(policies_path: &Path) -> std::io::Result<()> {
     let Some(distribution_dir) = policies_path.parent() else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -653,12 +670,12 @@ fn install_firefox_policy() -> std::io::Result<()> {
     };
 
     log::info!(
-        "tcc-probe: about to exists() (Firefox bundle) {}",
+        "tcc-probe: about to exists() (Mozilla bundle) {}",
         resources_dir.display()
     );
     if !resources_dir.exists() {
         log::info!(
-            "extension-install: Firefox skipped — bundle Resources dir missing at {}",
+            "extension-install: Mozilla browser skipped — bundle Resources dir missing at {}",
             resources_dir.display()
         );
         return Ok(());
@@ -668,12 +685,12 @@ fn install_firefox_policy() -> std::io::Result<()> {
     // permission (managed Mac, non-admin user) — log + skip rather
     // than fail the whole install round.
     log::info!(
-        "tcc-probe: about to create_dir_all (Firefox bundle) {}",
+        "tcc-probe: about to create_dir_all (Mozilla bundle) {}",
         distribution_dir.display()
     );
     if let Err(e) = std::fs::create_dir_all(distribution_dir) {
         log::warn!(
-            "extension-install: Firefox skipped — cannot create {}: {e}",
+            "extension-install: Mozilla browser skipped — cannot create {}: {e}",
             distribution_dir.display()
         );
         return Ok(());
@@ -682,15 +699,15 @@ fn install_firefox_policy() -> std::io::Result<()> {
     // Read existing policies.json (if any) and merge in our entry.
     // Preserves anything else IT / a previous tool put there.
     log::info!(
-        "tcc-probe: about to exists() (Firefox policies) {}",
+        "tcc-probe: about to exists() (Mozilla policies) {}",
         policies_path.display()
     );
     let mut data = if policies_path.exists() {
         log::info!(
-            "tcc-probe: about to read_to_string (Firefox policies) {}",
+            "tcc-probe: about to read_to_string (Mozilla policies) {}",
             policies_path.display()
         );
-        let raw = std::fs::read_to_string(&policies_path)?;
+        let raw = std::fs::read_to_string(policies_path)?;
         serde_json::from_str::<serde_json::Value>(&raw).unwrap_or_else(|e| {
             log::warn!(
                 "extension-install: existing policies.json at {} is invalid JSON ({e}); rewriting",
@@ -742,13 +759,13 @@ fn install_firefox_policy() -> std::io::Result<()> {
     // App Management TCC permission; even a no-op write triggers the
     // prompt. Reading does not.
     log::info!(
-        "tcc-probe: about to read_to_string (Firefox policies, idempotency check) {}",
+        "tcc-probe: about to read_to_string (Mozilla policies, idempotency check) {}",
         policies_path.display()
     );
-    if let Ok(existing) = std::fs::read_to_string(&policies_path) {
+    if let Ok(existing) = std::fs::read_to_string(policies_path) {
         if existing == pretty {
             log::info!(
-                "extension-install: Firefox policy already current at {} (skip)",
+                "extension-install: Mozilla policy already current at {} (skip)",
                 policies_path.display()
             );
             return Ok(());
@@ -756,29 +773,26 @@ fn install_firefox_policy() -> std::io::Result<()> {
     }
 
     log::info!(
-        "tcc-probe: about to write (Firefox policies) {}",
+        "tcc-probe: about to write (Mozilla policies) {}",
         policies_path.display()
     );
-    std::fs::write(&policies_path, pretty)?;
+    std::fs::write(policies_path, pretty)?;
     log::info!(
-        "extension-install: Firefox policy written at {}",
+        "extension-install: Mozilla policy written at {}",
         policies_path.display()
     );
     Ok(())
 }
 
-/// Strip our `ExtensionSettings` entry from `policies.json`. If
-/// removing our entry leaves the file empty, delete it (and the
-/// `distribution/` directory if empty too) so a clean uninstall
-/// leaves no trace.
+/// Strip our `ExtensionSettings` entry from a Mozilla browser's `policies.json`.
+/// Shared by Firefox and Waterfox — only `policies_path` differs.
 #[cfg(target_os = "macos")]
-fn uninstall_firefox_policy() -> std::io::Result<()> {
-    let policies_path = firefox_policies_json_path();
+fn uninstall_mozilla_policy(policies_path: &Path) -> std::io::Result<()> {
     if !policies_path.exists() {
         return Ok(());
     }
 
-    let raw = std::fs::read_to_string(&policies_path)?;
+    let raw = std::fs::read_to_string(policies_path)?;
     let mut data: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(_) => {
@@ -807,7 +821,7 @@ fn uninstall_firefox_policy() -> std::io::Result<()> {
     }
 
     if wrote_empty {
-        std::fs::remove_file(&policies_path)?;
+        std::fs::remove_file(policies_path)?;
         // Try to remove the distribution dir too if we're the only
         // thing in it. `remove_dir` only succeeds when empty, so
         // failure here is silent — anyone else's content stays.
@@ -815,19 +829,76 @@ fn uninstall_firefox_policy() -> std::io::Result<()> {
             let _ = std::fs::remove_dir(dist_dir);
         }
         log::info!(
-            "extension-uninstall: Firefox policy file removed at {}",
+            "extension-uninstall: Mozilla policy file removed at {}",
             policies_path.display()
         );
     } else {
         let pretty = serde_json::to_string_pretty(&data)?;
-        std::fs::write(&policies_path, pretty)?;
+        std::fs::write(policies_path, pretty)?;
         log::info!(
-            "extension-uninstall: Firefox policy entry stripped from {}",
+            "extension-uninstall: Mozilla policy entry stripped from {}",
             policies_path.display()
         );
     }
 
     Ok(())
+}
+/// Force-install the ReDD Focus extension via Firefox enterprise
+/// policies. Writes (or merges into) `policies.json` inside the
+/// Firefox app bundle's `Resources/distribution/` directory. Firefox
+/// reads this file on launch and treats listed extensions as managed
+/// — silently auto-installs from AMO, locks them ("Managed by your
+/// administrator" badge), and prevents user removal.
+///
+/// Idempotent: re-running merges our entry into whatever's already
+/// there. Preserves any other policies the user / admin has set.
+///
+/// Skips silently if:
+/// - Firefox.app isn't at `/Applications/Firefox.app` (custom-install
+///   users fall back to the existing onboarding flow).
+/// - We don't have write access to the bundle (e.g. non-admin macOS
+///   account).
+#[cfg(target_os = "macos")]
+fn install_firefox_policy() -> std::io::Result<()> {
+    install_mozilla_policy(&firefox_policies_json_path())
+}
+
+/// Force-install the ReDD Focus extension via Waterfox enterprise
+/// policies. Writes (or merges into) `policies.json` inside the
+/// Waterfox app bundle's `Resources/distribution/` directory. Waterfox
+/// reads this file on launch and treats listed extensions as managed
+/// — silently auto-installs from AMO, locks them ("Managed by your
+/// administrator" badge), and prevents user removal.
+///
+/// Idempotent: re-running merges our entry into whatever's already
+/// there. Preserves any other policies the user / admin has set.
+///
+/// Skips silently if:
+/// - Waterfox G6 isn't at `/Applications/Waterfox.app` (custom-install
+///   users fall back to the existing onboarding flow).
+/// - We don't have write access to the bundle (e.g. non-admin macOS
+///   account).
+#[cfg(target_os = "macos")]
+fn install_waterfox_policy() -> std::io::Result<()> {
+    install_mozilla_policy(&waterfox_policies_json_path())
+}
+
+/// Strip our `ExtensionSettings` entry from Firefox's `policies.json`.
+/// If removing our entry leaves the file empty, delete it (and the
+/// `distribution/` directory if empty too) so a clean uninstall
+/// leaves no trace.
+#[cfg(target_os = "macos")]
+fn uninstall_firefox_policy() -> std::io::Result<()> {
+    uninstall_mozilla_policy(&firefox_policies_json_path())
+}
+
+/// Strip our `ExtensionSettings` entry from Waterfox's `policies.json`.
+/// If removing our entry leaves the file empty, delete it (and the
+/// `distribution/` directory if empty too) so a clean uninstall
+/// leaves no trace.
+#[cfg(target_os = "macos")]
+fn uninstall_waterfox_policy() -> std::io::Result<()> {
+    uninstall_mozilla_policy(&waterfox_policies_json_path())
 }
 
 #[cfg(target_os = "windows")]
@@ -909,20 +980,16 @@ fn to_wide(s: &str) -> Vec<u16> {
     std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
 }
 
-// ---- Firefox (Windows registry policy) --------------------------------------
+// ---- Mozilla browsers (Windows registry policy) ---------------------------
 
-/// Force-install the ReDD Focus extension in Firefox via Windows
-/// registry policies. Firefox reads `ExtensionSettings` from
-/// `HKCU\Software\Policies\Mozilla\Firefox\ExtensionSettings\<addon-id>`
-/// on launch — same Mandatory-scope mechanism as Chromium on Windows.
-/// Unlike Chromium, Firefox's schema supports `private_browsing` to
-/// auto-grant private-window access (no manual toggle needed).
-///
-/// Idempotent: re-running overwrites the same keys with the same values.
+/// Force-install the ReDD Focus extension in a Mozilla browser via Windows
+/// registry policies. Shared by Firefox and Waterfox — only `registry_root`
+/// differs.
 #[cfg(target_os = "windows")]
-fn install_firefox_registry() -> std::io::Result<()> {
+fn install_mozilla_registry(registry_root: &str) -> std::io::Result<()> {
     let our_key = format!(
-        r"Software\Policies\Mozilla\Firefox\ExtensionSettings\{}",
+        r"{}\{}",
+        registry_root,
         FIREFOX_EXT_ID
     );
     write_hkcu_named_value(&our_key, "installation_mode", "force_installed")?;
@@ -933,20 +1000,52 @@ fn install_firefox_registry() -> std::io::Result<()> {
     // fields; "true" is the canonical spelling.
     write_hkcu_named_value(&our_key, "private_browsing", "true")?;
     log::info!(
-        "extension-install: Firefox registry policy written at HKCU\\{our_key}"
+        "extension-install: Mozilla registry policy written at HKCU\\{our_key}"
     );
+    Ok(())
+}
+/// Force-install the ReDD Focus extension in Firefox via Windows
+/// registry policies. Firefox reads `ExtensionSettings` from
+/// `HKCU\Software\Policies\Mozilla\Firefox\ExtensionSettings\<addon-id>`
+/// on launch — Mandatory-scope without admin. Unlike Chromium, Firefox's
+/// schema supports `private_browsing` to auto-grant private-window
+/// access (no manual toggle needed).
+#[cfg(target_os = "windows")]
+fn install_firefox_registry() -> std::io::Result<()> {
+    install_mozilla_registry(r"Software\Policies\Mozilla\Firefox\ExtensionSettings")
+}
+
+/// Force-install the ReDD Focus extension in Waterfox via Windows
+/// registry policies. Waterfox reads `ExtensionSettings` from
+/// `HKCU\Software\Policies\BrowserWorks\Waterfox\ExtensionSettings\<addon-id>`
+/// on launch — same Mandatory-scope mechanism as Firefox.
+#[cfg(target_os = "windows")]
+fn install_waterfox_registry() -> std::io::Result<()> {
+    install_mozilla_registry(r"Software\Policies\BrowserWorks\Waterfox\ExtensionSettings")
+}
+
+
+/// Remove the Mozilla extension policy keys from the registry.
+#[cfg(target_os = "windows")]
+fn uninstall_mozilla_registry(registry_root: &str) -> std::io::Result<()> {
+    let our_key = format!(
+        r"{}\{}",
+        registry_root,
+        FIREFOX_EXT_ID
+    );
+    let _ = delete_hkcu_key(&our_key);
     Ok(())
 }
 
 /// Remove the Firefox extension policy keys from the registry.
 #[cfg(target_os = "windows")]
 fn uninstall_firefox_registry() -> std::io::Result<()> {
-    let our_key = format!(
-        r"Software\Policies\Mozilla\Firefox\ExtensionSettings\{}",
-        FIREFOX_EXT_ID
-    );
-    let _ = delete_hkcu_key(&our_key);
-    Ok(())
+    uninstall_mozilla_registry(r"Software\Policies\Mozilla\Firefox\ExtensionSettings")
+}
+/// Remove the Waterfox extension policy keys from the registry.
+#[cfg(target_os = "windows")]
+fn uninstall_waterfox_registry() -> std::io::Result<()> {
+    uninstall_mozilla_registry(r"Software\Policies\BrowserWorks\Waterfox\ExtensionSettings")
 }
 
 /// Tauri command — exposed for manual re-trigger from the UI (e.g. an

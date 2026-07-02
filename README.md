@@ -7,7 +7,7 @@ Built by computer scientists at the University of Oxford (Dr Ulrik Lyngs) and th
 ## Features
 
 - **Cross-Platform** — Works on macOS 11+, Windows 10+, iOS (iPad/iPhone), and Android from the same Tauri UI codebase.
-- **Website Blocking** — ReDD Blocker decides what to block. On **macOS**, Safari/Chrome/Brave/Edge use **Automation** (no extension); **Firefox** uses the ReDD Focus extension. On **Windows**, Chrome/Brave/Edge/Firefox use the extension. On **iOS**, blocking uses Screen Time. On **Android**, blocking is enforced by the native AccessibilityService plugin.
+- **Website Blocking** — ReDD Blocker decides what to block. On **macOS**, Safari/Chrome/Brave/Edge use **Automation** (no extension); **Firefox** and **Waterfox** use the ReDD Focus extension. On **Windows**, Chrome/Brave/Edge/Firefox/Waterfox use the extension. On **iOS**, blocking uses Screen Time. On **Android**, blocking is enforced by the native AccessibilityService plugin.
 - **App Blocking** — Closes distracting apps on desktop (warning overlay → save window → polite quit → force-close if needed), uses Screen Time shield overlays on iOS, and uses the Android AccessibilityService/friction gate on Android.
 - **Flexible Blocklists** — Create multiple lists with custom names, colors, and emojis
 - **One-Off Blocks** — Quick blocks for immediate focus sessions
@@ -19,13 +19,13 @@ Built by computer scientists at the University of Oxford (Dr Ulrik Lyngs) and th
 
 ## How it works
 
-> **v3 (current).** ReDD Blocker is a single unprivileged app — no helper daemon, no `hosts` file writes. On **macOS**, Safari/Chrome/Brave/Edge website blocking uses **Automation** (Apple Events); **Firefox** still uses the ReDD Focus extension. On **Windows**, all supported browsers use the extension. macOS may ask for your password **once** when cleaning up leftover v1.x components.
+> **v3 (current).** ReDD Blocker is a single unprivileged app — no helper daemon, no `hosts` file writes. On **macOS**, Safari/Chrome/Brave/Edge website blocking uses **Automation** (Apple Events); **Firefox** and **Waterfox** still use the ReDD Focus extension. On **Windows**, all supported browsers use the extension. macOS may ask for your password **once** when cleaning up leftover v1.x components.
 
 ReDD Blocker is **one app**. When you start a block, it does two things:
 
 | | What gets blocked | Who does the blocking (desktop) |
 |---|-------------------|----------------------------------|
-| **Websites** | URLs in your blocklists | **macOS:** Automation for Safari/Chrome/Brave/Edge; ReDD Focus extension for Firefox. **Windows:** ReDD Focus extension |
+| **Websites** | URLs in your blocklists | **macOS:** Automation for Safari/Chrome/Brave/Edge; ReDD Focus extension for Firefox and Waterfox. **Windows:** ReDD Focus extension |
 | **Apps** | Programs in your blocklists | **ReDD Blocker** — closes them for you |
 
 ```mermaid
@@ -45,12 +45,13 @@ flowchart LR
 |---------|-------------------|-----------------|
 | Safari, Chrome, Brave, Edge | **Automation** (Apple Events) — ReDD Blocker redirects blocked tabs | ReDD Blocker prompts for Automation in System Settings → Privacy & Security → Automation |
 | Firefox | ReDD Focus extension | Install manually from the [Firefox Add-ons store](https://addons.mozilla.org/) — ReDD Blocker does **not** auto-install on macOS |
+| Waterfox | ReDD Focus extension | Install manually from the [Firefox Add-ons store](https://addons.mozilla.org/) — ReDD Blocker does **not** auto-install on macOS |
 
 **Windows**
 
 | Browser | How blocking works | Extension setup |
 |---------|-------------------|-----------------|
-| Chrome, Brave, Edge, Firefox | Native messaging (stdio) — the extension wakes ReDD Blocker in the background to fetch the blocklist | ReDD Blocker can auto-install extension hints where supported |
+| Chrome, Brave, Edge, Firefox, Waterfox | Native messaging (stdio) — the extension wakes ReDD Blocker in the background to fetch the blocklist | ReDD Blocker can auto-install extension hints where supported |
 
 **How native messaging works (Windows)**
 
@@ -91,9 +92,9 @@ You can open `src-tauri/gen/android/` in Android Studio to inspect, run, and bui
 
 ### Permissions (desktop)
 
-- **Extensions:** install ReDD Focus in Firefox (macOS) or in each browser you use on Windows.
+- **Extensions:** install ReDD Focus in Firefox and Waterfox (macOS) or in each browser you use on Windows.
 - **macOS — Automation:** Safari, Chrome, Brave, and Edge need **Automation** permission so ReDD Blocker can redirect blocked tabs. ReDD Blocker walks you through this during setup; no Full Disk Access is required.
-- **macOS — Firefox:** install ReDD Focus manually from the Add-ons store and allow it in private windows.
+- **macOS — Firefox/Waterfox:** install ReDD Focus manually from the Add-ons store and allow it in private windows.
 - **No** admin or UAC prompt at install time (macOS may ask once when cleaning up leftover v1.x components).
 
 ### Upgrading from v1.x

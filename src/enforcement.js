@@ -9,6 +9,7 @@ import iconChromeUrl from './images/icon-chrome.svg';
 import iconBraveUrl from './images/icon-brave.svg';
 import iconEdgeUrl from './images/icon-edge.svg';
 import iconFirefoxUrl from './images/icon-firefox.svg';
+import iconWaterfoxUrl from './images/icon-waterfox.svg';
 import iconSafariUrl from './images/icon-safari.svg';
 import logoReddFocusUrl from './images/logo-reddfocus.svg';
 import logoReddShieldUrl from './images/logo-redd-shield.svg';
@@ -611,6 +612,7 @@ export const BROWSER_STORE_LINKS = {
     brave: { label: 'Brave', url: 'https://chromewebstore.google.com/detail/redd-focus-hide-distracti/hhblkhfdjijdinijakbmcpkmdfhoadcd' },
     edge: { label: 'Edge', url: 'https://microsoftedge.microsoft.com/addons/detail/redd-focus-hide-distract/gmjfgjdhnhcegfelcddbdljdffiaepam' },
     firefox: { label: 'Firefox', url: 'https://addons.mozilla.org/en-US/firefox/addon/reddfocus/' },
+    waterfox: { label: 'Waterfox', url: 'https://addons.mozilla.org/en-US/firefox/addon/reddfocus/' },
     safari: { label: 'Safari', url: 'macappstore://apps.apple.com/app/id1660218371' },
 };
 
@@ -634,7 +636,7 @@ export function getBlockingMethodsMap() {
 
 export function browserBlockingMethod(key) {
     if (!state.isMacOSDesktop || !MAC_BLOCKING_METHOD_KEYS.includes(key)) {
-        if (state.isMacOSDesktop && key === 'firefox') return 'extension';
+        if (state.isMacOSDesktop && (key === 'firefox' || key === 'waterfox')) return 'extension';
         return 'extension';
     }
     return getBlockingMethodsMap()[key] || 'automation';
@@ -642,7 +644,7 @@ export function browserBlockingMethod(key) {
 
 export function browserUsesAutomation(key) {
     if (!state.isMacOSDesktop) return false;
-    if (key === 'firefox') return false;
+    if (key === 'firefox' || key === 'waterfox') return false;
     if (MAC_BLOCKING_METHOD_KEYS.includes(key)) {
         return browserBlockingMethod(key) === 'automation';
     }
@@ -767,7 +769,7 @@ export function browserComplianceStatus(key, b) {
     if (enabled === false) return 'needs-enable';
     const priv = def.privateBrowsing;
     if (priv !== true) return 'needs-private';
-    if (key === 'firefox' && state.isMacOSDesktop && b.nativeHostReady === false) {
+    if ((key === 'firefox' || key === 'waterfox') && state.isMacOSDesktop && b.nativeHostReady === false) {
         return 'needs-native-host';
     }
     return 'compliant';
@@ -824,6 +826,7 @@ export function extensionsUrl(key) {
         case 'edge': return 'edge://extensions';
         case 'brave': return 'brave://extensions';
         case 'firefox': return 'about:addons';
+        case 'waterfox': return 'about:addons';
         case 'safari': return tSettings('migrationSafariSettingsPath');
         default: return 'extensions';
     }
@@ -871,6 +874,7 @@ export function privateModeNoun(key) {
         case 'edge': return tSettings('migrationPrivateIncognitoEdge');
         case 'brave': return tSettings('migrationPrivateIncognitoBrave');
         case 'firefox': return tSettings('migrationPrivateIncognitoFirefox');
+        case 'waterfox': return tSettings('migrationPrivateIncognitoFirefox');
         case 'safari': return tSettings('migrationPrivateIncognitoSafari');
         default: return tSettings('migrationPrivateIncognito');
     }
@@ -1006,8 +1010,8 @@ export function buildSafariDuplicateInstructionStep(stepNum, translationKey, ext
 }
 
 // Display order for the extension-setup rows. Safari sits above the
-// Chromium browsers; Firefox stays last.
-export const MIGRATION_BROWSER_ORDER = ['safari', 'chrome', 'brave', 'edge', 'firefox'];
+// Chromium browsers; Firefox and Waterfox stay last.
+export const MIGRATION_BROWSER_ORDER = ['safari', 'chrome', 'brave', 'edge', 'firefox', 'waterfox'];
 
 export function migrationBrowserKeys(state) {
     const browsers = state?.browsers || {};
@@ -1028,10 +1032,11 @@ export function migrationExtHeaderCopy(state) {
     const focusLogoHtml =
         `<img src="${logoReddFocusUrl}" alt="" class="welcome-reddfocus-inline-logo" aria-hidden="true"> `;
     const browsers = state?.browsers || appState.lastMigrationBrowserState?.browsers || {};
-    const firefoxInstalled = !!(browsers.firefox && browsers.firefox.installed);
+    const mozillaInstalled = !!(browsers.firefox && browsers.firefox.installed)
+        || !!(browsers.waterfox && browsers.waterfox.installed);
     return {
         titleHtml: tSettings('migrationExtTitleMac'),
-        subtitleHtml: (firefoxInstalled
+        subtitleHtml: (mozillaInstalled
             ? tSettings('migrationExtSubMacFirefox')
             : tSettings('migrationExtSubMac')).replace('{FOCUS}', focusLogoHtml),
     };
@@ -1039,8 +1044,9 @@ export function migrationExtHeaderCopy(state) {
 
 export function migrationMacCopyKey(state) {
     const browsers = state?.browsers || appState.lastMigrationBrowserState?.browsers || {};
-    const firefoxInstalled = !!(browsers.firefox && browsers.firefox.installed);
-    return `${getSettingsLanguage()}:${firefoxInstalled ? 1 : 0}`;
+    const mozillaInstalled = !!(browsers.firefox && browsers.firefox.installed)
+        || !!(browsers.waterfox && browsers.waterfox.installed);
+    return `${getSettingsLanguage()}:${mozillaInstalled ? 1 : 0}`;
 }
 
 export function invalidateMigrationMacCopyCache() {
@@ -1055,7 +1061,8 @@ export function syncMigrationMacHowto(state) {
     const focusLogoHtml =
         `<img src="${logoReddFocusUrl}" alt="" class="welcome-reddfocus-inline-logo" aria-hidden="true"> `;
     const browsers = state?.browsers || appState.lastMigrationBrowserState?.browsers || {};
-    const firefoxInstalled = !!(browsers.firefox && browsers.firefox.installed);
+    const mozillaInstalled = !!(browsers.firefox && browsers.firefox.installed)
+        || !!(browsers.waterfox && browsers.waterfox.installed);
     const li1 = document.getElementById('migration-howto-li1');
     const li2 = document.getElementById('migration-howto-li2');
     const li3 = document.getElementById('migration-howto-li3');
@@ -1067,7 +1074,7 @@ export function syncMigrationMacHowto(state) {
         }
         appState.lastMigrationHowtoCopyKey = copyKey;
     }
-    if (li2) li2.classList.toggle('hidden', !firefoxInstalled);
+    if (li2) li2.classList.toggle('hidden', !mozillaInstalled);
     if (li3) li3.classList.add('hidden');
 }
 
@@ -1362,7 +1369,7 @@ export function migrationBrowserRenderSignature(state) {
         }
         const b = browsers[k];
         const status = browserComplianceStatus(k, b) || 'needs-install';
-        if (k === 'firefox') {
+        if (k === 'firefox' || k === 'waterfox') {
             return `${k}:${status}:${b?.nativeHostReady ? 1 : 0}`;
         }
         if (k === 'safari' && b?.profiles?.length) {
@@ -1511,7 +1518,7 @@ export function renderBrowserInstallButtons(state, { force = false } = {}) {
             const afterHint = document.createElement('div');
             afterHint.className = 'migration-browser-hint migration-browser-after-hint';
             const privNoun = privateModeNoun(key);
-            if (key === 'firefox') {
+            if (key === 'firefox' || key === 'waterfox') {
                 afterHint.innerHTML = appState.isMacOSDesktop
                     ? tSettings('migrationPostInstallFirefoxMacHtml')
                     : tSettings('migrationPostInstallFirefoxHtml');
@@ -1573,13 +1580,16 @@ export function renderBrowserInstallButtons(state, { force = false } = {}) {
             btn.className = 'migration-browser-copy';
             btn.textContent = tSettings('migrationFirefoxNativeHostButton');
             btn.addEventListener('click', async () => {
+                const command = key === 'waterfox'
+                    ? 'ensure_waterfox_native_host'
+                    : 'ensure_firefox_native_host';
                 try {
-                    await invoke('ensure_firefox_native_host');
+                    await invoke(command);
                     const fresh = await invoke('onboarding_state');
                     renderBrowserInstallButtons(fresh, { force: true });
                     await updateBehaviourChangeBanner(fresh);
                 } catch (e) {
-                    console.warn('[firefox] ensure_firefox_native_host failed:', e);
+                    console.warn(`[${key}] ${command} failed:`, e);
                 }
             });
             const actionsRow = document.createElement('div');
@@ -1662,7 +1672,7 @@ export function renderBrowserInstallButtons(state, { force = false } = {}) {
                     tplKey = 'migrationInstructionEnableHtml';
                 } else if (status === 'needs-website-access') {
                     tplKey = 'migrationInstructionWebsiteAccessHtml';
-                } else if (key === 'firefox') {
+                } else if (key === 'firefox' || key === 'waterfox') {
                     tplKey = 'migrationInstructionFirefoxPrivateHtml';
                 } else {
                     tplKey = 'migrationInstructionChromiumPrivateHtml';
@@ -2344,6 +2354,7 @@ export function browserKeyFromLabel(label) {
     if (!label) return null;
     const normalized = String(label).toLowerCase();
     if (normalized.includes('firefox')) return 'firefox';
+    if (normalized.includes('waterfox')) return 'waterfox';
     if (normalized.includes('brave')) return 'brave';
     if (normalized.includes('edge')) return 'edge';
     if (normalized.includes('safari')) return 'safari';
@@ -2353,6 +2364,7 @@ export function browserKeyFromLabel(label) {
 export function browserIconUrl(key) {
     switch (key) {
         case 'firefox': return iconFirefoxUrl;
+        case 'waterfox': return iconWaterfoxUrl;
         case 'edge': return iconEdgeUrl;
         case 'safari': return iconSafariUrl;
         case 'brave': return iconBraveUrl;
@@ -2453,7 +2465,7 @@ export function enforcerCopy(payload) {
         const key = browserKeyFromLabel(browser);
         const privNoun = privateModeNoun(key);
         const screenshotSteps = enforcerScreenshotSteps(key);
-        const tplKey = key === 'firefox'
+        const tplKey = (key === 'firefox' || key === 'waterfox')
             ? 'migrationInstructionFirefoxPrivateHtml'
             : 'migrationInstructionChromiumPrivateHtml';
         return {
@@ -2886,7 +2898,7 @@ export function enforcerClosedCopy(payload) {
         const key = browserKeyFromLabel(browser);
         const instruction = key === 'chrome'
             ? tSettings('enforcerClosedInstrPrivateChrome')
-            : key === 'firefox'
+            : (key === 'firefox' || key === 'waterfox')
             ? tSettings('enforcerClosedInstrPrivateFirefox')
             : '';
         const screenshotSteps = enforcerScreenshotSteps(key);

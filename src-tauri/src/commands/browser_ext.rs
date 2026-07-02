@@ -739,7 +739,7 @@ pub fn open_browser_extension_settings(browser: String) -> Result<(), String> {
     let browser = browser.trim();
     let normalized = browser.to_ascii_lowercase();
     let url = match normalized.as_str() {
-        "firefox" => "about:addons".to_string(),
+        "firefox" | "waterfox" => "about:addons".to_string(),
         "edge" => format!(
             "edge://extensions/?id={}",
             crate::native_host_install::EDGE_ADDONS_EXT_ID
@@ -775,6 +775,7 @@ pub fn open_browser_extension_settings(browser: String) -> Result<(), String> {
             "brave" => "Brave Browser",
             "edge" => "Microsoft Edge",
             "firefox" => "Firefox",
+            "waterfox" => "Waterfox",
             _ => "Google Chrome",
         };
         let out = std::process::Command::new("/usr/bin/open")
@@ -844,6 +845,7 @@ pub fn open_url_in_browser(browser: String, url: String) -> Result<(), String> {
             "brave" => "Brave Browser",
             "edge" => "Microsoft Edge",
             "firefox" => "Firefox",
+            "waterfox" => "Waterfox",
             "safari" => "Safari",
             _ => "Google Chrome",
         };

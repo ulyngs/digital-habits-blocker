@@ -79,7 +79,7 @@ pub fn method_for_key_at_path(path: &Path, key: &str) -> Method {
     #[cfg(target_os = "macos")]
     {
         match key {
-            "firefox" => Method::Extension,
+            "firefox" | "waterfox" => Method::Extension,
             k if MAC_BLOCKING_METHOD_KEYS.contains(&k) => read_map_from_path(path)
                 .get(k)
                 .and_then(|s| Method::parse(s))

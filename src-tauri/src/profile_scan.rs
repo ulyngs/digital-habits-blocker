@@ -125,6 +125,7 @@ impl Default for BrowserStatus {
     }
 }
 
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
     pub firefox: BrowserStatus,
@@ -132,6 +133,7 @@ pub struct ScanResult {
     pub brave: BrowserStatus,
     pub edge: BrowserStatus,
     pub safari: BrowserStatus,
+    pub waterfox: BrowserStatus,
 }
 
 /// Scan every supported browser on the current platform.
@@ -156,7 +158,7 @@ pub fn scan_for_onboarding() -> ScanResult {
         }
         let path = crate::commands::canonical_data_path_static();
         let mut result = scan_filter(|label| match label {
-            "firefox" => true,
+            "firefox" | "waterfox" => true,
             "safari" | "chrome" | "brave" | "edge" => {
                 !crate::blocking_method::uses_automation_at_path(&path, label)
             }
@@ -181,6 +183,13 @@ pub fn scan_for_onboarding() -> ScanResult {
             result.firefox.native_host_ready =
                 crate::native_host_install::firefox_native_host_is_current();
         }
+        if result.waterfox.installed {
+            if let Err(e) = crate::native_host_install::sync_waterfox_native_host(false) {
+                log::warn!("native-host sync for waterfox during onboarding scan failed: {e}");
+            }
+            result.waterfox.native_host_ready =
+                crate::native_host_install::waterfox_native_host_is_current();
+        }
         result
     }
     #[cfg(not(target_os = "macos"))]
@@ -204,7 +213,7 @@ pub fn scan_for_diagnostics() -> ScanResult {
         }
         let path = crate::commands::canonical_data_path_static();
         let mut result = scan_filter(|label| match label {
-            "firefox" => true,
+            "firefox" | "waterfox" => true,
             "safari" | "chrome" | "brave" | "edge" => {
                 !crate::blocking_method::uses_automation_at_path(&path, label)
             }
@@ -226,6 +235,10 @@ pub fn scan_for_diagnostics() -> ScanResult {
             result.firefox.native_host_ready =
                 crate::native_host_install::firefox_native_host_is_current();
         }
+        if result.waterfox.installed {
+            result.waterfox.native_host_ready =
+                crate::native_host_install::waterfox_native_host_is_current();
+        }
         result
     }
     #[cfg(not(target_os = "macos"))]
@@ -241,6 +254,7 @@ fn empty_scan_result() -> ScanResult {
         brave: empty("brave"),
         edge: empty("edge"),
         safari: empty("safari"),
+        waterfox: empty("waterfox"),
     }
 }
 
@@ -259,7 +273,7 @@ fn empty_scan_result() -> ScanResult {
 /// I/O cost) for browsers that aren't currently open.
 ///
 /// The vendor labels passed to the predicate are the lowercase
-/// short names: "firefox", "chrome", "brave", "edge", "safari".
+/// short names: "firefox", "waterfox", "chrome", "brave", "edge", "safari".
 pub fn scan_filter<F: Fn(&str) -> bool>(should_scan: F) -> ScanResult {
     #[cfg(target_os = "macos")]
     if !crate::cross_app_consent::should_run_profile_scans() {
@@ -299,6 +313,14 @@ pub fn scan_filter<F: Fn(&str) -> bool>(should_scan: F) -> ScanResult {
             )
         } else {
             empty("edge")
+        },
+        waterfox: if should_scan("waterfox") {
+            with_native_host_ready(
+                scan_waterfox().unwrap_or_else(|| empty("waterfox")),
+                crate::native_host_install::BrowserTarget::Waterfox,
+            )
+        } else {
+            empty("waterfox")
         },
         safari: if should_scan("safari") {
             scan_safari()
@@ -345,6 +367,22 @@ fn firefox_root() -> Option<PathBuf> {
     }
 }
 
+fn waterfox_root() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(dirs::home_dir()?.join("Library/Application Support/Waterfox"))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = std::env::var_os("APPDATA").map(PathBuf::from)?;
+        Some(appdata.join(r"Waterfox"))
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        Some(dirs::home_dir()?.join(".waterfox"))
+    }
+}
+
 /// Bundle (or equivalent) on disk, regardless of running state.
 pub fn firefox_app_installed() -> bool {
     #[cfg(target_os = "macos")]
@@ -367,17 +405,38 @@ pub fn firefox_app_installed() -> bool {
     }
 }
 
+pub fn waterfox_app_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let candidates = [
+            PathBuf::from("/Applications/Waterfox.app"),
+            dirs::home_dir()
+                .map(|h| h.join("Applications/Waterfox.app"))
+                .unwrap_or_default(),
+        ];
+        candidates.iter().any(|p| p.exists())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        find_browser_exe("waterfox").is_some()
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        waterfox_root().map(|p| p.exists()).unwrap_or(false)
+    }
+}
+
 /// Find the full path to a browser executable by name (e.g. "chrome",
 /// "firefox", "brave", "edge"). Returns `None` if not found on disk.
 /// Used by `open_browser_extension_settings` so we can launch browsers
 /// directly instead of going through `cmd /c start`.
-#[cfg(target_os = "windows")]
 pub fn find_browser_exe(name: &str) -> Option<PathBuf> {
     let subpath = match name {
         "chrome" => r"Google\Chrome\Application\chrome.exe",
         "brave" => r"BraveSoftware\Brave-Browser\Application\brave.exe",
         "edge" => r"Microsoft\Edge\Application\msedge.exe",
         "firefox" => r"Mozilla Firefox\firefox.exe",
+        "waterfox" => r"Waterfox\waterfox.exe",
         _ => return None,
     };
     [
@@ -403,6 +462,21 @@ fn firefox_app_present() -> bool {
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         is_process_running(&["firefox", "firefox-esr"])
+    }
+}
+
+fn waterfox_app_present() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        is_process_running(&["waterfox", "waterfox-bin"])
+    }
+    #[cfg(target_os = "windows")]
+    {
+        is_process_running(&["waterfox.exe"])
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        is_process_running(&["waterfox"])
     }
 }
 
@@ -441,10 +515,14 @@ fn firefox_addon_enabled(addon: &Value) -> bool {
     active && !user_disabled && !app_disabled
 }
 
-fn scan_firefox() -> Option<BrowserStatus> {
-    let running = firefox_app_present();
-    let installed = firefox_app_installed();
-    let root = firefox_root()?;
+fn scan_firefox_like(
+    root_fn: fn() -> Option<PathBuf>,
+    present_fn: fn() -> bool,
+    installed_fn: fn() -> bool,
+) -> Option<BrowserStatus> {
+    let running = present_fn();
+    let installed = installed_fn();
+    let root = root_fn()?;
     if !installed || !root.exists() {
         return Some(BrowserStatus {
             present: running,
@@ -523,6 +601,14 @@ fn scan_firefox() -> Option<BrowserStatus> {
         needs_fda_access: false,
         native_host_ready: false,
     })
+}
+
+fn scan_firefox() -> Option<BrowserStatus> {
+    scan_firefox_like(firefox_root, firefox_app_present, firefox_app_installed)
+}
+
+fn scan_waterfox() -> Option<BrowserStatus> {
+    scan_firefox_like(waterfox_root, waterfox_app_present, waterfox_app_installed)
 }
 
 fn firefox_debug_temp_extension_matches(profile_dir: &Path) -> bool {
@@ -1185,6 +1271,19 @@ fn firefox_presence_only() -> BrowserStatus {
 }
 
 #[cfg(target_os = "macos")]
+fn waterfox_presence_only() -> BrowserStatus {
+    BrowserStatus {
+        present: waterfox_app_present(),
+        installed: waterfox_app_installed(),
+        profiles: vec![],
+        error: None,
+        duplicate_extensions: None,
+        needs_fda_access: false,
+        native_host_ready: false,
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn safari_presence_only() -> BrowserStatus {
     let installed = Path::new("/Applications/Safari.app").exists()
         || dirs::home_dir()
@@ -1442,6 +1541,17 @@ pub fn compliant(result: &ScanResult) -> bool {
                 true
             }
         });
+    let waterfox_ok = !result.waterfox.present
+        || (default_profile_compliant(&result.waterfox) && {
+            #[cfg(target_os = "macos")]
+            {
+                result.waterfox.native_host_ready
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                true
+            }
+        });
     let safari_ok = !result.safari.present
         || (!result.safari.profiles.is_empty()
             && result
@@ -1449,7 +1559,7 @@ pub fn compliant(result: &ScanResult) -> bool {
                 .profiles
                 .iter()
                 .all(|p| safari_profile_passes(p)));
-    chromium_ok && firefox_ok && safari_ok
+    chromium_ok && firefox_ok && waterfox_ok && safari_ok
 }
 
 fn safari_profile_passes(p: &ProfileStatus) -> bool {

@@ -44,11 +44,11 @@ pub fn chromium_extension_ids() -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
-pub enum BrowserTarget { Chrome, Brave, Edge, Firefox }
+pub enum BrowserTarget { Chrome, Brave, Edge, Firefox, Waterfox }
 
 impl BrowserTarget {
-    fn all() -> [BrowserTarget; 4] {
-        [BrowserTarget::Chrome, BrowserTarget::Brave, BrowserTarget::Edge, BrowserTarget::Firefox]
+    fn all() -> [BrowserTarget; 5] {
+        [BrowserTarget::Chrome, BrowserTarget::Brave, BrowserTarget::Edge, BrowserTarget::Firefox, BrowserTarget::Waterfox]
     }
 
     /// Directory where the browser expects to find native-messaging
@@ -62,6 +62,7 @@ impl BrowserTarget {
                 BrowserTarget::Brave => "Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
                 BrowserTarget::Edge => "Library/Application Support/Microsoft Edge/NativeMessagingHosts",
                 BrowserTarget::Firefox => "Library/Application Support/Mozilla/NativeMessagingHosts",
+                BrowserTarget::Waterfox => "Library/Application Support/Mozilla/NativeMessagingHosts",
             };
             Some(home.join(p))
         }
@@ -80,6 +81,7 @@ impl BrowserTarget {
                 BrowserTarget::Brave => ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
                 BrowserTarget::Edge => ".config/microsoft-edge/NativeMessagingHosts",
                 BrowserTarget::Firefox => ".mozilla/native-messaging-hosts",
+                BrowserTarget::Waterfox => ".waterfox/native-messaging-hosts",
             };
             Some(home.join(p))
         }
@@ -103,7 +105,7 @@ fn manifest_body(browser: BrowserTarget, binary_path: &str) -> serde_json::Value
         "type": "stdio",
     });
     match browser {
-        BrowserTarget::Firefox => {
+        BrowserTarget::Firefox | BrowserTarget::Waterfox => {
             obj["allowed_extensions"] = json!([FIREFOX_EXT_ID]);
         }
         _ => {
@@ -534,6 +536,50 @@ pub fn firefox_native_host_is_current() -> bool {
     }
 }
 
+/// macOS Waterfox: write the native-messaging manifest when missing or stale.
+/// No-op when Waterfox is not installed. Skips the write when already current
+/// unless `force` is true (explicit user refresh).
+#[cfg(target_os = "macos")]
+pub fn sync_waterfox_native_host(force: bool) -> std::io::Result<()> {
+    if !crate::profile_scan::waterfox_app_installed() {
+        return Ok(());
+    }
+    let binary = current_binary_path().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve current exe")
+    })?;
+    if !force && !manifest_needs_update(BrowserTarget::Waterfox, &binary) {
+        log::debug!("native-host sync: waterfox manifest already current, skipping");
+        return Ok(());
+    }
+    log::info!("native-host sync: writing manifest for waterfox");
+    install_one(BrowserTarget::Waterfox, &binary)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn sync_waterfox_native_host(_force: bool) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn waterfox_native_host_is_current() -> bool {
+    let Some(binary) = current_binary_path() else {
+        return false;
+    };
+    !manifest_needs_update(BrowserTarget::Waterfox, &binary)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn waterfox_native_host_is_current() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        return native_host_is_current(BrowserTarget::Waterfox);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
 /// Remove the native-messaging manifest for one browser.
 pub fn uninstall_native_host_for(browser: BrowserTarget) -> std::io::Result<()> {
     uninstall_one(browser)
@@ -578,7 +624,7 @@ fn install_inner(binary: &str) {
 fn install_targets() -> Vec<BrowserTarget> {
     #[cfg(target_os = "macos")]
     {
-        vec![BrowserTarget::Firefox]
+        vec![BrowserTarget::Firefox, BrowserTarget::Waterfox]
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -726,18 +772,20 @@ fn browser_slug(browser: BrowserTarget) -> &'static str {
         BrowserTarget::Brave => "brave",
         BrowserTarget::Edge => "edge",
         BrowserTarget::Firefox => "firefox",
+        BrowserTarget::Waterfox => "waterfox",
     }
 }
 
 #[cfg(target_os = "windows")]
 fn registry_key_path(browser: BrowserTarget) -> String {
     // All HKCU — no UAC. Chrome/Brave/Edge use the same schema under
-    // their vendor key; Firefox uses Mozilla\NativeMessagingHosts.
+    // their vendor key; Waterfox uses BrowserWorks\Waterfox\NativeMessagingHosts.
     match browser {
         BrowserTarget::Chrome => format!(r"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"),
         BrowserTarget::Brave => format!(r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{HOST_NAME}"),
         BrowserTarget::Edge => format!(r"Software\Microsoft\Edge\NativeMessagingHosts\{HOST_NAME}"),
         BrowserTarget::Firefox => format!(r"Software\Mozilla\NativeMessagingHosts\{HOST_NAME}"),
+        BrowserTarget::Waterfox => format!(r"Software\BrowserWorks\Waterfox\NativeMessagingHosts\{HOST_NAME}"),
     }
 }
 
@@ -897,6 +945,11 @@ pub fn install_native_host(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn ensure_firefox_native_host() -> Result<(), String> {
     sync_firefox_native_host(true).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ensure_waterfox_native_host() -> Result<(), String> {
+    sync_waterfox_native_host(true).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

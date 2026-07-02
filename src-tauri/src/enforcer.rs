@@ -110,6 +110,7 @@ pub enum BrowserKey {
     Brave,
     Edge,
     Safari,
+    Waterfox,
 }
 
 impl BrowserKey {
@@ -120,6 +121,7 @@ impl BrowserKey {
             BrowserKey::Brave => "Brave",
             BrowserKey::Edge => "Edge",
             BrowserKey::Safari => "Safari",
+            BrowserKey::Waterfox => "Waterfox",
         }
     }
 
@@ -133,6 +135,7 @@ impl BrowserKey {
             BrowserKey::Brave => &["brave.exe"],
             BrowserKey::Edge => &["msedge.exe"],
             BrowserKey::Safari => &[],
+            BrowserKey::Waterfox => &["waterfox.exe"],
         }
         #[cfg(target_os = "macos")]
         match self {
@@ -141,6 +144,7 @@ impl BrowserKey {
             BrowserKey::Brave => &["Brave Browser"],
             BrowserKey::Edge => &["Microsoft Edge"],
             BrowserKey::Safari => &["Safari"],
+            BrowserKey::Waterfox => &["waterfox"],
         }
         #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
         match self {
@@ -163,12 +167,13 @@ impl BrowserKey {
             BrowserKey::Brave,
             BrowserKey::Edge,
             BrowserKey::Safari,
+            BrowserKey::Waterfox,
         ]
     }
 
     /// macOS only: map to the web_automation browser enum for the
-    /// Automation-permission check. Firefox has no mapping (it stays on
-    /// the extension path).
+    /// Automation-permission check. Firefox and Waterfox have no mapping
+    /// (they stay on the extension path).
     #[cfg(target_os = "macos")]
     fn to_web_automation(self) -> Option<crate::web_automation::SupportedBrowser> {
         use crate::web_automation::SupportedBrowser as S;
@@ -177,7 +182,7 @@ impl BrowserKey {
             BrowserKey::Brave => Some(S::Brave),
             BrowserKey::Edge => Some(S::Edge),
             BrowserKey::Safari => Some(S::Safari),
-            BrowserKey::Firefox => None,
+            BrowserKey::Firefox | BrowserKey::Waterfox => None,
         }
     }
 
@@ -189,6 +194,7 @@ impl BrowserKey {
             BrowserKey::Brave => "brave",
             BrowserKey::Edge => "edge",
             BrowserKey::Safari => "safari",
+            BrowserKey::Waterfox => "waterfox",
         }
     }
 
@@ -205,6 +211,7 @@ impl BrowserKey {
             BrowserKey::Brave => &r.brave,
             BrowserKey::Edge => &r.edge,
             BrowserKey::Safari => &r.safari,
+            BrowserKey::Waterfox => &r.waterfox,
         }
     }
 }
@@ -366,7 +373,7 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
     }
 
     // Only scan browsers we actually judge by the extension. On macOS
-    // that's Firefox alone — scanning a Chromium/Safari profile dir
+    // that's Firefox and Waterfox — scanning a Chromium/Safari profile dir
     // triggers Sequoia's per-app data-access TCC prompt, and we don't
     // need it anyway (those are judged by `query_automation_permission`,
     // which reads the decision without touching disk or prompting).
@@ -377,6 +384,7 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
             "brave" => BrowserKey::Brave,
             "edge" => BrowserKey::Edge,
             "safari" => BrowserKey::Safari,
+            "waterfox" => BrowserKey::Waterfox,
             _ => return false,
         };
         if !running.contains(&key) {
@@ -385,7 +393,7 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
         #[cfg(target_os = "macos")]
         {
             if key.uses_automation_on_macos(app) {
-                return matches!(key, BrowserKey::Firefox);
+                return matches!(key, BrowserKey::Firefox | BrowserKey::Waterfox);
             }
             matches!(
                 key,
@@ -394,6 +402,7 @@ fn tick(app: &AppHandle, state: &Arc<Mutex<EnforcerState>>) {
                     | BrowserKey::Brave
                     | BrowserKey::Edge
                     | BrowserKey::Safari
+                    | BrowserKey::Waterfox
             )
         }
         #[cfg(not(target_os = "macos"))]

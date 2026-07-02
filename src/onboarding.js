@@ -222,6 +222,16 @@ export function firefoxInstalledFromState(state) {
     return !!b.installed;
 }
 
+export function waterfoxInstalledFromState(state) {
+    const b = state?.browsers?.waterfox ?? appState.lastMigrationBrowserState?.browsers?.waterfox;
+    if (!b) return null;
+    return !!b.installed;
+}
+
+export function anyMozillaInstalledFromState(state) {
+    return !!(firefoxInstalledFromState(state) || waterfoxInstalledFromState(state));
+}
+
 export async function resolveEnforcementCopyFirefoxInstalled(state) {
     if (!appState.isMacOSDesktop) return false;
     const fromState = firefoxInstalledFromState(state);

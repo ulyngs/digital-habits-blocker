@@ -671,8 +671,8 @@ export function renderSystemDiagnostics(d, { enforcementEnabled = false } = {}) 
 
     // Browsers (extension)
     const extensionBrowserKeys = state.isMacOSDesktop
-        ? ['firefox', ...MAC_BLOCKING_METHOD_KEYS.filter((k) => browserBlockingMethod(k) === 'extension')]
-        : ['chrome', 'brave', 'edge', 'firefox', 'safari'];
+        ? ['firefox', 'waterfox', ...MAC_BLOCKING_METHOD_KEYS.filter((k) => browserBlockingMethod(k) === 'extension')]
+        : ['chrome', 'brave', 'edge', 'firefox', 'waterfox', 'safari'];
     const browsersHint = state.isMacOSDesktop
         ? tSettings('diagnosticsBrowsersSectionHintMacExtension')
         : tSettings('diagnosticsBrowsersSectionHint');
@@ -1246,6 +1246,16 @@ export function firefoxHasReddFocusExtension(firefox) {
     return profiles.some((p) => p.installed);
 }
 
+export function waterfoxHasReddFocusExtension(waterfox) {
+    const profiles = waterfox?.profiles;
+    if (!Array.isArray(profiles) || profiles.length === 0) return false;
+    return profiles.some((p) => p.installed);
+}
+
+export function anyMozillaHasReddFocusExtension(browsers) {
+    return !!(browsers && (firefoxHasReddFocusExtension(browsers.firefox) || waterfoxHasReddFocusExtension(browsers.waterfox)));
+}
+
 export function applyUninstallConfirmModalStaticCopy() {
     syncUninstallDeleteDataCopy();
 
@@ -1276,8 +1286,8 @@ export function syncUninstallConfirmModal(browsers) {
     applyUninstallConfirmModalStaticCopy();
     const callout = document.getElementById('uninstall-firefox-callout');
     if (!callout) return;
-    const showFirefox = !!(browsers && firefoxHasReddFocusExtension(browsers.firefox));
-    callout.classList.toggle('hidden', !showFirefox);
+    const showMozilla = anyMozillaHasReddFocusExtension(browsers);
+    callout.classList.toggle('hidden', !showMozilla);
 }
 
 export async function fetchInstalledBrowsersForUninstall() {

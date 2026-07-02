@@ -493,6 +493,26 @@
             </div>
         </div>
 
+        <div id="android-permissions-onboarding" class="onboarding-screen hidden">
+            <div class="onboarding-content android-permissions-onboarding-content">
+                <div class="onboarding-icon">
+                    <img src="/reddblock-icon.svg" alt="ReDD Block app icon" class="onboarding-app-icon">
+                </div>
+                <h1>Welcome to ReDD Block</h1>
+                <div class="onboarding-focus-card">
+                    <p class="onboarding-primary-copy">ReDD Block needs the Accessibility permission to detect and
+                        block distracting apps and websites.</p>
+                    <button id="android-accessibility-grant-btn" class="modal-btn primary-btn onboarding-primary-btn">Grant
+                        accessibility access</button>
+                    <p id="android-accessibility-status" class="subtle hidden">Waiting for you to enable ReDD Block in
+                        Accessibility settings…</p>
+                </div>
+                <p id="android-permissions-onboarding-note" class="subtle">ReDD Block is open-source and built by the
+                    Reduce Digital Distraction Project at (reddfocus.org). It is based on our 10+ years of research at
+                    the University of Oxford.</p>
+            </div>
+        </div>
+
         <!-- Main Content - Grid Layout (hidden until JS clears onboarding gate; avoids flash before EULA on iOS).
              The "BLOCKING NOW" row that used to live here has moved into
              the title bar (see `#now-blocking-row` near the top of body),

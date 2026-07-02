@@ -1,5 +1,5 @@
 // Tauri API imports - proper ES modules from @tauri-apps/api
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -90,6 +90,21 @@ const tauriAPI = {
     screentimeSetBlockEndState: (payload) =>
         invoke('plugin:screentime|set_block_end_state', payload),
 
+    // Android blocking API (Android only - provided by tauri-plugin-android-blocker).
+    // All blocking logic runs in Kotlin (AccessibilityService + WorkManager);
+    // these just marshal to it. See tauri-plugin-android-blocker/src/commands.rs.
+    androidCheckPermissions: () => invoke('plugin:android-blocker|check_blocker_permissions'),
+    androidOpenAccessibilitySettings: () => invoke('plugin:android-blocker|open_accessibility_settings'),
+    androidSetSchedules: (schedules) => invoke('plugin:android-blocker|set_schedules', { schedules }),
+    androidStartManualBlock: (id, endTimestampMs) =>
+        invoke('plugin:android-blocker|start_manual_block', { id, endTimestampMs }),
+    androidStopManualBlock: (id) => invoke('plugin:android-blocker|stop_manual_block', { id }),
+    androidTemporaryUnlock: (id) => invoke('plugin:android-blocker|temporary_unlock', { id }),
+    androidGetBlockingState: () => invoke('plugin:android-blocker|get_blocking_state'),
+    androidReadNativeSchedules: () => invoke('plugin:android-blocker|read_native_schedules'),
+    androidGetInstalledApps: () => invoke('plugin:android-blocker|get_installed_apps'),
+    androidSetEventHandler: (handler) => invoke('plugin:android-blocker|set_event_handler', { handler }),
+
     // Event listening
     onBlocksUpdated: (callback) => listen('blocks-updated', callback),
     onMenuZoomIn: (callback) => listen('menu-zoom-in', callback),
@@ -179,6 +194,7 @@ let lastDesktopHelperStatus = null;
 let lastDesktopHelperStatusAt = 0;
 let draggedBlocklistId = null; // Track which blocklist is being dragged
 let isIOS = false; // Track if running on iOS
+let isAndroid = false; // Track if running on Android
 // True on macOS desktop (i.e. Mac platform AND not the iOS Tauri
 // runtime). Set in `detectPlatform`. Used to gate macOS-only Tauri
 // commands like `check_full_disk_access` and the FDA onboarding flow
@@ -186,6 +202,7 @@ let isIOS = false; // Track if running on iOS
 // `#[cfg(target_os = "macos")]`-gated in the Rust side.
 let isMacOSDesktop = false;
 let screentimeAuthorized = false; // Track if Screen Time is authorized (iOS)
+let androidPermissionsGranted = false; // Track if Accessibility is granted (Android)
 let startupInitializationPromise = null; // Prevent duplicate post-onboarding startup runs
 let startupInitializationComplete = false; // Track whether post-onboarding startup already ran
 let pauseBlockId = null; // Track which block is being paused
@@ -209,8 +226,8 @@ const UI_ZOOM_MAX_DESKTOP = 1.5;  // cap on macOS/Windows (native webview zoom)
 const UI_ZOOM_STEP = 0.1;
 /** Desktop default — slightly larger for monitor distance. */
 const DEFAULT_UI_ZOOM = 1.2;
-/** iOS uses CSS zoom on `html`; 1.0 matches the layout viewport and avoids horizontal overflow. */
-const DEFAULT_UI_ZOOM_IOS = 1.0;
+/** Mobile (iOS/Android) uses CSS zoom on `html`; 1.0 matches the layout viewport and avoids horizontal overflow. */
+const DEFAULT_UI_ZOOM_MOBILE = 1.0;
 let zoomToastHideTimeout = null;
 let nativeWebviewZoomSupported = null;
 
@@ -507,6 +524,15 @@ function isNonRepeatingSchedule(schedule) {
     return !!schedule && schedule.repeatType !== 'forever' && !(schedule.repeatType === 'date' && schedule.repeatDate);
 }
 
+const ANDROID_DAY_NAMES_MON0 = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+
+function androidDayNamesFromMon0(days) {
+    if (!Array.isArray(days)) return [];
+    return days
+        .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
+        .map(day => ANDROID_DAY_NAMES_MON0[day]);
+}
+
 // Resolve concrete one-shot occurrences for non-repeating schedules.
 function resolveOneShotSegmentOccurrences(schedule, segment, segmentIndex = 0) {
     if (!isNonRepeatingSchedule(schedule) || !segment) return [];
@@ -701,6 +727,88 @@ async function syncSchedulesToHelper() {
         }
         return;
     }
+    if (isAndroid) {
+        try {
+            const flatEntries = [];
+            for (const schedule of appData.schedules || []) {
+                if (schedule.isPaused) continue; // paused: don't enforce, but keep in appData
+                if (!schedule.segments || schedule.segments.length === 0) continue;
+                // One-shot (non-repeating) instant blocks have no equivalent
+                // in the Kotlin Schedule model (which only stores time-of-day
+                // + optional days-of-week, not absolute calendar timestamps —
+                // see ScheduleTiming.kt). Skipping them here is a deliberate,
+                // scoped gap: wiring "block now for N minutes" should go
+                // through androidStartManualBlock/stopManualBlock instead of
+                // set_schedules, but that needs its own UI-flow work.
+                if (isNonRepeatingSchedule(schedule)) {
+                    console.warn('[syncSchedulesToHelper] Android: skipping non-repeating schedule', schedule.id, '(not yet supported)');
+                    continue;
+                }
+                const blocklist = appData.blocklists.find(bl => bl.id === schedule.blocklistId);
+                const blockedApps = blocklist?.apps || [];
+                const blockedWebsites = blocklist?.websites || [];
+                const difficulty = blocklist?.overrideDifficulty;
+                const frictionWordCount = (difficulty && difficulty.type !== 'custom' && difficulty.count) ? difficulty.count : 15;
+
+                for (let segIdx = 0; segIdx < schedule.segments.length; segIdx++) {
+                    const seg = schedule.segments[segIdx];
+                    flatEntries.push({
+                        id: `${schedule.id}-${segIdx}`,
+                        name: blocklist?.name || 'Schedule',
+                        enabled: true,
+                        type: (seg.days && seg.days.length > 0) ? 'WEEKLY' : 'DAILY',
+                        startHour: seg.startHour,
+                        startMinute: seg.startMinute,
+                        endHour: seg.endHour,
+                        endMinute: seg.endMinute,
+                        days: androidDayNamesFromMon0(seg.days),
+                        blockedApps,
+                        blockedWebsites,
+                        frictionWordCount,
+                        // 0 = stays disabled until the user re-enables it,
+                        // matching desktop's override behavior (deletes the
+                        // schedule outright rather than auto-restarting it).
+                        autoReenableMinutes: 0,
+                    });
+                }
+            }
+
+            // Instant ("start block now") blocks map to MANUAL Kotlin
+            // schedules — set_schedules only creates/updates the Schedule
+            // entity; proceedWithBlock() separately calls
+            // androidStartManualBlock to actually start the session (and
+            // arm the auto-stop timer for non-always-on blocks).
+            const now = Date.now();
+            for (const block of appData.activeBlocks || []) {
+                if (block.isPaused) continue;
+                if (block.endTime <= now) continue;
+                const blocklist = appData.blocklists.find(bl => bl.id === block.blocklistId);
+                if (!blocklist) continue;
+                const difficulty = blocklist.overrideDifficulty;
+                const frictionWordCount = (difficulty && difficulty.type !== 'custom' && difficulty.count) ? difficulty.count : 15;
+                flatEntries.push({
+                    id: block.id,
+                    name: blocklist.name || 'Block',
+                    enabled: true,
+                    type: 'MANUAL',
+                    days: [],
+                    blockedApps: blocklist.apps || [],
+                    blockedWebsites: blocklist.websites || [],
+                    frictionWordCount,
+                    autoReenableMinutes: 0,
+                });
+            }
+
+            console.log('[syncSchedulesToHelper] Android: Sending', flatEntries.length, 'segment entries to plugin');
+            const result = await tauriAPI.androidSetSchedules(flatEntries);
+            if (!result.success) {
+                console.warn('[syncSchedulesToHelper] Android plugin failed:', result.error);
+            }
+        } catch (e) {
+            console.warn('[syncSchedulesToHelper] Android error:', e);
+        }
+        return;
+    }
     try {
         const status = await tauriAPI.checkHelperStatus();
         if (!status.running || !status.version_ok) {
@@ -749,7 +857,7 @@ async function syncSchedulesToHelper() {
 }
 
 async function syncActiveBlocksToHelper() {
-    if (isIOS) return;
+    if (isIOS || isAndroid) return;
     try {
         const status = await tauriAPI.checkHelperStatus();
         if (!status.running || !status.version_ok) return;
@@ -978,8 +1086,29 @@ function hasAnyBlockingStateToClear(now = Date.now(), nowDate = new Date(now)) {
     return !!appData.schedules?.some(schedule => scheduleCanStillBecomeActive(schedule, nowDate));
 }
 
+function getActiveOneOffBlocklistIds(now = Date.now()) {
+    return [...new Set((appData.activeBlocks || [])
+        .filter(block => block.startTime <= now && block.endTime > now)
+        .map(block => block.blocklistId)
+        .filter(Boolean))];
+}
+
+function autoSelectLoneActiveBlocklist() {
+    if (selectedBlocklistId) return false;
+    const activeIds = getActiveOneOffBlocklistIds();
+    if (activeIds.length !== 1) return false;
+    if (!appData.blocklists.some(bl => bl.id === activeIds[0])) return false;
+
+    userExplicitlyDeselected = false;
+    const dropdown = document.getElementById('blocklist-select');
+    if (!dropdown) return false;
+    dropdown.value = activeIds[0];
+    handleBlocklistSelect({ target: dropdown });
+    return true;
+}
+
 async function refreshDesktopHelperStatus() {
-    if (isIOS) {
+    if (isIOS || isAndroid) {
         return { installed: false, running: false, version: null, version_ok: false, helperReady: false };
     }
     try {
@@ -1029,7 +1158,7 @@ function stopHelperUiRefreshLoop() {
 }
 
 async function refreshOpenHelperUi() {
-    if (helperUiRefreshInFlight || isIOS) return;
+    if (helperUiRefreshInFlight || isIOS || isAndroid) return;
 
     const settingsVisible = isModalVisible('settings-modal');
     const diagnosticsVisible = isModalVisible('diagnostics-modal');
@@ -1053,7 +1182,7 @@ async function refreshOpenHelperUi() {
 }
 
 function startHelperUiRefreshLoop() {
-    if (isIOS || helperUiRefreshTimer != null) return;
+    if (isIOS || isAndroid || helperUiRefreshTimer != null) return;
     helperUiRefreshTimer = setInterval(() => {
         void refreshOpenHelperUi();
     }, HELPER_UI_REFRESH_MS);
@@ -1083,6 +1212,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadData();
     await resetDevOnlyEulaAcceptance();
     detectPlatform(); // Must run early so isIOS is set before other setup
+    // Must register before permissions are granted — this channel is how
+    // we find out permissions WERE granted (BlockerPlugin.onResume() fires
+    // when returning from system Settings), so it can't be deferred until
+    // after the permission gate without becoming circular.
+    if (isAndroid) {
+        listenForAndroidFrictionGate();
+        setupAndroidBackButtonHandling();
+    }
     setupNowBlockingChipScroll();
     setupEventListeners();
     initWelcomeDemoControls();
@@ -1100,7 +1237,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     void wireEnforcementToggle();
     if (isIOS && hasAcceptedEula()) {
         await checkScreentimeAuth();
-    } else if (!isIOS) {
+    } else if (isAndroid && hasAcceptedEula()) {
+        await checkAndroidPermissions();
+    } else if (!isIOS && !isAndroid) {
         await runInitialDesktopOnboardingSequence();
     } else {
         updateOnboardingVisibility();
@@ -1268,6 +1407,11 @@ async function runPostAcceptanceStartup() {
             if (screentimeAuthorized) {
                 await initializeIOSBlockingState();
             }
+        } else if (isAndroid) {
+            await checkAndroidPermissions();
+            if (androidPermissionsGranted) {
+                await initializeAndroidBlockingState();
+            }
         } else {
             // Run first-launch migration off the legacy helper + check
             // Automation TCC (macOS) + extension compliance. Idempotent;
@@ -1306,7 +1450,7 @@ async function runPostAcceptanceStartup() {
         startTickInterval();
 
         // Check for app updates (non-blocking, desktop only)
-        if (!isIOS) {
+        if (!isIOS && !isAndroid) {
             checkForAppUpdate();
         }
         startupInitializationComplete = true;
@@ -1690,7 +1834,7 @@ const MIGRATION_POLL_MS = 2500;
 const EXT_ONBOARDING_DISMISSED_KEY = 'reddBlockExtOnboardingDismissed';
 
 async function runDesktopOnboarding() {
-    if (isIOS) return;
+    if (isIOS || isAndroid) return;
     try {
         const pendingAtLaunch = await invoke('migration_pending');
         const wasUpgrade = await invoke('migration_was_pending_at_launch');
@@ -1725,7 +1869,7 @@ async function runDesktopOnboarding() {
 }
 
 async function ensureExtensionSetupOnboardingShown() {
-    if (isIOS || migrationOnboardingActive) return;
+    if (isIOS || isAndroid || migrationOnboardingActive) return;
     const dismissed = localStorage.getItem(EXT_ONBOARDING_DISMISSED_KEY);
     if (!firstRunExtensionSetupPending && (dismissed || migrationOnboardingDismissed)) return;
     try {
@@ -2850,7 +2994,7 @@ function onAppForeground() {
 }
 
 function setupAppForegroundRefresh() {
-    if (isIOS) return;
+    if (isIOS || isAndroid) return;
     window.addEventListener('focus', onAppForeground);
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') onAppForeground();
@@ -3120,7 +3264,7 @@ async function continueOnboardingReplayFromWelcome() {
 }
 
 async function restartOnboardingFromSettings() {
-    if (isIOS) return;
+    if (isIOS || isAndroid) return;
     document.getElementById('settings-modal')?.classList.add('hidden');
     setLanguagePickerOpen(false);
 
@@ -3143,7 +3287,7 @@ async function restartOnboardingFromSettings() {
 let lastBannerRefreshAt = 0;
 const BANNER_REFRESH_THROTTLE_MS = 5_000;
 async function refreshBehaviourBannerIfStale({ force = false } = {}) {
-    if (isIOS) return;
+    if (isIOS || isAndroid) return;
     if (migrationOnboardingActive) return; // overlay is the source of truth
     if (!startupInitializationComplete) return;
     const now = Date.now();
@@ -3168,7 +3312,7 @@ let enforcerActionBannerInterval = null;
 let enforcerScreenshotResizeTimer = null;
 
 function setupEnforcerUiAlerts() {
-    if (isIOS || enforcerUiAlertsAttached) return;
+    if (isIOS || isAndroid || enforcerUiAlertsAttached) return;
     enforcerUiAlertsAttached = true;
     tauriAPI.onEnforcerGraceUpdate((event) => {
         const payload = event?.payload || {};
@@ -4322,7 +4466,7 @@ let appBlockingClosedownTickInterval = null;
 const APP_BLOCKING_CLOSEDOWN_PREQUIT_MS = 30 * 1000;
 
 function setupAppBlockingWarningOverlay() {
-    if (isIOS || appBlockingWarningUiAttached) return;
+    if (isIOS || isAndroid || appBlockingWarningUiAttached) return;
     appBlockingWarningUiAttached = true;
 
     const onFail = (label) => (e) => {
@@ -4456,7 +4600,7 @@ function renderAppBlockingWarningOverlay() {
 // function is purely DOM-side: overlay visibility, body class for the
 // compact-mode CSS, and resize-observer setup.
 function applyWarningOverlayPresence() {
-    if (isIOS) return;
+    if (isIOS || isAndroid) return;
     const overlay = document.getElementById('app-blocking-warning-overlay');
     if (!overlay) return;
 
@@ -4550,7 +4694,7 @@ function joinAppListWithLimit(names, max = 3, { bold = true } = {}) {
 
 // Check if the helper daemon is available (desktop only)
 async function checkHelperStatus() {
-    if (isIOS) return; // iOS uses Screen Time, not helper daemon
+    if (isIOS || isAndroid) return; // Mobile uses platform blockers, not helper daemon.
     const status = await refreshDesktopHelperStatus();
     console.log('Helper status:', status);
 
@@ -4606,6 +4750,243 @@ async function requestScreentimeAuth() {
     }
 }
 
+// Check Accessibility permission (Android only). Called on startup and
+// again on `visibilitychange` while the onboarding gate is showing,
+// since the user grants Accessibility in a separate system settings
+// screen and there's no callback for "user came back".
+async function checkAndroidPermissions() {
+    try {
+        const result = await tauriAPI.androidCheckPermissions();
+        androidPermissionsGranted = !!result.accessibilityEnabled;
+        console.log('Android permissions:', result);
+    } catch (err) {
+        console.error('Error checking Android permissions:', err);
+        androidPermissionsGranted = false;
+    }
+    updateOnboardingVisibility();
+}
+
+async function initializeAndroidBlockingState() {
+    await migrateAndroidNativeSchedules();
+    await syncSchedulesToHelper();
+}
+
+const ANDROID_DAY_TO_MON0 = {
+    MONDAY: 0, TUESDAY: 1, WEDNESDAY: 2, THURSDAY: 3, FRIDAY: 4, SATURDAY: 5, SUNDAY: 6,
+};
+
+// One-time upward migration: reads the legacy redd-block-android app's
+// SharedPreferences (via `read_native_schedules`, same device-protected
+// storage file the Kotlin plugin still writes/reads — applicationId is
+// unchanged across the update, see tauri-plugin-android-blocker/README)
+// and converts each legacy Schedule into this app's blocklist+schedule
+// model. Runs once; the flag is only set after a successful save+sync so
+// a crash mid-migration doesn't leave a half-imported state.
+async function migrateAndroidNativeSchedules() {
+    if (!isAndroid) return;
+    if (appData.settings?.androidMigrationDone) return;
+
+    try {
+        const { routinesJson } = await tauriAPI.androidReadNativeSchedules();
+        const legacySchedules = JSON.parse(routinesJson || '[]');
+
+        if (Array.isArray(legacySchedules) && legacySchedules.length > 0) {
+            for (const legacy of legacySchedules) {
+                const timing = legacy.schedule || {};
+                if (timing.type === 'MANUAL') {
+                    // Session-based one-off blocks — no equivalent in this
+                    // app's blocklist+schedule model yet (same gap noted in
+                    // syncSchedulesToHelper for non-repeating schedules).
+                    console.warn('[migrateAndroidNativeSchedules] Skipping MANUAL legacy schedule', legacy.id);
+                    continue;
+                }
+
+                const blocklistId = generateId();
+                appData.blocklists.push({
+                    id: blocklistId,
+                    name: legacy.name || 'Imported Schedule',
+                    websites: legacy.blockedWebsites || [],
+                    apps: legacy.blockedApps || [],
+                    overrideDifficulty: { type: 'random-words', count: legacy.frictionWordCount || 15 },
+                });
+
+                const days = timing.type === 'WEEKLY'
+                    ? (timing.daysOfWeek || []).map(d => ANDROID_DAY_TO_MON0[d]).filter(d => d !== undefined)
+                    : [0, 1, 2, 3, 4, 5, 6]; // DAILY: every day
+
+                appData.schedules.push({
+                    id: generateId(),
+                    blocklistId,
+                    isPaused: !legacy.isEnabled,
+                    segments: [{
+                        startHour: timing.timeHour ?? 0,
+                        startMinute: timing.timeMinute ?? 0,
+                        endHour: timing.endTimeHour ?? 23,
+                        endMinute: timing.endTimeMinute ?? 59,
+                        days,
+                    }],
+                });
+            }
+        }
+
+        if (!appData.settings) appData.settings = {};
+        appData.settings.androidMigrationDone = true;
+        await saveData();
+        console.log('[migrateAndroidNativeSchedules] Imported', legacySchedules.length, 'legacy schedules');
+    } catch (e) {
+        // Leave the flag unset on failure so we retry on next launch —
+        // the Kotlin side keeps enforcing the legacy prefs regardless,
+        // so there's no urgency/harm in retrying.
+        console.error('[migrateAndroidNativeSchedules] Failed:', e);
+    }
+}
+
+// Registers the friction-gate Channel with the Kotlin plugin. BlockerService
+// launches the main activity with block details as intent extras when it
+// intercepts a blocked app/website; BlockerPlugin forwards them through this
+// channel. See tauri-plugin-android-blocker/android/.../BlockerPlugin.kt.
+function listenForAndroidFrictionGate() {
+    const channel = new Channel();
+    channel.onmessage = (event) => {
+        if (event.type === 'resumed') {
+            // BlockerPlugin.onResume() — the reliable native-lifecycle
+            // signal for "user came back from a system settings screen".
+            // DOM visibilitychange is unreliable inside an Android
+            // WebView-hosted Activity, so this is the primary path (the
+            // visibilitychange listener in setupEventListeners is a
+            // fallback in case onResume didn't fire for some reason).
+            onAndroidResumed();
+        } else if (event.type === 'friction-gate') {
+            openAndroidFrictionGateModal(event);
+        }
+    };
+    tauriAPI.androidSetEventHandler(channel).catch((err) => {
+        console.error('Failed to register Android friction-gate handler:', err);
+    });
+}
+
+async function onAndroidResumed() {
+    if (androidPermissionsGranted) return;
+    const wasGranted = androidPermissionsGranted;
+    await checkAndroidPermissions();
+    if (!wasGranted && androidPermissionsGranted) {
+        try {
+            await initializeAndroidBlockingState();
+            render();
+        } catch (err) {
+            console.error('Error initializing Android blocking state after permission grant:', err);
+        }
+    }
+}
+
+// Dedicated close functions for modals where blindly re-adding .hidden
+// would skip cleanup (resetting editingBlocklistId, challengeText, etc.).
+// Modals not listed here (app-picker-modal's close is a local closure,
+// settings-modal has no dedicated close fn) fall back to a plain hide —
+// an acceptable degradation (stale state clears on next legitimate
+// open/close), much better than the app closing outright.
+const ANDROID_MODAL_CLOSE_FNS = {
+    'blocklist-modal': closeBlocklistModal,
+    'override-modal': closeOverrideModal,
+    'pause-modal': closePauseModal,
+    'start-block-confirm-modal': closeStartBlockConfirmModal,
+    'start-schedule-confirm-modal': closeScheduleConfirmModal,
+};
+
+// Tauri's generated WryActivity.onKeyDown only calls webView.goBack() on
+// hardware/gesture back if canGoBack() is true; otherwise it falls
+// through to the default Activity behavior, which closes the app (see
+// gen/android/.../WryActivity.kt). This app never pushed history state
+// for its modals, so every back press closed the app outright —
+// including e.g. backing out of the blocklist/schedule editor. Trap
+// it: push one history entry whenever a modal-overlay opens, and on
+// popstate (which goBack() triggers) close the topmost open modal
+// instead of letting the Activity finish.
+function setupAndroidBackButtonHandling() {
+    let trapArmed = false;
+
+    function topmostVisibleModal() {
+        const overlays = document.querySelectorAll('.modal-overlay');
+        let topmost = null;
+        for (const el of overlays) {
+            if (!el.classList.contains('hidden')) topmost = el;
+        }
+        return topmost;
+    }
+
+    function armTrapIfNeeded() {
+        if (trapArmed) return;
+        if (!topmostVisibleModal()) return;
+        trapArmed = true;
+        history.pushState({ androidModalTrap: true }, '');
+    }
+
+    // Any modal-overlay's `hidden` class toggling is how every open*Modal
+    // function in this codebase shows a modal — watching that generically
+    // avoids having to hook every individual open function.
+    const observer = new MutationObserver(() => armTrapIfNeeded());
+    document.querySelectorAll('.modal-overlay').forEach((el) => {
+        observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+    });
+
+    window.addEventListener('popstate', () => {
+        const modal = topmostVisibleModal();
+        if (!modal) {
+            trapArmed = false;
+            return;
+        }
+        const closeFn = ANDROID_MODAL_CLOSE_FNS[modal.id];
+        if (closeFn) {
+            closeFn();
+        } else {
+            modal.classList.add('hidden');
+        }
+        // Re-arm if another modal was underneath (nested case).
+        trapArmed = false;
+        armTrapIfNeeded();
+    });
+}
+
+// Shows the shared override-challenge UI for a block that fired on
+// Android. Unlike the desktop/iOS `window.overrideScheduleId` flow
+// (which deletes the schedule outright), a passed Android challenge
+// calls `androidTemporaryUnlock` — Kotlin disables the schedule for its
+// configured `autoReenableMinutes` and re-enables it automatically
+// (see `Schedules.temporaryUnlock` / `ReEnableWorker`), matching the
+// original redd-block-android behavior. `window.overrideAndroidScheduleId`
+// is a distinct flag so this doesn't fall into the desktop delete branch.
+function openAndroidFrictionGateModal(event) {
+    delete window.overrideScheduleId;
+    window.overrideAndroidScheduleId = event.scheduleId;
+    overrideBlockId = null;
+    overrideBlocklistIdForHelper = null;
+
+    const schedule = appData.schedules?.find(s => s.id === event.scheduleId);
+    const blocklist = schedule ? appData.blocklists.find(bl => bl.id === schedule.blocklistId) : null;
+    const blocklistName = blocklist?.name || event.scheduleName || 'ReDD Block';
+
+    const difficulty = blocklist?.overrideDifficulty || { type: 'random-words', count: 15 };
+    const charCount = difficulty.count || 15;
+    const isRandom = difficulty.type === 'gibberish';
+
+    challengeText = isRandom ? generateGibberish(charCount) : generateRandomWords(charCount);
+
+    const confirmBtn = document.getElementById('confirm-override-btn');
+    if (confirmBtn) confirmBtn.textContent = tSettings('stopSchedule');
+
+    const titleEl = document.getElementById('override-modal-title');
+    if (titleEl) titleEl.textContent = `${tSettings('stopSchedule')} ${blocklistName}`;
+
+    const challengeTextEl = document.getElementById('challenge-text');
+    if (challengeTextEl) challengeTextEl.textContent = challengeText;
+    const challengeInput = document.getElementById('challenge-input');
+    if (challengeInput) challengeInput.value = '';
+    const progressBar = document.getElementById('challenge-progress-bar');
+    if (progressBar) progressBar.style.width = '0%';
+
+    document.getElementById('override-modal').classList.remove('hidden');
+}
+
 async function initializeIOSBlockingState() {
     // Sync lastBlockedDomains from active (non-paused) blocks so pause/resume works after restart
     const now = Date.now();
@@ -4624,18 +5005,26 @@ async function initializeIOSBlockingState() {
 function updateOnboardingVisibility() {
     const eulaOverlay = document.getElementById('eula-onboarding');
     const screentimeOverlay = document.getElementById('ios-screentime-onboarding');
+    const androidOverlay = document.getElementById('android-permissions-onboarding');
     const main = document.getElementById('main-content');
     const showEula = !hasAcceptedEula();
     const showScreentime = isIOS && !showEula && !screentimeAuthorized;
+    const showAndroidPermissions = isAndroid && !showEula && !androidPermissionsGranted;
+    const showAnyOnboarding = showEula || showScreentime || showAndroidPermissions;
 
     eulaOverlay?.classList.toggle('hidden', !showEula);
     screentimeOverlay?.classList.toggle('hidden', !showScreentime);
-    main?.classList.toggle('hidden', showEula || showScreentime);
+    androidOverlay?.classList.toggle('hidden', !showAndroidPermissions);
+    main?.classList.toggle('hidden', showAnyOnboarding);
+
+    if (showAndroidPermissions) {
+        document.getElementById('android-accessibility-status')?.classList.toggle('hidden', androidPermissionsGranted);
+    }
 
     // Hide the BLOCKING NOW title-bar row on onboarding screens
     const nowBlockingRow = document.getElementById('now-blocking-row');
     if (nowBlockingRow) {
-        nowBlockingRow.classList.toggle('hidden', showEula || showScreentime);
+        nowBlockingRow.classList.toggle('hidden', showAnyOnboarding);
     }
 }
 
@@ -4652,6 +5041,8 @@ async function acceptEula() {
     }
     if (isIOS) {
         await checkScreentimeAuth();
+    } else if (isAndroid) {
+        await checkAndroidPermissions();
     } else {
         firstRunExtensionSetupPending = true;
         updateOnboardingVisibility();
@@ -4851,6 +5242,18 @@ function detectPlatform() {
         }
 
         /* Browse buttons in #blocklist-modal: layout + captions from CSS (body.ios …) and applySettingsLanguage(). */
+    } else if (/Android/.test(navigator.userAgent)) {
+        isAndroid = true;
+        document.body.classList.add('android');
+        // Hide desktop-only UI on Android — same fullscreen-webview
+        // treatment as iOS (custom title bar / window controls make no
+        // sense on a mobile OS).
+        document.getElementById('window-controls')?.classList.add('hidden');
+        document.querySelector('.title-bar')?.classList.add('hidden');
+        document.getElementById('helper-settings-section')?.classList.add('hidden');
+        // Unlike iOS, Android app blocking uses plain package names (same
+        // shape as desktop's process names), so the text input + picker
+        // both stay usable — no UI to hide here.
     } else {
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         if (isMac) {
@@ -5027,12 +5430,40 @@ function setupEventListeners() {
         btn.textContent = originalText;
     });
 
-    // Initial check for maximize state
-    updateMaximizeButton();
+    // Android accessibility grant: opens the system Accessibility settings
+    // screen. There's no in-app callback for "user came back and enabled
+    // it" — BlockerPlugin.onResume() (see listenForAndroidFrictionGate)
+    // re-checks whenever the app resumes.
+    document.getElementById('android-accessibility-grant-btn')?.addEventListener('click', async () => {
+        document.getElementById('android-accessibility-status')?.classList.remove('hidden');
+        try {
+            await tauriAPI.androidOpenAccessibilitySettings();
+        } catch (err) {
+            console.error('androidOpenAccessibilitySettings failed:', err);
+        }
+    });
 
-    // Check periodically to catch state changes (double-click title bar, etc.)
-    // This ensures the icon updates even if window is maximized/restored via other means
-    setInterval(updateMaximizeButton, 300);
+    if (isAndroid) {
+        // Fallback only — BlockerPlugin.onResume() (via the friction-gate
+        // Channel, see listenForAndroidFrictionGate) is the reliable path.
+        // DOM visibilitychange is known to be unreliable inside an Android
+        // WebView-hosted Activity, but costs nothing to also check here.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') onAndroidResumed();
+        });
+    }
+
+    // Maximize/restore is a desktop window-chrome concept — Tauri's window
+    // API rejects isMaximized() with "Window API not available on mobile"
+    // on iOS/Android, and the title bar is hidden there anyway.
+    if (!isIOS && !isAndroid) {
+        // Initial check for maximize state
+        updateMaximizeButton();
+
+        // Check periodically to catch state changes (double-click title bar, etc.)
+        // This ensures the icon updates even if window is maximized/restored via other means
+        setInterval(updateMaximizeButton, 300);
+    }
 
     // Time pickers — instant end uses compact `input.time-part time-popover-anchor` (click opens list + caret);
     // schedule uses its own overlays; pause modal uses button anchors.
@@ -6519,8 +6950,8 @@ function setupOverrideModalListeners() {
         stopButtonFitRo.observe(blockActionButtons);
     }
     window.addEventListener('resize', () => syncAllStopBtnLabelFits());
-    window.addEventListener('resize', () => syncIosScheduleDayLabelsViewportMode());
-    window.visualViewport?.addEventListener('resize', syncIosScheduleDayLabelsViewportMode);
+    window.addEventListener('resize', () => syncMobileScheduleDayLabelsViewportMode());
+    window.visualViewport?.addEventListener('resize', syncMobileScheduleDayLabelsViewportMode);
 
     document.getElementById('confirm-override-btn').addEventListener('click', async () => {
         const typed = challengeInput.value;
@@ -6541,7 +6972,7 @@ function setupOverrideModalListeners() {
             }
         }
 
-        if (typed === target && (overrideBlockId || window.overrideScheduleId)) {
+        if (typed === target && (overrideBlockId || window.overrideScheduleId || window.overrideAndroidScheduleId)) {
             // Check for helper removal special case
             if (overrideBlockId === 'helper-removal' && window.helperRemovalConfirmCallback) {
                 window.helperRemovalConfirmCallback();
@@ -6558,6 +6989,13 @@ function setupOverrideModalListeners() {
                     await tauriAPI.screentimeClearBlock();
                     lastBlockedDomains = new Set();
                     await updateHostsFile();
+                    await syncSchedulesToHelper();
+                } else if (isAndroid) {
+                    try {
+                        await tauriAPI.androidStopManualBlock(overrideBlockId);
+                    } catch (err) {
+                        console.error('androidStopManualBlock failed:', err);
+                    }
                     await syncSchedulesToHelper();
                 } else {
                     const status = await refreshDesktopHelperStatus();
@@ -6619,6 +7057,19 @@ function setupOverrideModalListeners() {
                 await updateBlockedApps();
 
                 delete window.overrideScheduleId;
+            } else if (window.overrideAndroidScheduleId) {
+                // Android: temporary unlock, not deletion. Kotlin owns
+                // disabling the schedule for autoReenableMinutes and
+                // re-enabling it automatically (ReEnableWorker) — the
+                // schedule stays in appData.schedules untouched so the
+                // next set_schedules sync doesn't recreate it from scratch.
+                const scheduleId = window.overrideAndroidScheduleId;
+                try {
+                    await tauriAPI.androidTemporaryUnlock(scheduleId);
+                } catch (err) {
+                    console.error('androidTemporaryUnlock failed:', err);
+                }
+                delete window.overrideAndroidScheduleId;
             }
 
             render();
@@ -7831,13 +8282,13 @@ function rebuildScheduleSegments() {
     container.innerHTML = '';
 
     const fullDayLabels = weekdayAbbrevMon0List();
-    const useCompactDayLabels = shouldUseCompactIosScheduleDayLabels();
+    const useCompactDayLabels = shouldUseCompactMobileScheduleDayLabels();
     const dayLabels = useCompactDayLabels ? weekdayLetterMon0List() : fullDayLabels;
     const labelStart = tSettings('start');
     const labelEnd = tSettings('end');
     const labelDays = tSettings('days');
 
-    iosCompactScheduleDayLabelsActive = useCompactDayLabels;
+    mobileCompactScheduleDayLabelsActive = useCompactDayLabels;
 
     scheduleSegments.forEach((seg, index) => {
         const segment = document.createElement('div');
@@ -8385,6 +8836,7 @@ function closeScheduleConfirmModal() {
 // Open override modal for stopping a schedule. Schedules now stop wholesale, identically
 // to one-off blocks (no per-instance skip).
 function openScheduleOverrideModal(schedule) {
+    delete window.overrideAndroidScheduleId;
     window.overrideScheduleId = schedule.id || schedule.blocklistId;
 
     const confirmBtn = document.getElementById('confirm-override-btn');
@@ -9947,6 +10399,28 @@ async function proceedWithBlock() {
             activatedBlockIds.delete(block.id);
             result = { success: false, error: err.toString() };
         }
+    } else if (isAndroid) {
+        // Android: push locally, sync (creates the MANUAL Schedule entity
+        // in Kotlin), then explicitly start the session — set_schedules
+        // alone doesn't activate a MANUAL schedule, see syncSchedulesToHelper.
+        try {
+            appData.activeBlocks.push(block);
+            await saveData();
+            await syncSchedulesToHelper();
+            const endTimestampMs = (block.isAlwaysOn || block.endTime >= ALWAYS_ON_END_TIME) ? null : block.endTime;
+            const startResult = await tauriAPI.androidStartManualBlock(block.id, endTimestampMs);
+            if (!startResult.success) {
+                appData.activeBlocks = appData.activeBlocks.filter(b => b.id !== block.id);
+                await saveData();
+                result = { success: false, error: startResult.error || 'Failed to start block' };
+            } else {
+                result = { success: true };
+            }
+        } catch (err) {
+            appData.activeBlocks = appData.activeBlocks.filter(b => b.id !== block.id);
+            await saveData();
+            result = { success: false, error: err.toString() };
+        }
     } else {
         // Desktop: Try to use the helper daemon (no password required!)
         if (helperAvailable) {
@@ -10086,6 +10560,11 @@ function syncStopBtnLabelFit(btn) {
     const isStopBtn = btn.classList.contains('stop-block') || btn.classList.contains('stop-schedule');
     if (!isStopBtn || btn.classList.contains('hidden') || btn.clientWidth <= 0) return;
 
+    if (isIOS || isAndroid) {
+        btn.classList.add('stop-meta-collapsed');
+        return;
+    }
+
     const buttonRow = btn.parentElement;
     const rowStyle = buttonRow ? window.getComputedStyle(buttonRow) : null;
     const rowGap = rowStyle ? (parseFloat(rowStyle.columnGap || rowStyle.gap) || 0) : 0;
@@ -10098,8 +10577,9 @@ function syncStopBtnLabelFit(btn) {
     const availableBtnWidth = buttonRow
         ? buttonRow.clientWidth - otherButtonsWidth - (Math.max(0, visibleButtons.length - 1) * rowGap)
         : btn.clientWidth;
-    const expandedBtnWidth = !isIOS ? measureStopBtnExpandedWidth(btn) : 0;
-    const shouldCollapseForDesktopWidth = !isIOS && expandedBtnWidth > availableBtnWidth + 1;
+    const usesDesktopButtonFit = !isIOS && !isAndroid;
+    const expandedBtnWidth = usesDesktopButtonFit ? measureStopBtnExpandedWidth(btn) : 0;
+    const shouldCollapseForDesktopWidth = usesDesktopButtonFit && expandedBtnWidth > availableBtnWidth + 1;
 
     if (shouldCollapseForDesktopWidth || btn.scrollWidth > btn.clientWidth + 1) {
         btn.classList.add('stop-meta-collapsed');
@@ -10211,6 +10691,15 @@ async function updateHostsFile(silent = false) {
         }
     }
 
+    // Android: blocking is entirely owned by Kotlin (BlockerService +
+    // Schedules' active sessions), driven by syncSchedulesToHelper /
+    // androidStartManualBlock / androidStopManualBlock. There's no
+    // hosts-file or helper-daemon concept here — those commands don't
+    // exist on Android at all (see all_commands() in lib.rs).
+    if (isAndroid) {
+        return { success: true };
+    }
+
     if (!domainsChanged) {
         return { success: true, unchanged: true };
     }
@@ -10273,6 +10762,10 @@ let appBlockingPreviousAppsSet = null;
 async function updateBlockedApps() {
     // iOS uses Screen Time API for app blocking - skip desktop process watcher
     if (isIOS) return;
+    // Android: app blocking is embedded in the schedule sync itself
+    // (blockedApps on each Kotlin Schedule), not a separate helper-daemon
+    // push — see syncSchedulesToHelper.
+    if (isAndroid) return;
 
     const allBlockedApps = new Set();
     const now = Date.now();
@@ -10650,6 +11143,7 @@ function closeBlocklistModal() {
 // Open override modal
 function openOverrideModal(blockId) {
     delete window.overrideScheduleId;
+    delete window.overrideAndroidScheduleId;
     overrideBlockId = blockId;
     const block = appData.activeBlocks.find(b => b.id === blockId);
     overrideBlocklistIdForHelper = block ? block.blocklistId : null;
@@ -10731,6 +11225,7 @@ function closeOverrideModal() {
     overrideBlocklistIdForHelper = null;
     challengeText = '';
     delete window.overrideScheduleId;
+    delete window.overrideAndroidScheduleId;
     const confirmBtn = document.getElementById('confirm-override-btn');
     if (confirmBtn) confirmBtn.textContent = tSettings('stopBlock');
 }
@@ -11866,10 +12361,13 @@ function render() {
     //   - Exactly one blocklist exists → default-select it.
     //   - Otherwise, if nothing is selected, fall back to selecting
     //     the lone non-active blocklist if there's exactly one.
-    if (appData.blocklists.length === 1) {
+    if (autoSelectLoneActiveBlocklist()) {
+        // Active one-off blocks should keep their Pause/Stop controls reachable,
+        // even if a previous click-outside/ESC set the manual deselect flag.
+    } else if (appData.blocklists.length === 1) {
         autoSelectSoleBlocklist();
     } else if (!selectedBlocklistId && !userExplicitlyDeselected) {
-        const activeIds = appData.activeBlocks.map(b => b.blocklistId);
+        const activeIds = getActiveOneOffBlocklistIds();
         const availableBlocklists = appData.blocklists.filter(bl => !activeIds.includes(bl.id));
         if (availableBlocklists.length === 1) {
             const dropdown = document.getElementById('blocklist-select');
@@ -14729,7 +15227,7 @@ function weekdayAbbrevMon0List() {
     return SETTINGS_TRANSLATIONS.en.dayAbbrevMon0;
 }
 
-/** Single-letter weekday labels (Mon=0..Sun=6) for compact iOS schedule day toggles. */
+/** Single-letter weekday labels (Mon=0..Sun=6) for compact mobile schedule day toggles. */
 function weekdayLetterMon0List() {
     const lang = getSettingsLanguage();
     const row = SETTINGS_TRANSLATIONS[lang]?.dayLetterMon0;
@@ -14737,26 +15235,26 @@ function weekdayLetterMon0List() {
     return SETTINGS_TRANSLATIONS.en.dayLetterMon0;
 }
 
-const IOS_COMPACT_SCHEDULE_DAY_LABELS_MAX_VIEWPORT_WIDTH = 1024;
-let iosCompactScheduleDayLabelsActive = null;
+const MOBILE_COMPACT_SCHEDULE_DAY_LABELS_MAX_VIEWPORT_WIDTH = 1024;
+let mobileCompactScheduleDayLabelsActive = null;
 
-/** Smaller iOS viewports, including iPad portrait, use single-letter day pills from first render. */
-function shouldUseCompactIosScheduleDayLabels() {
-    if (!document.body.classList.contains('ios')) return false;
+/** Smaller mobile viewports use single-letter day pills from first render. */
+function shouldUseCompactMobileScheduleDayLabels() {
+    if (!isIOS && !isAndroid) return false;
     const viewportWidth = Math.round(
         window.visualViewport?.width
         || window.innerWidth
         || document.documentElement?.clientWidth
         || 0
     );
-    return viewportWidth > 0 && viewportWidth <= IOS_COMPACT_SCHEDULE_DAY_LABELS_MAX_VIEWPORT_WIDTH;
+    return viewportWidth > 0 && viewportWidth <= MOBILE_COMPACT_SCHEDULE_DAY_LABELS_MAX_VIEWPORT_WIDTH;
 }
 
-function syncIosScheduleDayLabelsViewportMode() {
-    if (!document.body.classList.contains('ios')) return;
-    const nextCompact = shouldUseCompactIosScheduleDayLabels();
-    if (nextCompact === iosCompactScheduleDayLabelsActive) return;
-    iosCompactScheduleDayLabelsActive = nextCompact;
+function syncMobileScheduleDayLabelsViewportMode() {
+    if (!isIOS && !isAndroid) return;
+    const nextCompact = shouldUseCompactMobileScheduleDayLabels();
+    if (nextCompact === mobileCompactScheduleDayLabelsActive) return;
+    mobileCompactScheduleDayLabelsActive = nextCompact;
 
     const schedulePanel = document.getElementById('schedule-block-panel');
     if (isScheduleMode && schedulePanel && !schedulePanel.classList.contains('hidden')) {
@@ -14853,7 +15351,7 @@ function setupLanguagePicker() {
         appData.settings.language = next;
         applySettingsLanguage();
         saveData();
-        if (!isIOS) void refreshBehaviourBannerIfStale({ force: true });
+        if (!isIOS && !isAndroid) void refreshBehaviourBannerIfStale({ force: true });
         setLanguagePickerOpen(false);
     });
 
@@ -15123,6 +15621,18 @@ function resetWelcomeDemoPanel() {
 }
 
 function initWelcomeDemoControls() {
+    // Skip on Android: the welcome demo video is a large mp4 served
+    // through Tauri's custom-protocol asset handler, which doesn't
+    // support the HTTP Range requests Android WebView's <video> element
+    // needs — it 404/fails to load there even though it works fine in
+    // WKWebView on iOS. Hide the whole toggle/panel rather than show a
+    // permanently-broken video player.
+    if (isAndroid) {
+        document.getElementById('welcome-demo-toggle')?.classList.add('hidden');
+        document.getElementById('welcome-demo-panel')?.classList.add('hidden');
+        return;
+    }
+
     const toggle = document.getElementById('welcome-demo-toggle');
     const panel = document.getElementById('welcome-demo-panel');
     const videoWrap = document.getElementById('welcome-demo-video-wrap');
@@ -15517,6 +16027,8 @@ function applySettingsLanguage() {
     renderBlocklists();
     if (document.getElementById('blocklist-select')) renderBlocklistSelector();
     if (typeof updateScheduleButtonState === 'function') updateScheduleButtonState();
+    if (typeof autoSelectLoneActiveBlocklist === 'function') autoSelectLoneActiveBlocklist();
+    if (typeof syncSelectedControlState === 'function') syncSelectedControlState();
     if (typeof updateWeekCalendar === 'function') updateWeekCalendar();
     if (typeof rebuildScheduleSegments === 'function') rebuildScheduleSegments();
     renderNowBlockingRow();
@@ -15543,6 +16055,10 @@ function setupTheme() {
     if (settingsTriggers.length && settingsModal) {
         settingsTriggers.forEach((settingsBtn) => {
             settingsBtn.addEventListener('click', () => {
+            const latestVersionEl = document.getElementById('latest-app-version');
+            const latestVersionWrap = document.getElementById('settings-latest-version-wrap');
+            if (latestVersionEl) latestVersionEl.style.display = 'none';
+            if (latestVersionWrap) latestVersionWrap.style.display = 'none';
             settingsModal.classList.remove('hidden');
             resetSettingsEnforcementSection();
             // Re-evaluate the in-app Uninstall button (Mac only): a
@@ -15561,9 +16077,6 @@ function setupTheme() {
 
                 // Fetch and display version info
                 const currentVersionEl = document.getElementById('current-app-version');
-                const latestVersionEl = document.getElementById('latest-app-version');
-                const latestVersionWrap = document.getElementById('settings-latest-version-wrap');
-
                 let currentVersion = null;
 
                 if (currentVersionEl) {
@@ -15576,7 +16089,7 @@ function setupTheme() {
                     }
                 }
 
-                if (latestVersionEl) {
+                if (!isIOS && !isAndroid && latestVersionEl) {
                     // Hide by default - only show if there's an update available
                     latestVersionEl.style.display = 'none';
                     if (latestVersionWrap) latestVersionWrap.style.display = 'none';
@@ -15686,7 +16199,7 @@ function clampUiZoom(scale) {
 }
 
 function getDefaultUiZoom() {
-    return isIOS ? DEFAULT_UI_ZOOM_IOS : DEFAULT_UI_ZOOM;
+    return (isIOS || isAndroid) ? DEFAULT_UI_ZOOM_MOBILE : DEFAULT_UI_ZOOM;
 }
 
 function getSavedUiZoom() {
@@ -15786,6 +16299,20 @@ function resetUiZoom(options = {}) {
 
 function setupUiZoomShortcuts() {
     setupFooterZoomControl();
+
+    // One-time zoom reset on Android. Early Android builds inherited the
+    // desktop default zoom (1.2) and PERSISTED it into settings.uiZoom, so
+    // just changing the default doesn't heal existing installs. CSS zoom
+    // above 1.0 on Android WebView shrinks the effective viewport (~327px
+    // on a 393dp phone → horizontal overflow) and triggers paint bugs
+    // (duplicated/offset text). Reset once; the user can still zoom
+    // manually afterwards and that choice sticks.
+    if (isAndroid && appData.settings?.uiZoom !== undefined && !appData.settings.androidZoomReset) {
+        appData.settings.uiZoom = DEFAULT_UI_ZOOM_MOBILE;
+        appData.settings.androidZoomReset = true;
+        saveData();
+    }
+
     applyUiZoom(getSavedUiZoom());
 
     tauriAPI.onMenuZoomIn(() => zoomUiIn({ showToast: true })).catch(() => { });
@@ -15990,7 +16517,7 @@ async function uninstallHelperAndConfirmRemoved() {
 }
 
 function isDesktopBlockingEnforcedNow() {
-    if (isIOS) return false;
+    if (isIOS || isAndroid) return false;
     return hasAnyEnforcedBlocks();
 }
 
@@ -16408,7 +16935,7 @@ function renderSystemDiagnostics(d, { enforcementEnabled = false } = {}) {
     html += '<div class="diagnostics-section">';
     html += `<div class="diagnostics-section-title">${e(tSettings('diagnosticsEnforcementSection'))}</div>`;
     html += '<div class="diagnostics-card">';
-    if (!isIOS) {
+    if (!isIOS && !isAndroid) {
         const forceLabel = enforcementEnabled
             ? tSettings('diagnosticsForceCloseEnabled')
             : tSettings('diagnosticsForceCloseDisabled');
@@ -16542,15 +17069,31 @@ async function openInstalledAppsPicker() {
 
     if (!modal || !listEl) return;
 
+    // No OS-level "browse for an app bundle" concept on Android —
+    // installed apps are only reachable via PackageManager (already
+    // covered by the list above).
+    browseBtn?.classList.toggle('hidden', isAndroid);
+
     // Show modal with loading state
     modal.classList.remove('hidden');
     searchInput.value = '';
     listEl.innerHTML = '<div class="app-picker-loading">Scanning installed apps...</div>';
 
-    // Fetch installed apps (cached after first call)
+    // Fetch installed apps (cached after first call). Android returns
+    // {label, packageName, iconBase64} from the Kotlin plugin; normalize
+    // to the same {display_name, process_name} shape the desktop path
+    // uses so the rest of this function needs no further branching.
     if (!installedAppsCache) {
         try {
-            installedAppsCache = await tauriAPI.listInstalledApps();
+            if (isAndroid) {
+                const result = await tauriAPI.androidGetInstalledApps();
+                installedAppsCache = (result.apps || []).map(app => ({
+                    display_name: app.label,
+                    process_name: app.packageName,
+                }));
+            } else {
+                installedAppsCache = await tauriAPI.listInstalledApps();
+            }
         } catch (e) {
             console.error('[app-picker] Failed to list installed apps:', e);
             listEl.innerHTML = '<div class="app-picker-empty">Could not scan installed apps. Use "Browse manually..." below.</div>';

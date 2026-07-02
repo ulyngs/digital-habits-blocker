@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-start-manual-block"
+description = "Enables the start_manual_block command without any pre-configured scope."
+commands.allow = ["start_manual_block"]
+
+[[permission]]
+identifier = "deny-start-manual-block"
+description = "Denies the start_manual_block command without any pre-configured scope."
+commands.deny = ["start_manual_block"]

@@ -223,8 +223,13 @@ h3 {
     letter-spacing: -0.01em;
 }
 
-/* iOS safe area adjustments */
-body.ios {
+/* iOS / Android safe area adjustments. Same full-bleed mobile-webview
+   treatment on both — fixed title bar is hidden, so there's no reason
+   to reserve top padding for it, and the OS-owned bottom bar (Android
+   gesture/button nav, iOS home indicator) needs safe-area padding so
+   app UI doesn't render underneath it. */
+body.ios,
+body.android {
     padding-top: env(safe-area-inset-top, 20px);
     padding-bottom: 0;
     overflow: hidden;
@@ -235,7 +240,8 @@ body.ios {
     text-size-adjust: 100%;
 }
 
-body.ios .main-content {
+body.ios .main-content,
+body.android .main-content {
     margin-top: 0;
     overflow-y: auto;
     overflow-x: hidden;
@@ -246,8 +252,9 @@ body.ios .main-content {
     box-sizing: border-box;
 }
 
-/* iPhone */
-body.ios .app-container {
+/* iPhone / Android phone */
+body.ios .app-container,
+body.android .app-container {
     /* 100vw can exceed the visible width (scrollbars / WebKit); % tracks the body box. */
     width: 100%;
     max-width: 100%;
@@ -257,14 +264,32 @@ body.ios .app-container {
     box-sizing: border-box;
 }
 
-/* Let grid columns shrink below intrinsic content width on narrow iOS / split-view. */
-body.ios .grid-top-row {
+/* Android: system-bar insets are applied NATIVELY as view padding in
+   MainActivity.kt (WebView doesn't reliably expose env(safe-area-inset-*)),
+   so the webview already sits between the status and nav bars. Zero the
+   CSS-side safe-area padding to avoid double-padding, and reserve enough
+   bottom padding for the app's own fixed footer (which iOS gets for free
+   from the home-indicator inset). */
+body.android {
+    padding-top: 0;
+}
+
+body.android .app-container {
+    height: 100vh;
+    padding-bottom: 30px;
+}
+
+/* Let grid columns shrink below intrinsic content width on narrow iOS / Android / split-view. */
+body.ios .grid-top-row,
+body.android .grid-top-row {
     min-width: 0;
     max-width: 100%;
 }
 
 body.ios .scheduler-section,
-body.ios .blocklists-section {
+body.ios .blocklists-section,
+body.android .scheduler-section,
+body.android .blocklists-section {
     min-width: 0;
     max-width: 100%;
 }
@@ -274,6 +299,16 @@ body.ios .blocklists-section {
     body.ios:not(.ios-phone) .app-container {
         padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
     }
+}
+
+/* Any row of buttons/inputs that doesn't wrap can force the whole page
+   into horizontal scroll on a narrow phone (e.g. the 5-button instant-
+   block duration row). Wrapping these is a broader safety net beyond
+   any single component fix — new unwrapped rows are easy to add by
+   accident in a codebase this size. */
+body.android .duration-quick-btns,
+body.android .time-pickers-row {
+    flex-wrap: wrap;
 }
 
 /* App Container */
@@ -1649,7 +1684,8 @@ body.dark-mode .app-blocking-closedown-banner {
     letter-spacing: 0.06em;
 }
 
-body.ios .section-header h2 {
+body.ios .section-header h2,
+body.android .section-header h2 {
     /* Slightly above desktop (16px); 19px read too heavy after layout fixes. */
     font-size: 17px;
     letter-spacing: 0.05em;
@@ -3230,6 +3266,20 @@ body.dark-mode .start-block-btn.stop-schedule:hover:not(:disabled) {
     display: none;
 }
 
+body.ios .start-block-btn.stop-block .btn-blocklist-meta,
+body.ios .start-block-btn.stop-schedule .btn-blocklist-meta,
+body.android .start-block-btn.stop-block .btn-blocklist-meta,
+body.android .start-block-btn.stop-schedule .btn-blocklist-meta {
+    display: none;
+}
+
+body.ios .start-block-btn.stop-block .btn-label-context::after,
+body.ios .start-block-btn.stop-schedule .btn-label-context::after,
+body.android .start-block-btn.stop-block .btn-label-context::after,
+body.android .start-block-btn.stop-schedule .btn-label-context::after {
+    content: none;
+}
+
 /* Pause Block Button — filled secondary. Pause is the gentler, undoable action
    and carries visual weight beside the ghost Stop Block / Stop Schedule. The
    to teal-soft to signal "ready to go again" — same teal family as the primary
@@ -3419,12 +3469,14 @@ body.dark-mode .scheduler-mode-tabs {
     opacity: 1;
 }
 
-body.ios .mode-tab {
+body.ios .mode-tab,
+body.android .mode-tab {
     padding: 8px 16px;
     font-size: 16px;
 }
 
-body.ios .mode-tab.active {
+body.ios .mode-tab.active,
+body.android .mode-tab.active {
     padding: 10px 16px;
 }
 
@@ -3627,7 +3679,8 @@ body.dark-mode .add-segment-btn {
     transition: all 0.15s ease;
 }
 
-body.ios .segment-day-toggle {
+body.ios .segment-day-toggle,
+body.android .segment-day-toggle {
     min-width: 48px;
     height: 32px;
     padding: 0 10px;
@@ -3635,7 +3688,8 @@ body.ios .segment-day-toggle {
 }
 
 /* Only the compact single-letter fallback gets tighter horizontal sizing. */
-body.ios .segment-days.compact-day-labels .segment-day-toggle {
+body.ios .segment-days.compact-day-labels .segment-day-toggle,
+body.android .segment-days.compact-day-labels .segment-day-toggle {
     min-width: 32px;
     padding: 0 4px;
 }
@@ -3890,7 +3944,8 @@ body.ios .segment-days.compact-day-labels .segment-day-toggle {
     transition: all 0.15s ease;
 }
 
-body.ios .day-toggle {
+body.ios .day-toggle,
+body.android .day-toggle {
     width: 44px;
     height: 44px;
     padding: 0;
@@ -4222,9 +4277,15 @@ body.dark-mode .schedule-pending-discard:hover {
 }
 
 /* iOS/touch: reliable swipe scroll and momentum */
-body.ios .blocklists-container {
+body.ios .blocklists-container,
+body.android .blocklists-container {
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
+}
+
+body.android .blocklists-container {
+    margin: -4px;
+    padding: 4px;
 }
 
 .blocklists-container::-webkit-scrollbar {
@@ -4309,7 +4370,8 @@ body.ios .blocklists-container {
     opacity: 0.55;
 }
 
-body.ios .selection-prompt {
+body.ios .selection-prompt,
+body.android .selection-prompt {
     font-size: 17px;
 }
 
@@ -4473,7 +4535,8 @@ body.ios .selection-prompt {
     align-items: center;
 }
 
-body.ios .blocklist-actions {
+body.ios .blocklist-actions,
+body.android .blocklist-actions {
     gap: 0px;
 }
 
@@ -4491,7 +4554,8 @@ body.ios .blocklist-actions {
     transition: all 0.2s ease;
 }
 
-body.ios .blocklist-action-btn {
+body.ios .blocklist-action-btn,
+body.android .blocklist-action-btn {
     width: 44px;
     height: 44px;
 }
@@ -4501,7 +4565,8 @@ body.ios .blocklist-action-btn {
     height: 18px;
 }
 
-body.ios .blocklist-action-btn svg {
+body.ios .blocklist-action-btn svg,
+body.android .blocklist-action-btn svg {
     width: 22px;
     height: 22px;
 }
@@ -7134,26 +7199,30 @@ body.dark-mode .websites-import-menu {
     border-color: transparent;
 }
 
-/* Blocklist modal: full-width stacked row on iOS; captions only on iOS (desktop stays icon-only). */
-body:not(.ios) #blocklist-modal .browse-btn-caption {
+/* Blocklist modal: full-width stacked row on mobile; captions stay hidden on desktop. */
+body:not(.ios):not(.android) #blocklist-modal .browse-btn-caption {
     display: none;
 }
 
-body.ios #blocklist-modal .tags-input-container {
+body.ios #blocklist-modal .tags-input-container,
+body.android #blocklist-modal .tags-input-container {
     align-items: stretch;
 }
 
-body.ios #blocklist-modal .tags-input-container > .tags-container {
+body.ios #blocklist-modal .tags-input-container > .tags-container,
+body.android #blocklist-modal .tags-input-container > .tags-container {
     flex: 1 1 100%;
     width: 100%;
 }
 
 /* Empty chip wells still participate in flex gap — removes the extra space above the apps/websites row until tags exist. */
-body.ios #blocklist-modal .tags-input-container > .tags-container:empty {
+body.ios #blocklist-modal .tags-input-container > .tags-container:empty,
+body.android #blocklist-modal .tags-input-container > .tags-container:empty {
     display: none;
 }
 
-body.ios #blocklist-modal .tags-input-container > .input-with-button {
+body.ios #blocklist-modal .tags-input-container > .input-with-button,
+body.android #blocklist-modal .tags-input-container > .input-with-button {
     flex: 1 1 100%;
     width: 100%;
     min-width: 0;
@@ -7163,14 +7232,16 @@ body.ios #blocklist-modal .tags-input-container > .input-with-button {
     gap: 6px;
 }
 
-body.ios #blocklist-modal .tags-input-container > .input-with-button .form-input {
+body.ios #blocklist-modal .tags-input-container > .input-with-button .form-input,
+body.android #blocklist-modal .tags-input-container > .input-with-button .form-input {
     width: 100%;
     min-width: 0;
     flex: 0 0 auto;
     box-sizing: border-box;
 }
 
-body.ios #blocklist-modal .tags-input-container .browse-btn {
+body.ios #blocklist-modal .tags-input-container .browse-btn,
+body.android #blocklist-modal .tags-input-container .browse-btn {
     width: 100%;
     box-sizing: border-box;
     justify-content: center;
@@ -7178,7 +7249,8 @@ body.ios #blocklist-modal .tags-input-container .browse-btn {
     padding: 10px 12px;
 }
 
-body.ios #blocklist-modal .tags-input-container .browse-btn-caption {
+body.ios #blocklist-modal .tags-input-container .browse-btn-caption,
+body.android #blocklist-modal .tags-input-container .browse-btn-caption {
     font-size: 13px;
     font-weight: 500;
 }
@@ -7308,6 +7380,29 @@ body.ios .modal-overlay {
 
 body.ios .modal-content {
     max-height: calc(100vh - env(safe-area-inset-top, 20px) - env(safe-area-inset-bottom, 20px) - 40px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.android .modal-overlay {
+    top: 0;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    background: var(--popover-bg);
+    overflow: hidden;
+}
+
+body.android .modal-content,
+body.android #blocklist-modal .modal-content,
+body.android .app-picker-modal-content {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    min-height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 18px 18px 22px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -7776,7 +7871,9 @@ body.ios.ios-phone .footer-text {
 }
 
 /* Limited horizontal room on small iOS phones — the zoom is still reachable
-   via cmd/ctrl shortcuts and the system menu. */
+   via cmd/ctrl shortcuts and the system menu. Android keeps the footer
+   quieter; zoom remains available through keyboard/menu paths where present. */
+body.android .footer-zoom-control,
 body.ios.ios-phone .footer-zoom-control {
     display: none;
 }
@@ -7808,8 +7905,10 @@ body.dark-mode .settings-top-btn {
     opacity: 1;
 }
 
-/* Hide desktop-only settings sections on iOS */
+/* Hide desktop-only settings sections on mobile webviews. */
 body.ios .settings-enforcement-section,
+body.android .settings-enforcement-section,
+body.android .desktop-only,
 body.ios .desktop-only {
     display: none;
 }
@@ -8148,6 +8247,13 @@ body.dark-mode #settings-modal .settings-feedback-footer {
     white-space: nowrap;
 }
 
+body.ios #current-app-version,
+body.android #current-app-version,
+body.ios #settings-latest-version-wrap,
+body.android #settings-latest-version-wrap {
+    display: none;
+}
+
 /* Advanced Options Toggle */
 .settings-advanced-toggle {
     display: flex;
@@ -8345,8 +8451,10 @@ body.mac .settings-uninstall-contents.macos-only {
     display: contents;
 }
 
-body:not(.ios) .settings-onboarding-contents.desktop-only,
-body:not(.ios) .settings-diagnostics-contents.desktop-only,
+body.mac .settings-onboarding-contents.desktop-only,
+body.windows .settings-onboarding-contents.desktop-only,
+body.mac .settings-diagnostics-contents.desktop-only,
+body.windows .settings-diagnostics-contents.desktop-only,
 .settings-override-all-contents:not(.hidden) {
     display: contents;
 }
@@ -8845,7 +8953,8 @@ body:not(.ios) .settings-diagnostics-contents.desktop-only,
     animation: slideUp 0.3s ease;
 }
 
-body.ios .undo-toast {
+body.ios .undo-toast,
+body.android .undo-toast {
     bottom: calc(20px + env(safe-area-inset-bottom, 20px));
 }
 
@@ -8912,7 +9021,8 @@ body.dark-mode .undo-btn:hover {
     animation: zoomToastIn 0.18s ease;
 }
 
-body.ios .zoom-toast {
+body.ios .zoom-toast,
+body.android .zoom-toast {
     top: calc(20px + env(safe-area-inset-top, 20px));
 }
 
@@ -9798,4 +9908,3 @@ body.dark-mode .app-blocking-warning-card {
 .app-picker-actions .confirm-btn:hover {
     filter: brightness(1.1);
 }
-

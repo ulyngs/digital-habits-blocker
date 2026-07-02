@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-check-blocker-permissions"
+description = "Enables the check_blocker_permissions command without any pre-configured scope."
+commands.allow = ["check_blocker_permissions"]
+
+[[permission]]
+identifier = "deny-check-blocker-permissions"
+description = "Denies the check_blocker_permissions command without any pre-configured scope."
+commands.deny = ["check_blocker_permissions"]

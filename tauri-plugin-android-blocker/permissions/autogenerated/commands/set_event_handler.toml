@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-event-handler"
+description = "Enables the set_event_handler command without any pre-configured scope."
+commands.allow = ["set_event_handler"]
+
+[[permission]]
+identifier = "deny-set-event-handler"
+description = "Denies the set_event_handler command without any pre-configured scope."
+commands.deny = ["set_event_handler"]

@@ -1,0 +1,16 @@
+{
+    "$schema": "../gen/schemas/android-schema.json",
+    "identifier": "android-blocker",
+    "description": "Android-specific permissions for the blocking engine plugin",
+    "platforms": [
+        "android"
+    ],
+    "windows": [
+        "main"
+    ],
+    "permissions": [
+        "android-blocker:default",
+        "shell:allow-open",
+        "opener:default"
+    ]
+}

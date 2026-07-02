@@ -1,0 +1,15 @@
+{
+    "identifier": "net.kollnig.reddblockandroid",
+    "version": "2.4.0",
+    "build": {
+        "beforeBuildCommand": "npm run vite:build"
+    },
+    "app": {
+        "trayIcon": null
+    },
+    "bundle": {
+        "android": {
+            "minSdkVersion": 26
+        }
+    }
+}

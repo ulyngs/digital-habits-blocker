@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-blocking-state"
+description = "Enables the get_blocking_state command without any pre-configured scope."
+commands.allow = ["get_blocking_state"]
+
+[[permission]]
+identifier = "deny-get-blocking-state"
+description = "Denies the get_blocking_state command without any pre-configured scope."
+commands.deny = ["get_blocking_state"]

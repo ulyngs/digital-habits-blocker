@@ -462,7 +462,7 @@ fn preserve_backend_settings(data_path: &std::path::Path, data: &mut AppData) {
 
 /// Set window size (used after onboarding) - desktop only
 #[tauri::command]
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn set_window_size(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     use tauri::LogicalSize;
     window.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
@@ -470,9 +470,9 @@ pub fn set_window_size(window: WebviewWindow, width: f64, height: f64) -> Result
     Ok(())
 }
 
-/// Set window size - no-op on iOS (always fullscreen)
+/// Set window size - no-op on mobile (always fullscreen)
 #[tauri::command]
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 pub fn set_window_size(_width: f64, _height: f64) -> Result<(), String> {
     Ok(())
 }

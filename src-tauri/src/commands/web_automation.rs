@@ -37,7 +37,14 @@ fn resolve_block_page_url(app: &AppHandle) -> Option<String> {
             page.display()
         );
     }
-    Some(web_automation::path_to_file_url(&page))
+    let url = web_automation::path_to_file_url(&page);
+    if url.is_none() {
+        log::warn!(
+            "web_automation: could not build file:// URL for {}",
+            page.display()
+        );
+    }
+    url
 }
 
 /// Start the automation watcher if not already running. Idempotent.

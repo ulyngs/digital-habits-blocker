@@ -1144,36 +1144,13 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-/// Turn a filesystem path into a `file://` URL, percent-encoding each
-/// segment (the app bundle path contains a space: "ReDD Blocker.app").
-pub fn path_to_file_url(path: &std::path::Path) -> String {
-    let mut url = String::from("file://");
-    for component in path.to_string_lossy().split('/') {
-        if component.is_empty() {
-            continue;
-        }
-        url.push('/');
-        url.push_str(&pct_encode_path_segment(component));
-    }
-    url
-}
-
-/// Like `pct_encode` but also preserves a handful of path-safe sub-delims
-/// so the URL stays readable; the space in "ReDD Blocker" becomes %20.
-fn pct_encode_path_segment(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for &b in s.as_bytes() {
-        let keep = b.is_ascii_alphanumeric()
-            || matches!(b, b'-' | b'_' | b'.' | b'~' | b'!' | b'$' | b'&' | b'(' | b')' | b'+' | b',' | b'=' | b'@');
-        if keep {
-            out.push(b as char);
-        } else {
-            out.push('%');
-            out.push(hex_digit(b >> 4));
-            out.push(hex_digit(b & 0x0f));
-        }
-    }
-    out
+/// Turn an absolute filesystem path into a `file://` URL. Delegates to
+/// the `url` crate rather than hand-rolling percent-encoding — the app
+/// bundle path can contain spaces and non-ASCII, and a home-grown
+/// encoder already broke once. Returns None for relative paths, which
+/// `Url::from_file_path` rejects.
+pub fn path_to_file_url(path: &std::path::Path) -> Option<String> {
+    url::Url::from_file_path(path).ok().map(String::from)
 }
 
 #[cfg(test)]
@@ -1232,14 +1209,19 @@ mod tests {
     }
 
     #[test]
-    fn file_url_encodes_spaces() {
+    fn file_url_encodes_spaces_and_non_ascii() {
         // Deliberately not the real bundle name — this test is about
         // percent-encoding, and tying it to the product name broke it
         // once already when the app was renamed.
-        let p = std::path::Path::new("/Applications/Some App.app/Contents/Resources/blocked page.html");
+        let p = std::path::Path::new("/Applications/Some Äpp.app/Contents/Resources/blocked page.html");
         assert_eq!(
-            path_to_file_url(p),
-            "file:///Applications/Some%20App.app/Contents/Resources/blocked%20page.html"
+            path_to_file_url(p).as_deref(),
+            Some("file:///Applications/Some%20%C3%84pp.app/Contents/Resources/blocked%20page.html")
         );
+    }
+
+    #[test]
+    fn file_url_rejects_relative_paths() {
+        assert_eq!(path_to_file_url(std::path::Path::new("blocked/blocked.html")), None);
     }
 }

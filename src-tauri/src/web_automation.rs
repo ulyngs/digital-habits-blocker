@@ -1233,10 +1233,13 @@ mod tests {
 
     #[test]
     fn file_url_encodes_spaces() {
-        let p = std::path::Path::new("/Applications/ReDD Blocker.app/Contents/Resources/blocked/blocked.html");
+        // Deliberately not the real bundle name — this test is about
+        // percent-encoding, and tying it to the product name broke it
+        // once already when the app was renamed.
+        let p = std::path::Path::new("/Applications/Some App.app/Contents/Resources/blocked page.html");
         assert_eq!(
             path_to_file_url(p),
-            "file:///Applications/ReDD%20Block.app/Contents/Resources/blocked/blocked.html"
+            "file:///Applications/Some%20App.app/Contents/Resources/blocked%20page.html"
         );
     }
 }

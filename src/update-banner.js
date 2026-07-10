@@ -267,8 +267,13 @@ export async function showUpdateBanner(latestVersion, currentVersion = '', { pkg
     scheduleUpdateBannerLayout();
 }
 
-// Check if a newer app version is available and show update banner
+// Check if a newer app version is available and show update banner.
+// Desktop-only: Android/iOS update via their app stores. The compile-time
+// guard makes this a no-op on Android and lets Rollup drop the transitive
+// update-banner UI chain — including changelog.js and the bundled
+// changelog.md (~57 KB of otherwise-unreachable startup parse).
 export async function checkForAppUpdate() {
+    if (__ANDROID_BUILD__) return;
     if (await resolveMicrosoftStorePackage()) {
         return;
     }

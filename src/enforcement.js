@@ -272,6 +272,7 @@ export function hideSafariFdaOnboardingUi() {
 
 /** Safari FDA onboarding — same layout/copy pattern as the EULA screen. */
 export function applySafariFdaOnboardingLanguage() {
+    if (__ANDROID_BUILD__) return;
     const shield = document.getElementById('fda-onboarding-shield-logo');
     if (shield) {
         shield.src = logoReddShieldUrl;

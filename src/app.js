@@ -13,23 +13,8 @@ import iconBraveUrl from './images/icon-brave.svg';
 import iconEdgeUrl from './images/icon-edge.svg';
 import iconFirefoxUrl from './images/icon-firefox.svg';
 import iconSafariUrl from './images/icon-safari.svg';
-import screenshotChromeStep1 from './images/toggle-chrome-incognito-windows-1.png';
-import screenshotChromeStep2 from './images/toggle-chrome-incognito-windows-2.png';
-import screenshotEdgeStep1 from './images/toggle-edge-incognito-windows-1.png';
-import screenshotEdgeStep2 from './images/toggle-edge-incognito-windows-2.png';
-import screenshotFirefoxStep1 from './images/toggle-firefox-private-windows-1.png';
-import screenshotFirefoxStep2 from './images/toggle-firefox-private-windows-2.png';
-import screenshotSafariStep1 from './images/mac-extension-settings-1.png';
-import screenshotSafariStep2 from './images/mac-extension-settings-2.png';
-import screenshotAutomationSettings from './images/automation-settings.png';
 import snoozeIconUrl from './images/snooze.png';
 import welcomeDemoVideoUrl from './reddblock-video.mp4';
-import {
-    resolveReleaseNotesForVersion,
-    renderReleaseNotesHtml,
-    releaseNotesHasContent,
-    filterReleaseNotesForPlatform,
-} from './changelog.js';
 // Compatibility layer wrapping Tauri APIs — extracted to tauri-api.js
 import { tauriAPI, openUrl } from './tauri-api.js';
 import { state, appState } from './state.js';
@@ -2838,9 +2823,16 @@ export function applyWelcomeOnboardingLanguage() {
 
     syncWelcomeDemoFullscreenLabel();
 
-    const demoVideo = document.getElementById('welcome-demo-video');
-    if (demoVideo && !demoVideo.src) {
-        demoVideo.src = welcomeDemoVideoUrl;
+    // The welcome demo panel (#welcome-demo-panel, which contains
+    // #welcome-demo-video) is stripped from the Android DOM by
+    // stripNonAndroidUi, so the element never exists there. Guarding the only
+    // reference to welcomeDemoVideoUrl with the compile-time literal lets
+    // Rollup drop the ~1.8 MB reddblock-video.mp4 from the Android bundle.
+    if (!__ANDROID_BUILD__) {
+        const demoVideo = document.getElementById('welcome-demo-video');
+        if (demoVideo && !demoVideo.src) {
+            demoVideo.src = welcomeDemoVideoUrl;
+        }
     }
 
     const continueBtn = document.getElementById('welcome-onboarding-continue-btn');

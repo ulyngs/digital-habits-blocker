@@ -151,3 +151,17 @@ the webview `chromium` console line from `checkAndroidPermissions`
   tree-shakes their helpers/strings. Value-returning shared helpers
   (`browserIconUrl`, `BROWSER_STORE_LINKS`, …) are intentionally **not** guarded.
   `__ANDROID_BUILD__` is a `define` constant set per build mode in `vite.config.js`.
+- Same technique gates the desktop-only in-app update flow: `checkForAppUpdate`
+  in `src/update-banner.js` is `if (__ANDROID_BUILD__) return;`, which cascades
+  to drop `changelog.js` + the bundled `changelog.md` (~52 KB of startup parse)
+  from Android. `__ANDROID_BUILD__` is the right tool **only when it lets Rollup
+  delete code from the Android bundle** — for plain behavioral branching that
+  must stay in the bundle for desktop, use the runtime `state.isAndroid` flag.
+- Gating the *code* that references a static asset does not by itself drop the
+  asset: Vite emits a file for every `import url from './x.png'` at transform
+  time, before tree-shaking, so a desktop-only image whose only reference is
+  DCE'd is left orphaned in the APK. The `pruneOrphanAndroidAssets` plugin in
+  `vite.config.js` deletes image/video assets referenced by zero chunks/CSS on
+  Android (recovered ~3.3 MB: the welcome video + browser-setup screenshots).
+  If you add a desktop-only asset, guard its reference with `__ANDROID_BUILD__`
+  and the pruner handles the rest; `snooze.png` stays because Android uses it.

@@ -215,11 +215,50 @@ const purgeAndroidCss = (enabled) => ({
     },
 });
 
+// Vite emits an asset file for every static `import url from './x.png'` even
+// when tree-shaking later drops the binding — the emit happens in the asset
+// plugin's transform, before dead-code elimination runs. On Android the
+// `__ANDROID_BUILD__` guards strip the desktop-only code that referenced those
+// URLs (browser-setup screenshots in enforcement.js, the welcome demo video in
+// app.js), but the multi-MB media files are still emitted and shipped in the
+// APK, referenced by zero chunks. This prunes any image/video asset whose
+// hashed fileName appears in no emitted JS chunk or stylesheet.
+//
+// Safe because a real reference to a hashed asset can only reach a chunk/CSS
+// via the import binding Vite rewrites — there is no static <img>/<video> in
+// index.html pointing at these (the sole static media ref is the public
+// reddblock-icon.svg, which isn't bundle-hashed and isn't a prunable type).
+const pruneOrphanAndroidAssets = (enabled) => ({
+    name: 'prune-orphan-android-assets',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+        if (!enabled) return;
+        const PRUNABLE = /\.(png|jpe?g|gif|webp|mp4|webm|mov)$/i;
+        const assetText = (source) =>
+            typeof source === 'string' ? source : Buffer.from(source).toString('utf8');
+        const haystack = Object.values(bundle)
+            .map((file) => {
+                if (file.type === 'chunk') return file.code;
+                if (file.type === 'asset' && !PRUNABLE.test(file.fileName)) {
+                    return assetText(file.source);
+                }
+                return '';
+            })
+            .join('\n');
+        for (const file of Object.values(bundle)) {
+            if (file.type !== 'asset' || !PRUNABLE.test(file.fileName)) continue;
+            const base = file.fileName.split('/').pop();
+            if (!haystack.includes(base)) delete bundle[file.fileName];
+        }
+    },
+});
+
 export default defineConfig(async ({ mode }) => ({
     plugins: [
         stripDevTestScripts(),
         stripNonAndroidUi(mode === 'android'),
         purgeAndroidCss(mode === 'android'),
+        pruneOrphanAndroidAssets(mode === 'android'),
         // Bundle analysis: `ANALYZE=1 npm run vite:build:android` writes
         // dist/stats.html (treemap of what actually ships). Dev-only; no
         // effect on the shipped bundle. Loaded via dynamic import because

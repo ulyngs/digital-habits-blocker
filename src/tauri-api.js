@@ -40,6 +40,7 @@ export const tauriAPI = {
     clearBlockViaHelper: (blocklistId) => invoke('clear_block_via_helper', blocklistId != null ? { blocklistId } : {}),
     cleanHostsFile: () => invoke('clean_hosts_file'),
     getHelperDiagnostics: () => invoke('get_helper_diagnostics'),
+    getSystemDiagnostics: () => invoke('get_system_diagnostics'),
     setBlocksViaHelper: (blocks) => invoke('set_blocks_via_helper', { blocks }),
 
     // App operations
@@ -48,8 +49,17 @@ export const tauriAPI = {
     blockWebsites: (domains) => invoke('block_websites', { domains }),
 
     // App blocking via helper daemon (persistent, survives app close)
-    setBlockedAppsViaHelper: (apps, newlyAdded) =>
-        invoke('set_blocked_apps_via_helper', { apps, newly_added: newlyAdded ?? [] }),
+    setBlockedAppsViaHelper: (
+        apps,
+        newlyAdded = [],
+        { allowedApps = [], allowlistActive = false, allowlistNewlyStarted = false } = {},
+    ) => invoke('set_blocked_apps_via_helper', {
+        apps,
+        newlyAdded,
+        allowedApps,
+        allowlistActive,
+        allowlistNewlyStarted,
+    }),
 
     // Schedule management via helper daemon (persistent, handles transitions autonomously)
     setSchedulesViaHelper: (schedules) => invoke('set_schedules_via_helper', { schedules }),

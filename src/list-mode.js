@@ -42,12 +42,19 @@ export function updateBlocklistModalModeLabels(mode) {
     );
     const websiteInput = document.getElementById('modal-website-input');
     if (websiteInput) {
-        websiteInput.placeholder = tSettings(isAllow ? 'placeholderWebsiteAllow' : 'placeholderWebsiteBlock');
+        syncModalWebsitePlaceholder();
     }
     const appInput = document.getElementById('modal-app-input');
     if (appInput) {
         syncModalAppPlaceholder();
     }
+}
+
+/** Blocklist modal: always show the example placeholder in the websites input row. */
+export function syncModalWebsitePlaceholder() {
+    const el = document.getElementById('modal-website-input');
+    if (!el || el.classList.contains('input-error')) return;
+    el.placeholder = tSettings('placeholderWebsiteExample');
 }
 
 /** Blocklist modal: always show the example placeholder in the apps input row. */

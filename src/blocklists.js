@@ -5,7 +5,7 @@ import { ask, message, open as openDialog, save as saveDialog } from '@tauri-app
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { escapeHtml, getEnteringChipColor } from './utils.js';
 import { tSettings, tSettingsFmt } from './i18n.js';
-import { cloneIOSScreenTimeSelection, formatIOSScreenTimeSelectionLabel, getBlocklistIOSScreenTimeSelection, getBlocklistRegularApps, isBlockAlwaysOn, isScreenTimeSummaryEntry, normalizeBlocklist } from './blocklist-utils.js';
+import { cloneIOSScreenTimeSelection, getBlocklistIOSScreenTimeSelection, getBlocklistRegularApps, isBlockAlwaysOn, isScreenTimeSummaryEntry, normalizeBlocklist } from './blocklist-utils.js';
 import { isOneOffBlockEnforced, isSchedulePausedNow } from './schedule-engine.js';
 import { saveData, updateHostsFile } from './persistence.js';
 import { render, renderNowBlockingRow, renderScheduleVisibilityChips } from './render.js';
@@ -16,9 +16,9 @@ import {
     formatBlockTimeRemainingShort,
     generateId,
 } from './app.js';
-import { formatBlocklistCardSitesSummary } from './list-presentation.js';
+import { buildBlocklistCardMetaHtml } from './list-presentation.js';
 import { cloneOverrideDifficulty, handleBlocklistSelect, openBlocklistModal } from './confirm-modals.js';
-import { APP_BLOCKING_SNOOZE_ICON_IMG_12, appBlockingWarningSnoozedUntilMs, displayNameForBlockedApp, formatAppBlockingSnoozeStartsIn, getActiveAppBlockingSnoozeBlocklistId } from './blocking-platform.js';
+import { APP_BLOCKING_SNOOZE_ICON_IMG_12, appBlockingWarningSnoozedUntilMs, formatAppBlockingSnoozeStartsIn, getActiveAppBlockingSnoozeBlocklistId } from './blocking-platform.js';
 
 export function truncateBlocklistName(raw) {
     const s = String(raw ?? '');
@@ -609,42 +609,8 @@ export function renderBlocklists() {
     }
 
     container.innerHTML = state.appData.blocklists.map(bl => {
-        // Build detailed meta text
-        const websiteCount = bl.websites?.length || 0;
-        const regularApps = getBlocklistRegularApps(bl);
-        const screenTimeSelection = getBlocklistIOSScreenTimeSelection(bl);
-        const screenTimeLabel = formatIOSScreenTimeSelectionLabel(screenTimeSelection);
-        const appCount = regularApps.length + (screenTimeLabel ? 1 : 0);
-        const showDetails = bl.showItemDetails !== false; // Default to true
-        let metaParts = [];
+        const metaHtml = buildBlocklistCardMetaHtml(bl);
 
-        if (websiteCount > 0) {
-            metaParts.push(formatBlocklistCardSitesSummary(websiteCount, bl.websites, showDetails));
-        }
-
-        if (appCount > 0) {
-            if (screenTimeLabel) {
-                const stText = `${screenTimeLabel.replace(' selected (Screen Time)', '')} via Screen Time`;
-                if (regularApps.length > 0) {
-                    metaParts.push(`${regularApps.length} ${regularApps.length === 1 ? 'app' : 'apps'} + ${stText}`);
-                } else {
-                    metaParts.push(stText);
-                }
-            } else if (showDetails) {
-                const regularAppLabels = regularApps.map(displayNameForBlockedApp);
-                if (appCount <= 2) {
-                    metaParts.push(`${appCount} ${appCount === 1 ? 'app' : 'apps'} (${regularAppLabels.join(', ')})`);
-                } else {
-                    metaParts.push(`${appCount} apps (${regularAppLabels.slice(0, 2).join(', ')}, ...)`);
-                }
-            } else {
-                metaParts.push(`${appCount} ${appCount === 1 ? 'app' : 'apps'}`);
-            }
-        }
-
-        const metaText = metaParts.length > 0 ? metaParts.join(` ${tSettings('andWord')} `) : tSettings('noItems');
-
-        // Get color for left border
         // Get color for left border
         const borderColor = bl.color || 'linear-gradient(135deg, #4a00e0 0%, #8e2de2 100%)';
 
@@ -831,7 +797,7 @@ export function renderBlocklists() {
             <span class="blocklist-title-text">${escapeHtml(bl.name)}</span>
             <span class="blocklist-name-badges">${activeBadge}</span>
           </div>
-          <div class="blocklist-meta">${escapeHtml(metaText)}</div>
+          <div class="blocklist-meta">${metaHtml}</div>
         </div>
         <div class="blocklist-actions">
           <div class="blocklist-menu-wrapper">

@@ -367,6 +367,61 @@ fn set_shared_permissions(_path: &std::path::Path) {
     // On Windows, %PROGRAMDATA% is already accessible to all users by default.
 }
 
+/// Atomically replace the data file: write to a temp file in the same
+/// directory, apply shared permissions, then rename over the destination.
+///
+/// The data file is the single source of truth for active blocking and
+/// is re-read continuously by other threads and processes — the
+/// Automation watcher (1 s tick), the browser-spawned native host (2 s
+/// mtime poll), and the enforcer (5 s tick). A plain truncate-and-write
+/// can be observed half-written; the readers then fail the JSON parse
+/// and treat the blocklist as empty, momentarily dropping enforcement
+/// (and un-parking tabs from the block page). rename() within one
+/// directory is atomic on APFS and NTFS, so readers see either the old
+/// or the new complete file, never a torn one.
+pub(crate) fn write_data_file_atomic(
+    path: &std::path::Path,
+    contents: &[u8],
+) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    // Unique per process AND per call — concurrent Tauri commands may
+    // save from different threads of the same process.
+    static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("redd-block-data.json");
+    let tmp = path.with_file_name(format!(
+        ".{file_name}.tmp-{}-{}",
+        std::process::id(),
+        TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    let result = (|| {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(contents)?;
+        // Flush to disk before the rename so a crash can't leave the
+        // canonical path pointing at a not-yet-persisted temp file.
+        file.sync_all()?;
+        drop(file);
+        // The rename gives the destination the temp file's permissions,
+        // so the shared-file mode must be applied before the swap.
+        set_shared_permissions(&tmp);
+        fs::rename(&tmp, path)
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
 /// Ensure the parent directory for the data file exists.
 fn ensure_data_dir(path: &std::path::Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
@@ -486,8 +541,7 @@ pub fn load_data(app: AppHandle) -> Result<AppData, String> {
         let mut data: AppData = serde_json::from_str(&content).map_err(|e| e.to_string())?;
         if normalize_eula_state(&mut data) {
             let migrated = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-            fs::write(&data_path, &migrated).map_err(|e| e.to_string())?;
-            set_shared_permissions(&data_path);
+            write_data_file_atomic(&data_path, migrated.as_bytes()).map_err(|e| e.to_string())?;
         }
         // The app-watcher registration loop already reads this file as soon
         // as it starts and then every two seconds. Avoid repeating that work
@@ -502,8 +556,8 @@ pub fn load_data(app: AppHandle) -> Result<AppData, String> {
                 let mut data: AppData = serde_json::from_str(&content).map_err(|e| e.to_string())?;
                 if normalize_eula_state(&mut data) {
                     let migrated = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-                    fs::write(&source_path, &migrated).map_err(|e| e.to_string())?;
-                    set_shared_permissions(&source_path);
+                    write_data_file_atomic(&source_path, migrated.as_bytes())
+                        .map_err(|e| e.to_string())?;
                 }
                 return Ok(data);
             }
@@ -524,8 +578,7 @@ pub fn load_data(app: AppHandle) -> Result<AppData, String> {
             normalize_eula_state(&mut data);
             // Save to new location so migration only happens once
             let migrated = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-            fs::write(&data_path, &migrated).map_err(|e| e.to_string())?;
-            set_shared_permissions(&data_path);
+            write_data_file_atomic(&data_path, migrated.as_bytes()).map_err(|e| e.to_string())?;
             Ok(data)
         } else {
             Ok(AppData::default())
@@ -553,8 +606,7 @@ pub fn save_data(app: AppHandle, mut data: AppData) -> Result<(), String> {
     preserve_backend_settings(&data_path, &mut data);
 
     let content = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-    fs::write(&data_path, &content).map_err(|e| e.to_string())?;
-    set_shared_permissions(&data_path);
+    write_data_file_atomic(&data_path, content.as_bytes()).map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "macos")]
     crate::app_group::maybe_mirror_after_save(&data_path, content.as_bytes());

@@ -104,9 +104,6 @@ fn read_data(app: &tauri::AppHandle) -> Option<Value> {
 }
 
 fn write_data(path: &std::path::Path, data: &Value) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let body = serde_json::to_vec_pretty(data)?;
-    std::fs::write(path, body)
+    super::data::write_data_file_atomic(path, &body)
 }

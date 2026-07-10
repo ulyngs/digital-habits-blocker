@@ -21,15 +21,14 @@ import screenshotFirefoxStep2 from './images/toggle-firefox-private-windows-2.pn
 import screenshotSafariStep1 from './images/mac-extension-settings-1.png';
 import screenshotSafariStep2 from './images/mac-extension-settings-2.png';
 import screenshotAutomationSettings from './images/automation-settings.png';
+import screenshotEnableFda from './images/enable-fda.png';
 import { tauriAPI, openUrl } from './tauri-api.js';
 import { SETTINGS_TRANSLATIONS, getSettingsLanguage, tSettings, tSettingsFmt } from './i18n.js';
 import { hasAnyEnforcedBlocks } from './schedule-engine.js';
 import { isModalVisible } from './modal-manager.js';
 import { kickClockNow } from './render.js';
 import { isScheduleSegmentActiveNow } from './schedule-editor.js';
-import {
-    applySafariFdaOnboardingLanguage, setLanguagePickerOpen,
-} from './app.js';
+import { setLanguagePickerOpen } from './app.js';
 import { reconcileBlockingWarningShell, showExclusiveOnboardingScreen, updateOnboardingVisibility } from './blocking-platform.js';
 import {
     EXT_ONBOARDING_DISMISSED_KEY, MIGRATION_POLL_MS, applyEnforcementDescCopy,
@@ -269,6 +268,28 @@ export function hideSafariFdaOnboardingUi() {
         clearInterval(session.pollHandle);
         session.pollHandle = null;
     }
+}
+
+/** Safari FDA onboarding — same layout/copy pattern as the EULA screen. */
+export function applySafariFdaOnboardingLanguage() {
+    const shield = document.getElementById('fda-onboarding-shield-logo');
+    if (shield) {
+        shield.src = logoReddShieldUrl;
+        shield.alt = '';
+    }
+    const screenshot = document.getElementById('fda-onboarding-screenshot');
+    if (screenshot) screenshot.src = screenshotEnableFda;
+
+    const title = document.getElementById('fda-onboarding-title');
+    if (title) title.textContent = tSettings('safariFdaOnboardingTitle');
+
+    const howto = document.getElementById('fda-onboarding-howto');
+    if (howto) howto.textContent = tSettings('safariFdaOnboardingHowto');
+
+    const backBtn = document.getElementById('fda-onboarding-back-btn');
+    if (backBtn) backBtn.textContent = tSettings('eulaBackBtn');
+
+    void syncSafariFdaOnboardingGrantButton();
 }
 
 export async function syncSafariFdaOnboardingGrantButton() {
@@ -1005,7 +1026,7 @@ export function migrationExtHeaderCopy(state) {
     if (!appState.isMacOSDesktop) return null;
     const focusLogoHtml =
         `<img src="${logoReddFocusUrl}" alt="" class="welcome-reddfocus-inline-logo" aria-hidden="true"> `;
-    const browsers = state?.browsers || state.lastMigrationBrowserState?.browsers || {};
+    const browsers = state?.browsers || appState.lastMigrationBrowserState?.browsers || {};
     const firefoxInstalled = !!(browsers.firefox && browsers.firefox.installed);
     return {
         titleHtml: tSettings('migrationExtTitleMac'),
@@ -1016,7 +1037,7 @@ export function migrationExtHeaderCopy(state) {
 }
 
 export function migrationMacCopyKey(state) {
-    const browsers = state?.browsers || state.lastMigrationBrowserState?.browsers || {};
+    const browsers = state?.browsers || appState.lastMigrationBrowserState?.browsers || {};
     const firefoxInstalled = !!(browsers.firefox && browsers.firefox.installed);
     return `${getSettingsLanguage()}:${firefoxInstalled ? 1 : 0}`;
 }
@@ -1032,18 +1053,18 @@ export function syncMigrationMacHowto(state) {
     if (!appState.isMacOSDesktop) return;
     const focusLogoHtml =
         `<img src="${logoReddFocusUrl}" alt="" class="welcome-reddfocus-inline-logo" aria-hidden="true"> `;
-    const browsers = state?.browsers || state.lastMigrationBrowserState?.browsers || {};
+    const browsers = state?.browsers || appState.lastMigrationBrowserState?.browsers || {};
     const firefoxInstalled = !!(browsers.firefox && browsers.firefox.installed);
     const li1 = document.getElementById('migration-howto-li1');
     const li2 = document.getElementById('migration-howto-li2');
     const li3 = document.getElementById('migration-howto-li3');
     const copyKey = migrationMacCopyKey(state);
-    if (copyKey !== state.lastMigrationHowtoCopyKey) {
+    if (copyKey !== appState.lastMigrationHowtoCopyKey) {
         if (li1) li1.innerHTML = tSettings('migrationExtStep1Mac');
         if (li2) {
             li2.innerHTML = tSettings('migrationExtStep2MacFirefox').replace('{FOCUS}', focusLogoHtml);
         }
-        state.lastMigrationHowtoCopyKey = copyKey;
+        appState.lastMigrationHowtoCopyKey = copyKey;
     }
     if (li2) li2.classList.toggle('hidden', !firefoxInstalled);
     if (li3) li3.classList.add('hidden');
@@ -1099,11 +1120,11 @@ export function syncMigrationPostHeader(state) {
         const titleEl = document.getElementById('migration-post-header-title');
         const subEl = document.getElementById('migration-post-header-subtitle');
         const copyKey = migrationMacCopyKey(state);
-        if (copyKey !== state.lastMigrationHeaderCopyKey) {
+        if (copyKey !== appState.lastMigrationHeaderCopyKey) {
             if (shieldLogo) shieldLogo.src = logoReddShieldUrl;
             if (titleEl) titleEl.textContent = copy.titleHtml;
             if (subEl) subEl.innerHTML = copy.subtitleHtml;
-            state.lastMigrationHeaderCopyKey = copyKey;
+            appState.lastMigrationHeaderCopyKey = copyKey;
         }
     }
     checklist?.classList.add('hidden');
@@ -1382,7 +1403,7 @@ export function updateMigrationBrowserChecklist(state) {
 
 export function renderBrowserInstallButtons(state, { force = false } = {}) {
     if (__ANDROID_BUILD__) return;
-    state.lastMigrationBrowserState = state;
+    appState.lastMigrationBrowserState = state;
     void applyEnforcementDescCopy(state);
     // Keep the header subtitle in sync with the live scan (the macOS
     // copy depends on whether Firefox is installed).
@@ -1391,11 +1412,11 @@ export function renderBrowserInstallButtons(state, { force = false } = {}) {
     const extLines = document.getElementById('migration-checklist-ext-lines');
     if (extLines) extLines.innerHTML = migrationExtLinesHtml(state);
     const sig = migrationBrowserRenderSignature(state);
-    if (!force && sig === state.lastMigrationBrowserRenderSignature) {
+    if (!force && sig === appState.lastMigrationBrowserRenderSignature) {
         updateMigrationBrowserChecklist(state);
         return;
     }
-    state.lastMigrationBrowserRenderSignature = sig;
+    appState.lastMigrationBrowserRenderSignature = sig;
 
     const container = document.getElementById('migration-browser-buttons');
     if (!container) return;

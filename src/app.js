@@ -22,7 +22,6 @@ import screenshotFirefoxStep2 from './images/toggle-firefox-private-windows-2.pn
 import screenshotSafariStep1 from './images/mac-extension-settings-1.png';
 import screenshotSafariStep2 from './images/mac-extension-settings-2.png';
 import screenshotAutomationSettings from './images/automation-settings.png';
-import screenshotEnableFda from './images/enable-fda.png';
 import snoozeIconUrl from './images/snooze.png';
 import welcomeDemoVideoUrl from './reddblock-video.mp4';
 import {
@@ -89,6 +88,26 @@ import {
     wireEnforcementToggle,
 } from './enforcement.js';
 import {
+    MAC_BLOCKING_METHOD_KEYS,
+    browserBlockingMethod,
+    invalidateMigrationMacCopyCache,
+    migrationExtLinesHtml,
+    renderBrowserInstallButtons,
+    setupAppForegroundRefresh,
+    setupEnforcerUiAlerts,
+    setupSettingsEnforcementSection,
+    setupWebAutomationUiAlerts,
+    applySafariFdaOnboardingLanguage,
+    syncBlockingMethodLabelIcons,
+    startWebAutomationWatcher,
+    syncMigrationMacHowto,
+    syncMigrationPostHeader,
+    refreshBehaviourBannerIfStale,
+    updateAllEnforcementToggleLocks,
+    updateGraceSettingLock,
+    wireEnforcementToggle,
+} from './enforcement.js';
+import {
     addScheduleSegment, discardSchedulePendingChanges, getCommittedScheduleSegmentCount,
     getDefaultScheduleSegments, getInitialExpandedScheduleSegmentIndex, handleRepeatDateChange,
     handleRepeatOptionClick, handleSegmentDayToggle, rebuildScheduleSegments,
@@ -112,6 +131,7 @@ import {
     getSelectedBlocklistModalMode,
     setBlocklistModalMode,
     syncModalAppPlaceholder,
+    syncModalWebsitePlaceholder,
     updateBlocklistModalModeLabels,
 } from './list-mode.js';
 import { render, kickClockNow, startTickInterval, updateWeekCalendar, syncSelectedControlState, renderNowBlockingRow, renderScheduleAlwaysOnRow, renderScheduleVisibilityChips, renderWeekBlocks, renderBlocklistSelector, getCalendarSegmentLayout, layoutOverlappingBlocks } from './render.js';
@@ -2743,28 +2763,6 @@ export function applyEulaOnboardingLanguage() {
     }
 }
 
-/** Safari FDA onboarding — same layout/copy pattern as the EULA screen. */
-export function applySafariFdaOnboardingLanguage() {
-    const shield = document.getElementById('fda-onboarding-shield-logo');
-    if (shield) {
-        shield.src = logoReddShieldUrl;
-        shield.alt = '';
-    }
-    const screenshot = document.getElementById('fda-onboarding-screenshot');
-    if (screenshot) screenshot.src = screenshotEnableFda;
-
-    const title = document.getElementById('fda-onboarding-title');
-    if (title) title.textContent = tSettings('safariFdaOnboardingTitle');
-
-    const howto = document.getElementById('fda-onboarding-howto');
-    if (howto) howto.textContent = tSettings('safariFdaOnboardingHowto');
-
-    const backBtn = document.getElementById('fda-onboarding-back-btn');
-    if (backBtn) backBtn.textContent = tSettings('eulaBackBtn');
-
-    void syncSafariFdaOnboardingGrantButton();
-}
-
 /** Welcome onboarding screen — localized in the same way as the EULA screen. */
 export function applyWelcomeOnboardingLanguage() {
     const shieldLogo = document.getElementById('welcome-onboarding-shield-logo');
@@ -3072,13 +3070,6 @@ function refreshSettingsVersionLabels() {
     if (latestVersionEl?.dataset.appVersion) {
         latestVersionEl.textContent = formatLatestVersionText(latestVersionEl.dataset.appVersion);
     }
-}
-
-/** Blocklist modal: always show the example placeholder in the websites input row. */
-function syncModalWebsitePlaceholder() {
-    const el = document.getElementById('modal-website-input');
-    if (!el || el.classList.contains('input-error')) return;
-    el.placeholder = tSettings('placeholderWebsiteExample');
 }
 
 export function applySettingsLanguage() {

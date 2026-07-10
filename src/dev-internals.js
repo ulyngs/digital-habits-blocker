@@ -24,7 +24,7 @@ window.__REDDBLOCK_INTERNALS__ = {
     set appData(val) { state.appData = val; },
     saveData,
     updateHostsFile,
-    tauriAPI,
+    get tauriAPI() { return tauriAPI; },
     render,
     isProtectedApp,
     PROTECTED_APP_NAMES,

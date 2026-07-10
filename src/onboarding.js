@@ -217,7 +217,7 @@ export async function detectWelcomeFirefoxInstalled() {
 let enforcementCopyFirefoxInstalled = false;
 
 export function firefoxInstalledFromState(state) {
-    const b = state?.browsers?.firefox ?? state.lastMigrationBrowserState?.browsers?.firefox;
+    const b = state?.browsers?.firefox ?? appState.lastMigrationBrowserState?.browsers?.firefox;
     if (!b) return null;
     return !!b.installed;
 }

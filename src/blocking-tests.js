@@ -1439,7 +1439,7 @@
                 blockSource({ websites: ['youtube.com'] })
             ]);
             assertEqual(policy.kind, 'specific-block', 'T55: block-only → specific-block');
-            assertSetEquals(new Set(policy.domains), new Set(['reddit.com', 'youtube.com']), 'T55: blocked union');
+            assertSetEquals(new Set(policy.domains), ['reddit.com', 'youtube.com'], 'T55: blocked union');
         })();
 
         // T56: Allow-only source → all-except with the allowed set
@@ -1448,7 +1448,7 @@
                 allowSource({ websites: ['github.com', 'wikipedia.org'] })
             ]);
             assertEqual(policy.kind, 'all-except', 'T56: allow-only → all-except');
-            assertSetEquals(new Set(policy.domains), new Set(['github.com', 'wikipedia.org']), 'T56: allowed set');
+            assertSetEquals(new Set(policy.domains), ['github.com', 'wikipedia.org'], 'T56: allowed set');
         })();
 
         // T57: Two concurrent allowlists union their exceptions
@@ -1458,7 +1458,7 @@
                 allowSource({ websites: ['wikipedia.org'] })
             ]);
             assertEqual(policy.kind, 'all-except', 'T57: two allowlists → all-except');
-            assertSetEquals(new Set(policy.domains), new Set(['github.com', 'wikipedia.org']), 'T57: exception union');
+            assertSetEquals(new Set(policy.domains), ['github.com', 'wikipedia.org'], 'T57: exception union');
         })();
 
         // T58: Blocklist wins on overlap — blocked domain removed from exceptions
@@ -1468,7 +1468,7 @@
                 blockSource({ websites: ['github.com'] })
             ]);
             assertEqual(policy.kind, 'all-except', 'T58: mixed → all-except');
-            assertSetEquals(new Set(policy.domains), new Set(['wikipedia.org']), 'T58: blocklist wins on overlap');
+            assertSetEquals(new Set(policy.domains), ['wikipedia.org'], 'T58: blocklist wins on overlap');
         })();
 
         // T59: Empty exception set stays all-except (block everything), never
@@ -1484,7 +1484,7 @@
             const protectedPolicy = deriveIOSEffectiveWebsitePolicy([
                 allowSource({ websites: ['reddfocus.org', 'github.com'] })
             ]);
-            assertSetEquals(new Set(protectedPolicy.domains), new Set(['github.com']), 'T59: protected domains filtered from exceptions');
+            assertSetEquals(new Set(protectedPolicy.domains), ['github.com'], 'T59: protected domains filtered from exceptions');
         })();
 
         // T60: App policy — allow-only tokens → all-except; categories never
@@ -1494,7 +1494,7 @@
                 allowSource({ iosScreenTimeSelection: selection(['tokA', 'tokB'], ['catX']) })
             ]);
             assertEqual(policy.kind, 'all-except', 'T60: allow tokens → all-except');
-            assertSetEquals(new Set(policy.appTokenData), new Set(['tokA', 'tokB']), 'T60: allowed token set');
+            assertSetEquals(new Set(policy.appTokenData), ['tokA', 'tokB'], 'T60: allowed token set');
             assertSetEmpty(new Set(policy.categoryTokenData), 'T60: categories excluded from allow mode');
         })();
 
@@ -1506,15 +1506,15 @@
                 blockSource({ iosScreenTimeSelection: selection(['tokA'], ['catY']) })
             ]);
             assertEqual(policy.kind, 'all-except', 'T61: mixed app sources → all-except');
-            assertSetEquals(new Set(policy.appTokenData), new Set(['tokB']), 'T61: blocked token removed from exceptions');
+            assertSetEquals(new Set(policy.appTokenData), ['tokB'], 'T61: blocked token removed from exceptions');
 
             const independent = deriveIOSEffectiveAppPolicy([
                 allowSource({ websites: ['github.com'] }),
                 blockSource({ iosScreenTimeSelection: selection(['tokC'], ['catZ']) })
             ]);
             assertEqual(independent.kind, 'specific-block', 'T61: websites-only allowlist leaves apps in specific-block');
-            assertSetEquals(new Set(independent.appTokenData), new Set(['tokC']), 'T61: blocked tokens kept');
-            assertSetEquals(new Set(independent.categoryTokenData), new Set(['catZ']), 'T61: blocked categories kept in specific-block');
+            assertSetEquals(new Set(independent.appTokenData), ['tokC'], 'T61: blocked tokens kept');
+            assertSetEquals(new Set(independent.categoryTokenData), ['catZ'], 'T61: blocked categories kept in specific-block');
         })();
 
         // T62: 50-cap validation — all-except over the cap fails; specific-block

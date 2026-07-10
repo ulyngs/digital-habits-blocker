@@ -92,7 +92,12 @@ export const tauriAPI = {
     androidStopManualBlock: (id) => invoke('plugin:android-blocker|stop_manual_block', { id }),
     androidReadNativeSchedules: () => invoke('plugin:android-blocker|read_native_schedules'),
     androidGetScheduleStates: () => invoke('plugin:android-blocker|get_schedule_states'),
-    androidGetInstalledApps: () => invoke('plugin:android-blocker|get_installed_apps'),
+    // Android keeps the most recently scanned launcher labels in
+    // device-protected preferences. Reading that cache is cheap enough for
+    // post-startup display-name hydration; refreshing it is reserved for the
+    // app picker, where an up-to-date list is actually needed.
+    androidGetCachedInstalledApps: () => invoke('plugin:android-blocker|get_cached_installed_apps'),
+    androidRefreshInstalledApps: () => invoke('plugin:android-blocker|get_installed_apps'),
     androidSetEventHandler: (handler) => invoke('plugin:android-blocker|set_event_handler', { handler }),
 
     // Event listening

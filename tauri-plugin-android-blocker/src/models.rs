@@ -36,8 +36,7 @@ pub struct ScheduleEntry {
     #[serde(default)]
     pub blocked_websites: Vec<String>,
     pub friction_word_count: u32,
-    /// Blocklist emoji/accent colour, used by the native friction gate
-    /// (UnlockActivity) to match the webview pause modal's branding.
+    /// Blocklist emoji/accent colour, used by the native friction gate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emoji: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -93,9 +92,8 @@ pub struct NativeSchedulesResponse {
     pub active_sessions_json: String,
 }
 
-/// Per-entity enabled/pause snapshot from the Kotlin store, so the
-/// webview can reconcile pauses granted by the native friction gate
-/// (`get_schedule_states`).
+/// Per-entity enabled/pause snapshot from the Kotlin store, allowing pauses
+/// granted by the native activity to be adopted by the shared app state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduleStateEntry {

@@ -455,10 +455,14 @@ export function collectNowBlockingEntries(now = Date.now()) {
 // Close any currently-open chip menu popover. Called from outside-click handlers and
 // before opening a new menu (so only one is ever visible).
 export function closeNowBlockingChipMenus() {
-    document.querySelectorAll('.now-blocking-chip-menu').forEach(el => el.remove());
     document.querySelectorAll('.now-blocking-chip-menu-btn[aria-expanded="true"]').forEach(btn => {
+        if (btn._chipMenuOutsideClick) {
+            document.removeEventListener('click', btn._chipMenuOutsideClick, true);
+            delete btn._chipMenuOutsideClick;
+        }
         btn.setAttribute('aria-expanded', 'false');
     });
+    document.querySelectorAll('.now-blocking-chip-menu').forEach(el => el.remove());
 }
 
 // Open a small Edit / Pause / Stop popover anchored to `triggerBtn` for the given entry.
@@ -512,11 +516,13 @@ export function openNowBlockingChipMenu(triggerBtn, entry) {
     // (chip menu is checked first). Delay so the opening click doesn't close immediately.
     setTimeout(() => {
         const onDocClick = (e) => {
-            if (!menu.contains(e.target) && e.target !== triggerBtn) {
+            if (!menu.contains(e.target) && !triggerBtn.contains(e.target)) {
                 closeNowBlockingChipMenus();
                 document.removeEventListener('click', onDocClick, true);
+                delete triggerBtn._chipMenuOutsideClick;
             }
         };
+        triggerBtn._chipMenuOutsideClick = onDocClick;
         document.addEventListener('click', onDocClick, true);
     }, 0);
 }

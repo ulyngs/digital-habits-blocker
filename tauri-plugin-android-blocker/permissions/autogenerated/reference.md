@@ -11,6 +11,7 @@ Default permissions for the android-blocker plugin
 - `allow-stop-manual-block`
 - `allow-read-native-schedules`
 - `allow-get-schedule-states`
+- `allow-get-cached-installed-apps`
 - `allow-get-installed-apps`
 - `allow-set-event-handler`
 
@@ -45,6 +46,32 @@ Enables the check_blocker_permissions command without any pre-configured scope.
 <td>
 
 Denies the check_blocker_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`android-blocker:allow-get-cached-installed-apps`
+
+</td>
+<td>
+
+Enables the get_cached_installed_apps command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`android-blocker:deny-get-cached-installed-apps`
+
+</td>
+<td>
+
+Denies the get_cached_installed_apps command without any pre-configured scope.
 
 </td>
 </tr>

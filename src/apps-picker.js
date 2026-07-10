@@ -30,8 +30,10 @@ export async function openInstalledAppsPicker() {
     searchInput.value = '';
     listEl.innerHTML = '<div class="app-picker-loading">Scanning installed apps...</div>';
 
-    // Fetch installed apps (cached after first call)
-    await ensureInstalledAppsCache();
+    // Opening this picker is the explicit freshness boundary for Android.
+    // Refresh PackageManager here (rather than at app start) and persist the
+    // resulting labels for the next launch.
+    await ensureInstalledAppsCache({ refresh: state.isAndroid });
     if (!state.installedAppsCache) {
         listEl.innerHTML = '<div class="app-picker-empty">Could not scan installed apps. Use "Browse manually..." below.</div>';
     }

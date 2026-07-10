@@ -1,7 +1,7 @@
 {
     "identifier": "net.kollnig.reddblockandroid",
     "build": {
-        "beforeBuildCommand": "npm run vite:build"
+        "beforeBuildCommand": "npm run vite:build:android"
     },
     "app": {
         "trayIcon": null

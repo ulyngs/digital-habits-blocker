@@ -1,7 +1,7 @@
 // Shared list display/meta helpers for blocklist and allowlist focus spaces.
 // Extracted from app.js during allowlist-refactoring phase 1.
 import { escapeHtml, cleanUrlForDisplay } from './utils.js';
-import { getSettingsLanguage, tSettingsFmt } from './i18n.js';
+import { getSettingsLanguage, tSettings } from './i18n.js';
 import {
     normalizeIOSScreenTimeSelection,
     getBlocklistRegularApps,
@@ -46,6 +46,35 @@ function siteWord(count) {
     return count === 1 ? 'site' : 'sites';
 }
 
+function appWord(count) {
+    return count === 1 ? 'app' : 'apps';
+}
+
+function buildBlocklistCardCountsSummary(siteCount, appCount) {
+    const parts = [];
+    if (siteCount > 0) {
+        parts.push(`${siteCount} ${siteWord(siteCount)}`);
+    }
+    if (appCount > 0) {
+        parts.push(`${appCount} ${appWord(appCount)}`);
+    }
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0];
+    return parts.join(` ${tSettings('blocklistCardCountsJoin')} `);
+}
+
+export function blocklistCardHasExpandableSummary(blocklist) {
+    const isAllow = isBlocklistAllowlistMode(blocklist);
+    const siteCount = blocklist?.websites?.length || 0;
+    const regularApps = getBlocklistRegularApps(blocklist);
+    const screenTimeCount = countIOSScreenTimeSelectionItems(
+        getBlocklistIOSScreenTimeSelection(blocklist),
+        isAllow,
+    );
+    const appCount = regularApps.length + screenTimeCount;
+    return siteCount > 0 || appCount > 0;
+}
+
 /** Short label from a blocked domain, e.g. instagram.com → instagram. */
 // Second-level public-suffix labels: for hosts like bbc.co.uk / abc.com.au
 // the registrable name sits one label further left than usual. Small curated
@@ -81,25 +110,54 @@ export function collectBlocklistCardSummaryLabels(blocklist) {
     return labels;
 }
 
-/** Room card line, e.g. "Blocks 5 · instagram, youtube, Firefox". */
+/** Room card line, e.g. "Blocks · 4 sites & 2 apps". */
 export function buildBlocklistCardMetaHtml(blocklist) {
     const isAllow = isBlocklistAllowlistMode(blocklist);
-    const showDetails = blocklist?.showItemDetails !== false;
-    const labels = collectBlocklistCardSummaryLabels(blocklist);
+    const prefixKey = isAllow ? 'blocklistCardAllowsFmt' : 'blocklistCardBlocksFmt';
+    const prefix = escapeHtml(tSettings(prefixKey));
+
+    const siteCount = blocklist?.websites?.length || 0;
+    const regularApps = getBlocklistRegularApps(blocklist);
     const screenTimeSelection = getBlocklistIOSScreenTimeSelection(blocklist);
     const screenTimeCount = countIOSScreenTimeSelectionItems(screenTimeSelection, isAllow);
-    const hasScreenTimeLabel = !!formatIOSScreenTimeSelectionLabel(screenTimeSelection);
-    const count = labels.length - (hasScreenTimeLabel ? 1 : 0) + screenTimeCount;
-    const prefixKey = isAllow ? 'blocklistCardAllowsFmt' : 'blocklistCardBlocksFmt';
-    const prefixClass = isAllow ? 'blocklist-meta-prefix--allow' : 'blocklist-meta-prefix--block';
-    const prefix = escapeHtml(tSettingsFmt(prefixKey, { n: String(count) }));
+    const appCount = regularApps.length + screenTimeCount;
+    const summary = buildBlocklistCardCountsSummary(siteCount, appCount);
 
-    if (!showDetails || count === 0) {
-        return `<span class="blocklist-meta-line"><span class="blocklist-meta-prefix ${prefixClass}">${prefix}</span></span>`;
+    if (!summary) {
+        return `<span class="blocklist-meta-line"><span class="blocklist-meta-prefix">${prefix}</span></span>`;
     }
 
-    const items = escapeHtml(labels.join(', '));
-    return `<span class="blocklist-meta-line"><span class="blocklist-meta-prefix ${prefixClass}">${prefix}</span><span class="blocklist-meta-sep">·</span><span class="blocklist-meta-items">${items}</span></span>`;
+    return `<span class="blocklist-meta-line"><span class="blocklist-meta-prefix">${prefix}</span><span class="blocklist-meta-sep">·</span><button type="button" class="blocklist-meta-items-btn" aria-expanded="false">${escapeHtml(summary)}</button></span>`;
+}
+
+/** Expandable Sites / Apps detail sections with item pills. */
+export function buildBlocklistCardDetailsHtml(blocklist, { expanded = false } = {}) {
+    const websiteLabels = (blocklist?.websites || []).map(cleanUrlForDisplay);
+    const appLabels = getBlocklistDisplayApps(blocklist);
+    const sections = [];
+
+    if (websiteLabels.length > 0) {
+        sections.push(
+            '<div class="blocklist-details-section">'
+            + `<div class="blocklist-details-heading">${escapeHtml(tSettings('blocklistCardSitesHeading'))}</div>`
+            + `<div class="blocklist-details-pills">${websiteLabels.map((label) => `<span class="blocklist-details-pill">${escapeHtml(label)}</span>`).join('')}</div>`
+            + '</div>',
+        );
+    }
+
+    if (appLabels.length > 0) {
+        sections.push(
+            '<div class="blocklist-details-section">'
+            + `<div class="blocklist-details-heading">${escapeHtml(tSettings('blocklistCardAppsHeading'))}</div>`
+            + `<div class="blocklist-details-pills">${appLabels.map((label) => `<span class="blocklist-details-pill">${escapeHtml(label)}</span>`).join('')}</div>`
+            + '</div>',
+        );
+    }
+
+    if (sections.length === 0) return '';
+
+    const hiddenClass = expanded ? '' : ' hidden';
+    return `<div class="blocklist-card-details${hiddenClass}" aria-hidden="${expanded ? 'false' : 'true'}">${sections.join('')}</div>`;
 }
 
 /** Room card line, e.g. "3 sites · instagram, youtube, reddit". */

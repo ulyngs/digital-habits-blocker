@@ -8,6 +8,7 @@ permissions = [
     "allow-stop-manual-block",
     "allow-read-native-schedules",
     "allow-get-schedule-states",
+    "allow-get-cached-installed-apps",
     "allow-get-installed-apps",
     "allow-set-event-handler"
 ]

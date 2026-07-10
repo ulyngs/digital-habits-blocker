@@ -6,6 +6,19 @@ export function isBlocklistAllowlistMode(blocklist) {
     return blocklist?.mode === 'allowlist';
 }
 
+export function getStartConfirmBlockingLabel(blocklist) {
+    return tSettings(
+        isBlocklistAllowlistMode(blocklist)
+            ? 'startConfirmAllowingLabel'
+            : 'startConfirmBlockingLabel',
+    );
+}
+
+export function setConfirmModalBlockingLabel(blocklist, labelId) {
+    const el = document.getElementById(labelId);
+    if (el) el.textContent = getStartConfirmBlockingLabel(blocklist);
+}
+
 export function getSelectedBlocklistModalMode() {
     const selected = document.querySelector('#blocklist-mode-toggle .mode-btn.active');
     return selected?.dataset?.mode === 'allowlist' ? 'allowlist' : 'blocklist';

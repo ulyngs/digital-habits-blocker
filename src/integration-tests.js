@@ -786,6 +786,9 @@
     // as the always-ready "helper"; `get_helper_diagnostics` returns the app
     // version + backend label (not the dead v1 daemon fields).
     async function testE2_helperDiagnosticsContract() {
+        const skip = await ensureHelperRunningOrSkip('E2');
+        if (skip) return skip;
+
         const tauriAPI = getTauriAPI();
         assertOrThrow(tauriAPI && typeof tauriAPI.getHelperDiagnostics === 'function', 'E2: getHelperDiagnostics unavailable');
 

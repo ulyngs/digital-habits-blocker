@@ -1,7 +1,6 @@
-import Quill from 'quill';
-import 'quill/dist/quill.snow.css';
-
 let quillInstance = null;
+let quillConstructor = null;
+let quillLoadPromise = null;
 let onChangeCallback = null;
 let ignoreNextChange = false;
 let overlayEditorShortcutUnlisten = null;
@@ -17,7 +16,7 @@ function makeOverlayFormatKeyboardBinding(format) {
         key: format[0],
         shortKey: true,
         handler(range, context) {
-            this.quill.format(format, !context.format[format], Quill.sources.USER);
+            this.quill.format(format, !context.format[format], quillConstructor.sources.USER);
             this.quill.getModule('toolbar')?.update(range);
             return false;
         },
@@ -146,9 +145,24 @@ export function sanitizeOverlayMessageHtml(html) {
     return root.innerHTML;
 }
 
-export function initScheduleOverlayMessageEditor(containerEl, { onChange, placeholder } = {}) {
+async function loadQuill() {
+    if (!quillLoadPromise) {
+        quillLoadPromise = Promise.all([
+            import('quill'),
+            import('quill/dist/quill.snow.css'),
+        ]).then(([module]) => {
+            quillConstructor = module.default;
+            return quillConstructor;
+        });
+    }
+    return quillLoadPromise;
+}
+
+export async function initScheduleOverlayMessageEditor(containerEl, { onChange, placeholder } = {}) {
     if (quillInstance) return quillInstance;
     onChangeCallback = onChange;
+
+    const Quill = await loadQuill();
 
     quillInstance = new Quill(containerEl, {
         theme: 'snow',

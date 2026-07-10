@@ -1354,6 +1354,15 @@ export async function openScheduleOverlayCustomiseModal(blocklist) {
     if (!blocklist || state.isIOS || state.isAndroid) return;
     scheduleOverlayCustomiseBlocklist = blocklist;
 
+    const messageEditorEl = document.getElementById('schedule-overlay-message-editor');
+    if (messageEditorEl) {
+        await initScheduleOverlayMessageEditor(messageEditorEl, {
+            onChange: () => {
+                void refreshScheduleOverlayCustomisePreview();
+            },
+        });
+    }
+
     let initialPresetId = getEffectiveScheduleStartOverlayId();
     if (initialPresetId && !getNamedStartOverlayById(initialPresetId)) {
         initialPresetId = null;
@@ -1534,15 +1543,6 @@ export function setupScheduleOverlayCustomiseModal() {
         ?.addEventListener('click', () => { void resetScheduleOverlayImageAsset(); });
     document.getElementById('schedule-overlay-reset-voice-btn')
         ?.addEventListener('click', () => { void resetScheduleOverlayVoiceAsset(); });
-
-    const messageEditorEl = document.getElementById('schedule-overlay-message-editor');
-    if (messageEditorEl) {
-        initScheduleOverlayMessageEditor(messageEditorEl, {
-            onChange: () => {
-                void refreshScheduleOverlayCustomisePreview();
-            },
-        });
-    }
 
     document.getElementById('schedule-overlay-lets-go-input')?.addEventListener('input', () => {
         syncScheduleOverlayLetsGoCounter();

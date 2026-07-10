@@ -327,7 +327,8 @@ function assertEqual(actual, expected, message) {
 
 function assertSetEquals(actualSet, expectedArray, message) {
     const actual = Array.from(actualSet).sort();
-    const expected = expectedArray.slice().sort();
+    // Accept any iterable (array or Set) as the expected value.
+    const expected = Array.from(expectedArray).sort();
     return assertEqual(actual, expected, message);
 }
 

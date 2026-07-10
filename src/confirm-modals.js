@@ -28,7 +28,7 @@ import {
     shouldUseCompactMobileScheduleDayLabels, snapMinutesToInterval,
 } from './app.js';
 import { getBlocklistDisplayApps, websiteWord } from './list-presentation.js';
-import { setBlocklistModalMode } from './list-mode.js';
+import { setBlocklistModalMode, setConfirmModalBlockingLabel, isBlocklistAllowlistMode } from './list-mode.js';
 
 export const START_CONFIRM_ICON_GLOBE = `<svg class="start-confirm-blocking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 export const START_CONFIRM_ICON_APP = `<svg class="start-confirm-blocking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M10 4v4"></path><path d="M2 8h20"></path><path d="M6 4v4"></path></svg>`;
@@ -180,8 +180,11 @@ export function formatStartBlockDurationCopy(isAlwaysOn, blockStart, blockEnd) {
     });
 }
 
-export function formatStartBlockSubtitle(isAlwaysOn, blockStart, blockEnd) {
-    if (isAlwaysOn) return tSettings('startBlockSubtitleAlways');
+export function formatStartBlockSubtitle(blocklist, isAlwaysOn, blockStart, blockEnd) {
+    const isAllow = isBlocklistAllowlistMode(blocklist);
+    if (isAlwaysOn) {
+        return tSettings(isAllow ? 'startBlockSubtitleAllowAlways' : 'startBlockSubtitleAlways');
+    }
     const durationMs = blockEnd.getTime() - blockStart.getTime();
     const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
     const hours = Math.floor(durationMinutes / 60);
@@ -190,7 +193,18 @@ export function formatStartBlockSubtitle(isAlwaysOn, blockStart, blockEnd) {
     if (hours > 0 && mins > 0) durationLabel = `${hours}h ${mins}m`;
     else if (hours > 0) durationLabel = `${hours} hour${hours > 1 ? 's' : ''}`;
     else durationLabel = `${mins} minute${mins > 1 ? 's' : ''}`;
-    return tSettingsFmt('startBlockSubtitleFmt', { duration: durationLabel });
+    return tSettingsFmt(
+        isAllow ? 'startBlockSubtitleAllowFmt' : 'startBlockSubtitleFmt',
+        { duration: durationLabel },
+    );
+}
+
+export function formatStartScheduleSubtitle(blocklist) {
+    return tSettings(
+        isBlocklistAllowlistMode(blocklist)
+            ? 'startScheduleSubtitleAllow'
+            : 'startScheduleSubtitle',
+    );
 }
 
 export function setStartConfirmRoomChip(blocklist, {
@@ -266,6 +280,8 @@ export function populateOverrideConfirmModalContent(blocklist, { block = null, i
             : formatStopBlockSubtitle(block);
     }
 
+    setConfirmModalBlockingLabel(blocklist, 'override-confirm-blocking-label');
+
     renderStartConfirmBlockingDetails(
         blocklist,
         document.getElementById('override-confirm-blocking-list'),
@@ -276,10 +292,15 @@ export function populateOverrideConfirmModalContent(blocklist, { block = null, i
     setStartConfirmPrimaryLabel('confirm-override-btn', tSettings('stopBlock'));
 }
 
-export function formatPauseBlockSubtitle(block, { isSchedule = false, isScheduleInactive = false } = {}) {
+export function formatPauseBlockSubtitle(blocklist, block, { isSchedule = false, isScheduleInactive = false } = {}) {
+    const isAllow = isBlocklistAllowlistMode(blocklist);
     if (isScheduleInactive) return tSettings('pauseScheduleInactiveSubtitle');
-    if (isSchedule) return tSettings('pauseScheduleSubtitle');
-    if (!block || isBlockAlwaysOn(block)) return tSettings('pauseBlockSubtitleAlways');
+    if (isSchedule) {
+        return tSettings(isAllow ? 'pauseScheduleSubtitleAllow' : 'pauseScheduleSubtitle');
+    }
+    if (!block || isBlockAlwaysOn(block)) {
+        return tSettings(isAllow ? 'pauseBlockSubtitleAllowAlways' : 'pauseBlockSubtitleAlways');
+    }
     const remaining = formatRemainingDurationLabel(block.endTime - Date.now());
     return tSettingsFmt('pauseBlockSubtitleFmt', { remaining });
 }
@@ -298,8 +319,10 @@ export function populatePauseConfirmModalContent(blocklist, {
 
     const subtitleEl = document.getElementById('pause-confirm-subtitle');
     if (subtitleEl) {
-        subtitleEl.innerHTML = formatPauseBlockSubtitle(block, { isSchedule, isScheduleInactive });
+        subtitleEl.innerHTML = formatPauseBlockSubtitle(blocklist, block, { isSchedule, isScheduleInactive });
     }
+
+    setConfirmModalBlockingLabel(blocklist, 'pause-confirm-blocking-label');
 
     renderStartConfirmBlockingDetails(
         blocklist,
@@ -363,7 +386,9 @@ export function showScheduleConfirmModal(blocklist) {
     setStartConfirmRoomChip(blocklist, SCHEDULE_CONFIRM_ROOM_CHIP_IDS);
 
     const subtitleEl = document.getElementById('schedule-confirm-subtitle');
-    if (subtitleEl) subtitleEl.innerHTML = tSettings('startScheduleSubtitle');
+    if (subtitleEl) subtitleEl.innerHTML = formatStartScheduleSubtitle(blocklist);
+
+    setConfirmModalBlockingLabel(blocklist, 'schedule-confirm-blocking-label');
 
     state.pendingScheduleStartOverlayId = getEffectiveScheduleStartOverlayId();
     syncScheduleConfirmOverlaySummary();
@@ -1755,8 +1780,10 @@ export function startBlock() {
 
     const subtitleEl = document.getElementById('start-confirm-subtitle');
     if (subtitleEl) {
-        subtitleEl.innerHTML = formatStartBlockSubtitle(state.isAlwaysOnMode, blockStart, blockEnd);
+        subtitleEl.innerHTML = formatStartBlockSubtitle(blocklist, state.isAlwaysOnMode, blockStart, blockEnd);
     }
+
+    setConfirmModalBlockingLabel(blocklist, 'start-confirm-blocking-label');
 
     const durationEl = document.getElementById('start-confirm-duration');
     if (durationEl) {
@@ -2600,6 +2627,8 @@ export function openResumeConfirmation(blocklistId, type, blockId) {
 
     const subtitleEl = document.getElementById('start-confirm-subtitle');
     if (subtitleEl) subtitleEl.innerHTML = tSettings('resumeBlockSubtitle');
+
+    setConfirmModalBlockingLabel(blocklist, 'start-confirm-blocking-label');
 
     const durationEl = document.getElementById('start-confirm-duration');
     if (type === 'block') {

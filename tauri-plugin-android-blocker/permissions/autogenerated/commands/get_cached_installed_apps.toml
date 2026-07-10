@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-cached-installed-apps"
+description = "Enables the get_cached_installed_apps command without any pre-configured scope."
+commands.allow = ["get_cached_installed_apps"]
+
+[[permission]]
+identifier = "deny-get-cached-installed-apps"
+description = "Denies the get_cached_installed_apps command without any pre-configured scope."
+commands.deny = ["get_cached_installed_apps"]

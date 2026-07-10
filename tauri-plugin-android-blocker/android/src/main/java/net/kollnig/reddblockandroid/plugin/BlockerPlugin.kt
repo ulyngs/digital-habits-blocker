@@ -23,6 +23,7 @@ import net.kollnig.reddblockandroid.service.BlockerService
 import net.kollnig.reddblockandroid.util.isAccessibilityServiceEnabled
 import net.kollnig.reddblockandroid.util.isPrefsInitialized
 import net.kollnig.reddblockandroid.util.prefs
+import org.json.JSONArray
 import java.time.DayOfWeek
 
 @InvokeArg
@@ -336,6 +337,36 @@ class BlockerPlugin(private val activity: Activity) : Plugin(activity) {
 
     // --- App picker ---
 
+    /** Return the persisted label/package snapshot without touching PackageManager. */
+    @Command
+    fun getCachedInstalledApps(invoke: Invoke) {
+        val arr = JSArray()
+        val cached = prefs.getString(INSTALLED_APPS_CACHE_KEY, null)
+        if (cached != null) {
+            try {
+                val entries = JSONArray(cached)
+                for (index in 0 until entries.length()) {
+                    val entry = entries.optJSONObject(index) ?: continue
+                    val packageName = entry.optString("packageName")
+                    if (packageName.isEmpty()) continue
+                    val appEntry = JSObject()
+                    appEntry.put("label", entry.optString("label", packageName))
+                    appEntry.put("packageName", packageName)
+                    arr.put(appEntry)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Ignoring malformed installed-app cache", e)
+            }
+        }
+        val ret = JSObject()
+        ret.put("apps", arr)
+        invoke.resolve(ret)
+    }
+
+    /**
+     * Refresh launcher labels when the app picker opens, then persist the
+     * lightweight label/package snapshot for later launches.
+     */
     @Command
     fun getInstalledApps(invoke: Invoke) {
         val pm = activity.packageManager
@@ -343,16 +374,25 @@ class BlockerPlugin(private val activity: Activity) : Plugin(activity) {
         val resolved = pm.queryIntentActivities(launcherIntent, 0)
 
         val arr = JSArray()
+        val cached = JSONArray()
         val seen = mutableSetOf<String>()
         for (info in resolved) {
             val pkg = info.activityInfo.packageName
             if (pkg == activity.packageName || !seen.add(pkg)) continue
+            val label = info.loadLabel(pm).toString()
 
             val appEntry = JSObject()
-            appEntry.put("label", info.loadLabel(pm).toString())
+            appEntry.put("label", label)
             appEntry.put("packageName", pkg)
             arr.put(appEntry)
+
+            val cachedEntry = org.json.JSONObject()
+            cachedEntry.put("label", label)
+            cachedEntry.put("packageName", pkg)
+            cached.put(cachedEntry)
         }
+
+        prefs.edit().putString(INSTALLED_APPS_CACHE_KEY, cached.toString()).apply()
 
         val ret = JSObject()
         ret.put("apps", arr)
@@ -373,6 +413,7 @@ class BlockerPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     companion object {
+        private const val INSTALLED_APPS_CACHE_KEY = "installed_apps_cache_v1"
         private const val TAG = "BlockerPlugin"
     }
 }

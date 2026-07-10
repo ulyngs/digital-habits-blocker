@@ -35,7 +35,10 @@ pub(crate) async fn start_manual_block<R: Runtime>(
     end_timestamp_ms: Option<f64>,
 ) -> Result<SuccessResponse> {
     app.android_blocker()
-        .start_manual_block(StartManualBlockRequest { id, end_timestamp_ms })
+        .start_manual_block(StartManualBlockRequest {
+            id,
+            end_timestamp_ms,
+        })
 }
 
 #[command]
@@ -59,6 +62,13 @@ pub(crate) async fn get_schedule_states<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<ScheduleStatesResponse> {
     app.android_blocker().get_schedule_states()
+}
+
+#[command]
+pub(crate) async fn get_cached_installed_apps<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<InstalledAppsResponse> {
+    app.android_blocker().get_cached_installed_apps()
 }
 
 #[command]

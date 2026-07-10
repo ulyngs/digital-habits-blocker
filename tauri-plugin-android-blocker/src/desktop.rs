@@ -65,11 +65,18 @@ impl<R: Runtime> AndroidBlocker<R> {
         Ok(ScheduleStatesResponse { states: vec![] })
     }
 
+    pub fn get_cached_installed_apps(&self) -> crate::Result<InstalledAppsResponse> {
+        Ok(InstalledAppsResponse { apps: vec![] })
+    }
+
     pub fn get_installed_apps(&self) -> crate::Result<InstalledAppsResponse> {
         Ok(InstalledAppsResponse { apps: vec![] })
     }
 
-    pub fn set_event_handler(&self, _payload: SetEventHandlerArgs) -> crate::Result<SuccessResponse> {
+    pub fn set_event_handler(
+        &self,
+        _payload: SetEventHandlerArgs,
+    ) -> crate::Result<SuccessResponse> {
         Ok(unsupported())
     }
 }

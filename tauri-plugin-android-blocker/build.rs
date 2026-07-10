@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "stop_manual_block",
     "read_native_schedules",
     "get_schedule_states",
+    "get_cached_installed_apps",
     "get_installed_apps",
     "set_event_handler",
 ];

@@ -676,24 +676,43 @@ export function displayNameForBlockedApp(processName) {
     return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-export async function ensureInstalledAppsCache() {
-    if (state.installedAppsCache) return;
+let installedAppsCachePromise = null;
+
+/**
+ * Populate display names without putting PackageManager's launcher scan on the
+ * startup path. Android reads its persisted cache by default; callers opening
+ * the app picker pass `refresh: true` to intentionally rescan and replace it.
+ */
+export async function ensureInstalledAppsCache({ refresh = false } = {}) {
+    if (state.installedAppsCache && !refresh) return;
     if (state.isIOS) return;
-    try {
-        if (state.isAndroid) {
-            const result = await tauriAPI.androidGetInstalledApps();
-            state.installedAppsCache = (result?.apps || []).map((app) => ({
-                display_name: app.label || app.packageName,
-                process_name: app.packageName,
-            }))
-                .filter((app) => app.process_name)
-                .sort((a, b) => a.display_name.localeCompare(b.display_name));
-        } else {
-            state.installedAppsCache = await tauriAPI.listInstalledApps();
+    if (installedAppsCachePromise) return installedAppsCachePromise;
+
+    installedAppsCachePromise = (async () => {
+        try {
+            if (state.isAndroid) {
+                const result = refresh
+                    ? await tauriAPI.androidRefreshInstalledApps()
+                    : await tauriAPI.androidGetCachedInstalledApps();
+                const apps = result?.apps || [];
+                if (apps.length > 0) {
+                    state.installedAppsCache = apps.map((app) => ({
+                        display_name: app.label || app.packageName,
+                        process_name: app.packageName,
+                    }))
+                        .filter((app) => app.process_name)
+                        .sort((a, b) => a.display_name.localeCompare(b.display_name));
+                }
+            } else {
+                state.installedAppsCache = await tauriAPI.listInstalledApps();
+            }
+        } catch (e) {
+            console.warn('[installed-apps] Failed to load installed apps cache:', e);
+        } finally {
+            installedAppsCachePromise = null;
         }
-    } catch (e) {
-        console.warn('[installed-apps] Failed to preload installed apps cache:', e);
-    }
+    })();
+    return installedAppsCachePromise;
 }
 
 /** One entry per blocked app — Edge's many PIDs collapse to a single name. */
@@ -805,26 +824,20 @@ export async function checkAndroidPermissions() {
 }
 
 export async function initializeAndroidBlockingState() {
-    // Preload installed-app labels (package name -> friendly name) so blocklist
-    // cards show "Vanadium" rather than the raw "app.vanadium.browser" package
-    // id. Desktop does this in its startup branch; Android needs it too.
-    await ensureInstalledAppsCache();
     await migrateAndroidNativeSchedules();
-    // Adopt pauses granted by the native friction gate while this webview
-    // process was dead — must run before syncSchedulesToHelper, which
-    // otherwise overwrites Kotlin's pause state with our stale (unpaused) one.
+    // Adopt pauses granted by the native activity before syncing, otherwise
+    // stale JS state would immediately overwrite Kotlin's pause.
     await reconcileAndroidNativePauses();
     await syncSchedulesToHelper();
+
+    // Display-name hydration is cosmetic. Read the persisted cache only after
+    // enforcement state is reconciled; PackageManager is never scanned here.
+    void ensureInstalledAppsCache().then(() => {
+        if (state.installedAppsCache) render();
+    });
 }
 
-/**
- * One-way Kotlin→JS pause adoption. The native friction gate
- * (UnlockActivity) pauses schedule entities directly in the Kotlin store
- * (`Schedules.pauseSchedule`); here we fold any still-running native pause
- * back into state.appData so the UI and the next setSchedules round-trip
- * agree with what the user was granted. Only pauses are adopted — expiry
- * and un-pausing stay JS-owned, exactly as before.
- */
+/** Adopt still-active pauses granted by the native Android pause activity. */
 export async function reconcileAndroidNativePauses() {
     let states;
     try {
@@ -838,24 +851,14 @@ export async function reconcileAndroidNativePauses() {
     let changed = false;
     for (const entity of states || []) {
         if (entity.isEnabled || !entity.disabledUntil || entity.disabledUntil <= now) continue;
-
         const target = findAndroidBlockingTarget(entity.id);
         if (!target) continue;
 
-        if (target.type === 'block') {
-            const block = target.block;
-            if (!block.isPaused || (block.pauseEndTime || 0) < entity.disabledUntil) {
-                block.isPaused = true;
-                block.pauseEndTime = entity.disabledUntil;
-                changed = true;
-            }
-        } else {
-            const schedule = target.schedule;
-            if (!schedule.isPaused || (schedule.pauseEndTime || 0) < entity.disabledUntil) {
-                schedule.isPaused = true;
-                schedule.pauseEndTime = entity.disabledUntil;
-                changed = true;
-            }
+        const pauseTarget = target.type === 'block' ? target.block : target.schedule;
+        if (!pauseTarget.isPaused || (pauseTarget.pauseEndTime || 0) < entity.disabledUntil) {
+            pauseTarget.isPaused = true;
+            pauseTarget.pauseEndTime = entity.disabledUntil;
+            changed = true;
         }
     }
 
@@ -1040,9 +1043,6 @@ export function listenForAndroidFrictionGate() {
 
 export async function onAndroidResumed() {
     if (state.androidPermissionsGranted) {
-        // Back in the foreground with blocking already set up — the user may
-        // have just passed the native friction gate, so adopt any pause it
-        // granted and push the reconciled state back to Kotlin.
         await reconcileAndroidNativePauses();
         await syncSchedulesToHelper();
         return;
@@ -1243,7 +1243,6 @@ export function updateOnboardingVisibility() {
     const main = document.getElementById('main-content');
     const showEula = !hasAcceptedEula();
     const showScreentime = state.isIOS && !showEula && !state.screentimeAuthorized;
-    const androidPermissionsUnknown = state.isAndroid && !showEula && state.androidPermissionsGranted == null;
     const showAndroidPermissions = state.isAndroid && !showEula && state.androidPermissionsGranted === false;
     const keepEulaVisibleForPendingSetup = !state.isIOS
         && !state.isAndroid
@@ -1252,7 +1251,6 @@ export function updateOnboardingVisibility() {
     const showEulaScreen = showEula || keepEulaVisibleForPendingSetup;
     const blockMainUi = showEulaScreen
         || showScreentime
-        || androidPermissionsUnknown
         || showAndroidPermissions
         || state.migrationOnboardingActive
         || (!state.isIOS && !state.isAndroid && isFirstRunOnboardingInProgress());
@@ -1279,7 +1277,10 @@ export function activeExclusiveOnboardingScreenId() {
         'fda-onboarding',
         'migration-onboarding',
     ];
-    return screenIds.find((id) => !document.getElementById(id)?.classList.contains('hidden')) || null;
+    return screenIds.find((id) => {
+        const screen = document.getElementById(id);
+        return screen != null && !screen.classList.contains('hidden');
+    }) || null;
 }
 
 export function showExclusiveOnboardingScreen(activeId) {

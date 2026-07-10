@@ -21,6 +21,7 @@
     "tauri": "tauri",
     "vite:dev": "vite",
     "vite:build": "vite build",
+    "vite:build:android": "vite build --mode android",
     "vite:preview": "vite preview"
   },
   "keywords": [
@@ -50,6 +51,8 @@
     "@tauri-apps/cli": "^2.9.6",
     "dotenv": "^17.2.3",
     "png-to-ico": "^3.0.1",
+    "purgecss": "^8.0.0",
+    "rollup-plugin-visualizer": "^7.0.1",
     "sharp": "^0.34.5",
     "vite": "^7.3.1"
   }

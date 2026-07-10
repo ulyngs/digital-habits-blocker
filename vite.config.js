@@ -7,14 +7,24 @@ import { PurgeCSS } from 'purgecss';
 // integration-tests.js so the developer can call runBlockingTests() and
 // runIntegrationTests() from the console. In production we don't want to
 // ship ~120 KB of test runners, so strip those <script> tags during build.
+//
+// This must run as a `pre` transformIndexHtml hook: the test files are classic
+// scripts (no type="module"), and Vite's core build-html plugin warns
+// ("<script> can't be bundled without type=\"module\"") while scanning the HTML
+// for bundling. That scan happens before normal-order transformIndexHtml hooks,
+// so a normal-order strip removes them from the output but still trips the
+// warning. Running `pre` deletes the tags before the scan sees them.
 const stripDevTestScripts = () => ({
     name: 'strip-dev-test-scripts',
     apply: 'build',
-    transformIndexHtml(html) {
-        return html.replace(
-            /\s*<script src="\.\/(test-utils|blocking-tests|integration-tests)\.js"><\/script>/g,
-            '',
-        );
+    transformIndexHtml: {
+        order: 'pre',
+        handler(html) {
+            return html.replace(
+                /\s*<script src="\.\/(test-utils|blocking-tests|integration-tests)\.js"><\/script>/g,
+                '',
+            );
+        },
     },
 });
 

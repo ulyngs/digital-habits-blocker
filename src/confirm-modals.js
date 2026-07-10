@@ -6,11 +6,11 @@ import { escapeHtml, cleanUrlForDisplay, getContrastTextColor, getEnteringChipCo
 import { tSettings, tSettingsFmt, getSettingsLanguage, weekdayAbbrevMon0List, weekdayLetterMon0List } from './i18n.js';
 import { ALWAYS_ON_END_TIME, ensureIOSBlocklistSelectionReady, getBlocklistIOSPayload, getBlocklistIOSScreenTimeSelection, getBlocklistModalLockedApps, getBlocklistRegularApps, isBlockAlwaysOn } from './blocklist-utils.js';
 import { formatOverrideMaxDifficultyHint, generateOverrideChallengeText, getMaxOverrideCharsForType, getOverrideEstimatedMinutes, getOverridePreviewText, isMobileOverrideChallengePlatform, normalizeCustomOverrideText, normalizeOverrideCount, usesMobileWordCountForOverrideType } from './override-challenge.js';
-import { resolveOneShotOccurrences, syncActiveBlocksToHelper, syncSchedulesToHelper } from './schedule-engine.js';
+import { isSchedulePausedNow, resolveOneShotOccurrences, syncActiveBlocksToHelper, syncSchedulesToHelper } from './schedule-engine.js';
 import { saveData, updateHostsFile } from './persistence.js';
 import { getCalendarSegmentLayout, layoutOverlappingBlocks, render, renderScheduleAlwaysOnRow, renderWeekBlocks, updateWeekCalendar } from './render.js';
 import { clearPendingScheduleDraft, renderBlocklists, truncateBlocklistName } from './blocklists.js';
-import { getCommittedScheduleSegmentCount, getInitialExpandedScheduleSegmentIndex, rebuildScheduleSegments, setAlwaysOnMode, setScheduleMode, updateScheduleButtonState } from './schedule-editor.js';
+import { getCommittedScheduleSegmentCount, getInitialExpandedScheduleSegmentIndex, isScheduleSegmentActiveNow, rebuildScheduleSegments, setAlwaysOnMode, setScheduleMode, updateScheduleButtonState } from './schedule-editor.js';
 import { getEffectiveScheduleStartOverlayId, rememberLastScheduleStartOverlayId, syncScheduleConfirmOverlaySummary } from './schedule-overlay.js';
 import { closeAllPopovers, disableScheduleControls, disableTimeControls, getEndTimeAsDate, getStartTimeAsDate, initializeTimeInputs, pad, updateDurationQuickBtns, updateTimeDisplay } from './time-inputs.js';
 import { updateBlockedApps, updateOnboardingVisibility, updateWindowHeight, requestScreentimeAuth, isHelperConnectionError } from './blocking-platform.js';
@@ -23,7 +23,7 @@ import {
     formatMinutesAsHHMM, formatTime, generateId,
     getCompletedChallengeText, getCurrentChallengeWord,
     isMobileWordByWordChallenge, renderOverrideWordChallengeState,
-    renderPauseWordChallengeState,
+    renderPauseChallengeText, renderPauseWordChallengeState,
     setOverrideWordChallengeMode, setPauseWordChallengeMode,
     shouldUseCompactMobileScheduleDayLabels, snapMinutesToInterval,
 } from './app.js';
@@ -1624,49 +1624,28 @@ export function handleBlocklistSelect(e) {
                     delete startBlockBtn.dataset.activeBlockId;
                     startBlockBtn.classList.remove('stop-block');
 
-                    const pauseBtn = document.getElementById('pause-block-btn');
-
                     if (activeBlock) {
-                        // Active block - show Stop focus space button (ghost) with square icon
                         startBlockBtn.classList.add('stop-block');
                         setBtnActionLabel(btnLabel, tSettings('stopBlock'));
                         setStartBtnBlocklistInfo(startBlockBtn, blocklist);
                         startBlockBtn.disabled = false;
                         startBlockBtn.dataset.activeBlockId = activeBlock.id;
-
-                        // Show pause button with correct appearance
-                        if (pauseBtn) {
-                            pauseBtn.classList.remove('hidden');
-                            updatePauseButtonAppearance(!!activeBlock.isPaused);
-                        }
-
                         setStartBlockBtnLeadingIcon(startBlockBtn, 'stop');
-
-                        // Disable time controls
                         disableTimeControls(true);
 
-                        // Keep the info message visible for active always-on blocks.
                         const alwaysOnMsg = document.getElementById('always-on-message');
                         if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !isBlockAlwaysOn(activeBlock));
                     } else {
-                        // No active block - show Start focus space button with play icon
-                        // Ensure we've already cleared the activeBlockId above
-                setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
-                setStartBtnBlocklistInfo(startBlockBtn, blocklist);
-
+                        setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
+                        setStartBtnBlocklistInfo(startBlockBtn, blocklist);
                         setStartBlockBtnLeadingIcon(startBlockBtn, 'enter');
-
-                        // Enable time controls
                         disableTimeControls(false);
 
-                        // Re-show always-on message based on current mode
                         const alwaysOnMsg = document.getElementById('always-on-message');
                         if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !state.isAlwaysOnMode);
-
-                        // Hide pause button
-                        if (pauseBtn) pauseBtn.classList.add('hidden');
                     }
                 }
+                syncPauseButtonForSelectedBlocklist();
             }
         }
         initializeTimeInputs();
@@ -2587,6 +2566,67 @@ export function initializeOverrideModalChallenge(difficulty, progressColor = nul
 
 // ── Pause/Resume Block ──
 
+/** Which timer or schedule row the pause button should act on for the current mode. */
+export function getPauseTargetForSelectedBlocklist(now = Date.now()) {
+    if (!state.selectedBlocklistId) return null;
+    const blocklistId = state.selectedBlocklistId;
+
+    if (state.isScheduleMode) {
+        const schedule = state.appData.schedules?.find(s => s.blocklistId === blocklistId);
+        if (!schedule?.segments?.length) return null;
+        return { type: 'schedule', schedule, blocklistId };
+    }
+
+    const block = state.appData.activeBlocks.find(b =>
+        b.blocklistId === blocklistId && b.startTime <= now && b.endTime > now
+    );
+    if (!block) return null;
+    return { type: 'block', block, blockId: block.id, blocklistId };
+}
+
+export function syncPauseButtonForSelectedBlocklist(now = Date.now()) {
+    const pauseBtn = document.getElementById('pause-block-btn');
+    if (!pauseBtn) return;
+
+    const target = getPauseTargetForSelectedBlocklist(now);
+    if (!target) {
+        pauseBtn.classList.add('hidden');
+        return;
+    }
+
+    pauseBtn.classList.remove('hidden');
+    const isPaused = target.type === 'block'
+        ? !!target.block.isPaused
+        : isSchedulePausedNow(target.schedule, now);
+    updatePauseButtonAppearance(isPaused);
+}
+
+export function handlePauseBlockButtonClick() {
+    const target = getPauseTargetForSelectedBlocklist();
+    if (!target) return;
+
+    if (target.type === 'block') {
+        if (target.block.isPaused) {
+            openResumeConfirmation(target.blocklistId, 'block', target.blockId);
+        } else {
+            state.pauseScheduleData = null;
+            openPauseModal(target.blockId);
+        }
+        return;
+    }
+
+    if (isSchedulePausedNow(target.schedule)) {
+        openResumeConfirmation(target.blocklistId, 'schedule', null);
+        return;
+    }
+
+    state.pauseScheduleData = {
+        blocklistId: target.blocklistId,
+        isActiveNow: isScheduleSegmentActiveNow(target.schedule),
+    };
+    openPauseModal(null);
+}
+
 // Update the pause button's icon and text based on whether the block/schedule is paused
 export function updatePauseButtonAppearance(isPaused) {
     const pauseBtn = document.getElementById('pause-block-btn');
@@ -2721,9 +2761,7 @@ export async function proceedWithResume() {
     await updateHostsFile();
     await updateBlockedApps();
     render();
-
-    // Update pause button back to Pause appearance
-    updatePauseButtonAppearance(false);
+    syncPauseButtonForSelectedBlocklist();
 }
 
 // ── Pause Block Modal ──
@@ -2811,7 +2849,6 @@ export function openPauseModal(blockId) {
     document.getElementById('pause-challenge-word-input').value = '';
     state.pauseWordChallengeState = isMobileWordByWordChallenge(difficulty) ? buildWordChallengeState(state.pauseChallengeText) : null;
     setPauseWordChallengeMode(!!state.pauseWordChallengeState);
-    document.getElementById('confirm-pause-btn').disabled = true;
 
     const progressBar = document.getElementById('pause-challenge-progress-bar');
     progressBar.style.width = '0%';
@@ -2831,6 +2868,7 @@ export function openPauseModal(blockId) {
             renderPauseWordChallengeState();
             document.getElementById('pause-challenge-word-input')?.focus();
         } else {
+            document.getElementById('confirm-pause-btn').disabled = false;
             document.getElementById('pause-challenge-input')?.focus();
         }
     });
@@ -3025,6 +3063,14 @@ export function selectPauseRestartTimeOption(e) {
     syncPauseDurationRowLayout();
 }
 
+function wigglePauseModal() {
+    const modal = document.querySelector('#pause-modal .modal-content');
+    if (!modal) return;
+    modal.classList.remove('wiggle');
+    void modal.offsetWidth;
+    modal.classList.add('wiggle');
+}
+
 export async function proceedWithPause() {
     if (!state.pauseBlockId && !state.pauseScheduleData) return;
 
@@ -3033,7 +3079,6 @@ export async function proceedWithPause() {
         const expectedWord = getCurrentChallengeWord(state.pauseWordChallengeState);
         if (typedWord === expectedWord) {
             state.pauseWordChallengeState.currentIndex++;
-            const completedText = getCompletedChallengeText(state.pauseWordChallengeState);
             if (state.pauseWordChallengeState.currentIndex < state.pauseWordChallengeState.words.length) {
                 renderPauseWordChallengeState();
                 document.getElementById('pause-challenge-word-input')?.focus();
@@ -3041,9 +3086,7 @@ export async function proceedWithPause() {
             }
             state.pauseWordChallengeState.typedText = state.pauseChallengeText;
         } else {
-            const modal = document.querySelector('#pause-modal .modal-content');
-            modal.classList.add('wiggle');
-            setTimeout(() => modal.classList.remove('wiggle'), 400);
+            wigglePauseModal();
             document.getElementById('pause-current-word').textContent = expectedWord;
             return;
         }
@@ -3052,11 +3095,25 @@ export async function proceedWithPause() {
     const typed = state.pauseWordChallengeState
         ? (state.pauseWordChallengeState.typedText || '')
         : document.getElementById('pause-challenge-input').value;
-    if (typed !== state.pauseChallengeText) {
-        // Wiggle on mismatch
-        const modal = document.querySelector('#pause-modal .modal-content');
-        modal.classList.add('wiggle');
-        setTimeout(() => modal.classList.remove('wiggle'), 400);
+    const target = state.pauseChallengeText;
+    if (typed !== target) {
+        let firstErrorIndex = -1;
+        for (let i = 0; i < Math.max(typed.length, target.length); i++) {
+            if (typed[i] !== target[i]) {
+                firstErrorIndex = i;
+                break;
+            }
+        }
+        if (firstErrorIndex === -1 && typed.length < target.length) {
+            firstErrorIndex = typed.length;
+        }
+        wigglePauseModal();
+        if (state.pauseWordChallengeState) {
+            document.getElementById('pause-current-word').textContent =
+                getCurrentChallengeWord(state.pauseWordChallengeState);
+        } else {
+            renderPauseChallengeText(firstErrorIndex);
+        }
         return;
     }
 
@@ -3140,12 +3197,8 @@ export async function proceedWithPause() {
         }
     }
 
-    // Re-render UI
     render();
-
-    // Update pause button to show Resume
-    updatePauseButtonAppearance(true);
-
+    syncPauseButtonForSelectedBlocklist();
     closePauseModal();
 }
 export function updateOverridePreview() {

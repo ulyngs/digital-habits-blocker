@@ -14,7 +14,7 @@ import {
     shouldUseCompactMobileScheduleDayLabels,
 } from './app.js';
 import { updateWindowHeight } from './blocking-platform.js';
-import { openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, showScheduleConfirmModal, showScheduleEditConfirmModal, syncStopBtnLabelFit, updatePauseButtonAppearance } from './confirm-modals.js';
+import { openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, showScheduleConfirmModal, showScheduleEditConfirmModal, syncPauseButtonForSelectedBlocklist, syncStopBtnLabelFit } from './confirm-modals.js';
 
 export const TIME_SEPARATOR_ARROW_HTML = '<span class="time-separator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>';
 export const SEGMENT_SUMMARY_CLOCK_ICON = '<svg class="segment-summary-clock" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
@@ -170,9 +170,7 @@ export function setScheduleMode(isSchedule) {
         if (state.selectedBlocklistId) {
             startBlockBtn.classList.remove('hidden');
             const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-
-            // Re-evaluate pause button visibility for Now mode
-            const pauseBtn = document.getElementById('pause-block-btn');
+            const btnLabel = startBlockBtn.querySelector('.btn-label');
             const now = Date.now();
             const activeBlock = state.appData.activeBlocks.find(b =>
                 b.blocklistId === state.selectedBlocklistId &&
@@ -180,13 +178,6 @@ export function setScheduleMode(isSchedule) {
                 b.endTime > now
             );
             if (activeBlock) {
-                if (pauseBtn) {
-                    pauseBtn.classList.remove('hidden');
-                    updatePauseButtonAppearance(!!activeBlock.isPaused);
-                }
-
-                // Also update button to show Stop state
-                const btnLabel = startBlockBtn.querySelector('.btn-label');
                 startBlockBtn.classList.add('stop-block');
                 setBtnActionLabel(btnLabel, tSettings('stopBlock'));
                 setStartBtnBlocklistInfo(startBlockBtn, blocklist);
@@ -195,17 +186,16 @@ export function setScheduleMode(isSchedule) {
                 setStartBlockBtnLeadingIcon(startBlockBtn, 'stop');
                 disableTimeControls(true);
 
-                // Keep the info message visible for active always-on blocks.
                 const alwaysOnMsg = document.getElementById('always-on-message');
                 if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !isBlockAlwaysOn(activeBlock));
             } else {
-                if (pauseBtn) pauseBtn.classList.add('hidden');
                 startBlockBtn.classList.remove('stop-block');
                 delete startBlockBtn.dataset.activeBlockId;
-                setBtnActionLabel(startBlockBtn.querySelector('.btn-label'), tSettings('startBlockButton'), { simple: true });
+                setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
                 setStartBtnBlocklistInfo(startBlockBtn, blocklist);
                 setStartBlockBtnLeadingIcon(startBlockBtn, 'enter');
             }
+            syncPauseButtonForSelectedBlocklist(now);
         }
     }
 
@@ -429,24 +419,7 @@ export function updateScheduleButtonState() {
     const committedSegmentCount = getCommittedScheduleSegmentCount(activeSchedule);
     const hasNewSegments = activeSchedule && state.scheduleSegments.length > committedSegmentCount;
 
-    // Show/hide pause button for started schedules (pause is allowed even when no segment is active)
-    const pauseBtn = document.getElementById('pause-block-btn');
-    if (pauseBtn) {
-        if (activeSchedule && activeSchedule.segments) {
-            const isPaused = isSchedulePausedNow(activeSchedule, now);
-
-            if (isPaused) {
-                // Schedule is paused — show Resume button
-                pauseBtn.classList.remove('hidden');
-                updatePauseButtonAppearance(true);
-            } else {
-                pauseBtn.classList.remove('hidden');
-                updatePauseButtonAppearance(false);
-            }
-        } else {
-            pauseBtn.classList.add('hidden');
-        }
-    }
+    syncPauseButtonForSelectedBlocklist(now);
 
     if (activeSchedule) {
         // Active schedule - keep Stop button visible regardless of pending changes.

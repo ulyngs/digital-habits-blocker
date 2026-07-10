@@ -22,7 +22,8 @@
     "vite:dev": "vite",
     "vite:build": "vite build",
     "vite:build:android": "vite build --mode android",
-    "vite:preview": "vite preview"
+    "vite:preview": "vite preview",
+    "test:tier1": "node scripts/ci/run-tier1-headless.mjs"
   },
   "keywords": [
     "blocker",
@@ -50,6 +51,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.6",
     "dotenv": "^17.2.3",
+    "playwright": "^1.61.1",
     "png-to-ico": "^3.0.1",
     "purgecss": "^8.0.0",
     "rollup-plugin-visualizer": "^7.0.1",

@@ -10,7 +10,7 @@ import { disableTimeControls, updateTimeDisplay } from './time-inputs.js';
 import { isScheduleSegmentActiveNow, updateScheduleButtonState } from './schedule-editor.js';
 import { autoSelectSoleBlocklist, renderBlocklists } from './blocklists.js';
 import { updateBlockedApps, updateOnboardingVisibility, updateWindowHeight } from './blocking-platform.js';
-import { handleBlocklistSelect, openBlocklistModal, openOverrideModal, openPauseModal, openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, updatePauseButtonAppearance, syncSchedulerChromeVisibility, syncStopBtnLabelFit, openScheduledBlockEdit, refreshCalendarPreviews, handleTimeChange } from './confirm-modals.js';
+import { handleBlocklistSelect, openBlocklistModal, openOverrideModal, openPauseModal, openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, syncPauseButtonForSelectedBlocklist, syncSchedulerChromeVisibility, syncStopBtnLabelFit, openScheduledBlockEdit, refreshCalendarPreviews, handleTimeChange } from './confirm-modals.js';
 import { scheduleSelectionPromptLayout } from './theme.js';
 import { updateCleanHostsBtnState, updateOverrideAllButtonVisibility } from './settings.js';
 import {
@@ -87,7 +87,6 @@ export function syncSelectedControlState() {
     const now = Date.now();
     const activeBlock = state.appData.activeBlocks.find(b => b.blocklistId === state.selectedBlocklistId && b.startTime <= now && b.endTime > now);
     const btnLabel = startBlockBtn.querySelector('.btn-label');
-    const pauseBtn = document.getElementById('pause-block-btn');
     const alwaysOnMsg = document.getElementById('always-on-message');
     delete startBlockBtn.dataset.activeBlockId;
     startBlockBtn.classList.remove('stop-block');
@@ -97,20 +96,16 @@ export function syncSelectedControlState() {
         setStartBtnBlocklistInfo(startBlockBtn, blocklist);
         startBlockBtn.dataset.activeBlockId = activeBlock.id;
         setStartBlockBtnLeadingIcon(startBlockBtn, 'stop');
-        if (pauseBtn) {
-            pauseBtn.classList.remove('hidden');
-            updatePauseButtonAppearance(!!activeBlock.isPaused);
-        }
         disableTimeControls(true);
         if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !isBlockAlwaysOn(activeBlock));
     } else {
                 setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
                 setStartBtnBlocklistInfo(startBlockBtn, blocklist);
         setStartBlockBtnLeadingIcon(startBlockBtn, 'enter');
-        if (pauseBtn) pauseBtn.classList.add('hidden');
         disableTimeControls(false);
         if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !state.isAlwaysOnMode);
     }
+    syncPauseButtonForSelectedBlocklist(now);
     startBlockBtn.disabled = !state.selectedBlocklistId;
     syncStopBtnLabelFit(startBlockBtn);
     updateOverrideAllButtonVisibility();

@@ -6,7 +6,7 @@
  * 
  * Test Categories:
  * - T1-T9: Time-based scenarios
- * - T9a-T9d: Pause-aware and all-day enforcement semantics
+ * - T9a-T9e: Pause-aware and all-day enforcement semantics
  * - T10-T13: Overlap & union scenarios
  * - T14-T17: Shared domain edge cases
  * - T18-T21: Override behavior
@@ -280,6 +280,45 @@
 
             const domains = getBlockedDomains(appData, testTime.getTime(), testTime);
             assertSetEmpty(domains, 'T9d: Paused schedule suppresses the would-be active segment');
+        })();
+
+        // T9e: One-off and schedule on the same focus space pause independently
+        (function T9e() {
+            const blocklist = createMockBlocklist({ websites: ['dual-pause.com'] });
+            const now = Date.now();
+            const segment = createMockSegment(0, 0, 23, 59, [0, 1, 2, 3, 4, 5, 6]);
+            const schedule = createMockSchedule(blocklist.id, [segment]);
+            const block = createMockBlock(blocklist.id, now - 60000, now + 60000, {
+                isPaused: true,
+                pauseEndTime: now + 60000
+            });
+
+            const pausedOneOffOnly = getBlockedDomains(createMockAppData({
+                blocklists: [blocklist],
+                activeBlocks: [block],
+                schedules: [schedule]
+            }), now, new Date(now));
+            assertSetContains(pausedOneOffOnly, 'dual-pause.com', 'T9e: Schedule still blocks when only one-off is paused');
+
+            const pausedScheduleOnly = getBlockedDomains(createMockAppData({
+                blocklists: [blocklist],
+                activeBlocks: [createMockBlock(blocklist.id, now - 60000, now + 60000)],
+                schedules: [createMockSchedule(blocklist.id, [segment], {
+                    isPaused: true,
+                    pauseEndTime: now + 60000
+                })]
+            }), now, new Date(now));
+            assertSetContains(pausedScheduleOnly, 'dual-pause.com', 'T9e: One-off still blocks when only schedule is paused');
+
+            const bothPaused = getBlockedDomains(createMockAppData({
+                blocklists: [blocklist],
+                activeBlocks: [block],
+                schedules: [createMockSchedule(blocklist.id, [segment], {
+                    isPaused: true,
+                    pauseEndTime: now + 120000
+                })]
+            }), now, new Date(now));
+            assertSetEmpty(bothPaused, 'T9e: Both paused on same focus space blocks nothing');
         })();
     }
 

@@ -14,6 +14,7 @@ import {
     BLOCKLIST_CARD_COMPACT_SCHEDULE_UPCOMING_CHARS,
     BLOCKLIST_NAME_MAX_LENGTH,
     formatBlockTimeRemainingShort,
+    formatPauseRemainingShort,
     generateId,
 } from './app.js';
 import { buildBlocklistCardMetaHtml, buildBlocklistCardDetailsHtml, blocklistCardHasExpandableSummary } from './list-presentation.js';
@@ -69,6 +70,14 @@ function buildBlocklistStatusSegment(text, { showDot = false, iconHtml = '', tex
     if (iconHtml) parts.push(iconHtml);
     parts.push(`<span class="${textClass}">${escapeHtml(trimmed)}</span>`);
     return `<span class="blocklist-name-status-segment">${parts.join('')}</span>`;
+}
+
+function buildPausedStatusSegment(text, { typeIcon, textClass, dualBadgeContext }) {
+    return buildBlocklistStatusSegment(text, {
+        showDot: false,
+        iconHtml: dualBadgeContext ? typeIcon : BLOCKLIST_STATUS_ICON_PAUSE,
+        textClass,
+    });
 }
 
 export function truncateBlocklistName(raw) {
@@ -688,16 +697,19 @@ export function renderBlocklists() {
         // currently running (one-off active or active schedule segment).
         // Same colour treatment as the BLOCKING NOW row dot.
 
+        const dualBadgeContext = isActive && !!activeBlock && hasSchedule;
+
         // One-off block badge
         if (isActive && activeBlock) {
             if (activeBlock.isPaused) {
-                const pauseRemaining = activeBlock.pauseEndTime - now;
-                const pauseMins = Math.max(1, Math.ceil(pauseRemaining / 60000));
-                const pauseTimeText = pauseMins >= 60 ? `${Math.floor(pauseMins / 60)}h ${pauseMins % 60}m` : `${pauseMins}m`;
-                oneOffBadge = buildBlocklistStatusSegment(`Paused ${pauseTimeText}`, {
-                    iconHtml: BLOCKLIST_STATUS_ICON_PAUSE,
-                    textClass: 'blocklist-status-text paused-badge',
-                });
+                oneOffBadge = buildPausedStatusSegment(
+                    formatPauseRemainingShort(activeBlock.pauseEndTime, now),
+                    {
+                        typeIcon: BLOCKLIST_STATUS_ICON_HOURGLASS,
+                        textClass: 'blocklist-status-text active-badge',
+                        dualBadgeContext,
+                    },
+                );
             } else if (isBlockAlwaysOn(activeBlock)) {
                 oneOffBadge = buildBlocklistStatusSegment('Always', {
                     showDot: true,
@@ -724,12 +736,7 @@ export function renderBlocklists() {
             let scheduleTimeText = '';
             if (schedule && schedule.segments) {
                 if (isSchedulePausedNow(schedule, now)) {
-                    if (schedule.pauseEndTime) {
-                        const pauseMins = Math.max(1, Math.ceil((schedule.pauseEndTime - now) / 60000));
-                        scheduleTimeText = pauseMins >= 60 ? `Paused ${Math.floor(pauseMins / 60)}h ${pauseMins % 60}m` : `Paused ${pauseMins}m`;
-                    } else {
-                        scheduleTimeText = 'Paused';
-                    }
+                    scheduleTimeText = formatPauseRemainingShort(schedule.pauseEndTime, now);
                 } else {
                     // Check if any segment is currently active
                     const nowDate = new Date();
@@ -825,10 +832,17 @@ export function renderBlocklists() {
                 }
             }
             const isSnoozedCard = getActiveAppBlockingSnoozeBlocklistId(now) === bl.id;
+            const schedulePaused = !!(schedule && isSchedulePausedNow(schedule, now));
             if (isSnoozedCard) {
                 scheduleBadge = buildBlocklistStatusSegment(scheduleTimeText, {
                     iconHtml: BLOCKLIST_STATUS_ICON_SNOOZE,
                     textClass: 'blocklist-status-text schedule-badge schedule-badge-snoozed',
+                });
+            } else if (schedulePaused) {
+                scheduleBadge = buildPausedStatusSegment(scheduleTimeText, {
+                    typeIcon: BLOCKLIST_STATUS_ICON_CALENDAR,
+                    textClass: 'blocklist-status-text schedule-badge',
+                    dualBadgeContext,
                 });
             } else {
                 scheduleBadge = buildBlocklistStatusSegment(scheduleTimeText, {

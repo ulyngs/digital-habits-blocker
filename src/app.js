@@ -14,7 +14,6 @@ import iconEdgeUrl from './images/icon-edge.svg';
 import iconFirefoxUrl from './images/icon-firefox.svg';
 import iconSafariUrl from './images/icon-safari.svg';
 import snoozeIconUrl from './images/snooze.png';
-import welcomeDemoVideoUrl from './reddblock-video.mp4';
 // Compatibility layer wrapping Tauri APIs — extracted to tauri-api.js
 import { tauriAPI, openUrl } from './tauri-api.js';
 import { state, appState } from './state.js';
@@ -91,7 +90,7 @@ import {
     syncScheduleOverlayCustomiseEditorState, syncScheduleOverlayCustomiseTitle,
     toggleSchedulePanelOverlayDropdown,
 } from './schedule-overlay.js';
-import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, closeScheduleConfirmModal, closeStartBlockConfirmModal, deselectBlocklist, handleBlocklistSelect, openBlocklistModal, openPauseModal, openResumeConfirmation, proceedWithBlock, proceedWithPause, proceedWithSchedule, proceedWithScheduleEdit, renderScheduleConfirmSegments, setBtnActionLabel, setOverrideCountMaxMode, setStartBlockBtnLeadingIcon, setStartConfirmPrimaryLabel, startBlock, syncAllStopBtnLabelFits, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal, updatePauseButtonAppearance, openScheduleOverrideModal, showScheduleConfirmModal, showScheduleEditConfirmModal, syncStopBtnLabelFit, setStartBtnBlocklistInfo } from './confirm-modals.js';
+import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, closeScheduleConfirmModal, closeStartBlockConfirmModal, deselectBlocklist, handleBlocklistSelect, handlePauseBlockButtonClick, openBlocklistModal, openPauseModal, openResumeConfirmation, proceedWithBlock, proceedWithPause, proceedWithSchedule, proceedWithScheduleEdit, renderScheduleConfirmSegments, setBtnActionLabel, setOverrideCountMaxMode, setStartBlockBtnLeadingIcon, setStartConfirmPrimaryLabel, startBlock, syncAllStopBtnLabelFits, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal, openScheduleOverrideModal, showScheduleConfirmModal, showScheduleEditConfirmModal, syncStopBtnLabelFit, setStartBtnBlocklistInfo } from './confirm-modals.js';
 import { renderBlocklists, autoSelectSoleBlocklist, closeAllBlocklistMenus, truncateBlocklistName, setupBlocklistsImportExportButtons, duplicateBlocklist, getNextCopyName, undoDelete, deleteBlocklist, clearPendingScheduleDraft, pendingDelete, saveBlocklistOrderFromDOM, getBlocklistScheduleDraft, saveBlocklistScheduleDraft, isBlocklistCurrentlyActive } from './blocklists.js';
 import {
     getSelectedBlocklistModalMode,
@@ -1938,39 +1937,7 @@ function setupOverrideModalListeners() {
 
     // Pause block button
     document.getElementById('pause-block-btn').addEventListener('click', () => {
-        if (!state.selectedBlocklistId) return;
-        const now = Date.now();
-
-        // Try one-off block first
-        const activeBlock = state.appData.activeBlocks.find(b =>
-            b.blocklistId === state.selectedBlocklistId && b.startTime <= now && b.endTime > now
-        );
-        if (activeBlock) {
-            if (activeBlock.isPaused) {
-                // Resume — show confirmation dialog
-                openResumeConfirmation(state.selectedBlocklistId, 'block', activeBlock.id);
-            } else {
-                // Pause
-                state.pauseScheduleData = null;
-                openPauseModal(activeBlock.id);
-            }
-            return;
-        }
-
-        // Try schedule — find the currently active segment
-        const schedule = state.appData.schedules?.find(s => s.blocklistId === state.selectedBlocklistId);
-        if (schedule) {
-            if (isSchedulePausedNow(schedule, now)) {
-                // Resume — show confirmation dialog
-                openResumeConfirmation(state.selectedBlocklistId, 'schedule', null);
-                return;
-            }
-            state.pauseScheduleData = {
-                blocklistId: state.selectedBlocklistId,
-                isActiveNow: isScheduleSegmentActiveNow(schedule)
-            };
-            openPauseModal(null); // null blockId signals schedule pause
-        }
+        handlePauseBlockButtonClick();
     });
 
     // Pause modal event listeners
@@ -1998,18 +1965,33 @@ function setupOverrideModalListeners() {
         updatePauseRestartTime();
     });
 
-    // Pause challenge input — track progress
+    // Pause challenge input — mirror stop/override challenge UX
     const pauseChallengeInput = document.getElementById('pause-challenge-input');
     const pauseChallengeWordInput = document.getElementById('pause-challenge-word-input');
+    const pauseProgressBar = document.getElementById('pause-challenge-progress-bar');
     const pauseCurrentWordEl = document.getElementById('pause-current-word');
+
+    pauseChallengeInput.addEventListener('paste', (e) => {
+        e.preventDefault();
+    });
     pauseChallengeInput.addEventListener('input', () => {
         const typed = pauseChallengeInput.value;
         const target = state.pauseChallengeText;
-        const progress = target.length > 0 ? Math.min(100, (typed.length / target.length) * 100) : 0;
-        document.getElementById('pause-challenge-progress-bar').style.width = `${progress}%`;
 
-        // Enable/disable confirm button
-        document.getElementById('confirm-pause-btn').disabled = (typed !== target);
+        let correctChars = 0;
+        let firstErrorIndex = -1;
+        for (let i = 0; i < typed.length && i < target.length; i++) {
+            if (typed[i] === target[i]) {
+                correctChars++;
+            } else {
+                firstErrorIndex = i;
+                break;
+            }
+        }
+
+        const progress = target.length > 0 ? (correctChars / target.length) * 100 : 0;
+        pauseProgressBar.style.width = `${progress}%`;
+        renderPauseChallengeText(firstErrorIndex);
     });
     pauseChallengeWordInput.addEventListener('paste', (e) => {
         e.preventDefault();
@@ -2022,13 +2004,13 @@ function setupOverrideModalListeners() {
     pauseChallengeInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            document.getElementById('confirm-pause-btn').click();
+            proceedWithPause();
         }
     });
     pauseChallengeWordInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            document.getElementById('confirm-pause-btn').click();
+            proceedWithPause();
         }
     });
 
@@ -2304,6 +2286,16 @@ export function formatDuration(minutes) {
     return `${hours}h ${mins}m`;
 }
 
+/** Remaining pause time chip, e.g. "Paused 15m" or "Paused 1h 30m". */
+export function formatPauseRemainingShort(pauseEndTime, now = Date.now()) {
+    if (!pauseEndTime) return 'Paused';
+    const pauseMins = Math.max(1, Math.ceil((pauseEndTime - now) / 60000));
+    const timePart = pauseMins >= 60
+        ? `${Math.floor(pauseMins / 60)}h ${pauseMins % 60}m`
+        : `${pauseMins}m`;
+    return `Paused ${timePart}`;
+}
+
 /** Remaining time chip, e.g. EN "1h 39m left", DA "1t 39m endnu" (`totalMins` = full minutes). */
 export function formatBlockTimeRemainingShort(totalMins) {
     const n = Math.max(0, Math.floor(totalMins));
@@ -2374,6 +2366,20 @@ export function setPauseWordChallengeMode(enabled) {
     document.getElementById('pause-current-word')?.classList.toggle('hidden', !enabled);
     document.getElementById('pause-challenge-word-input')?.classList.toggle('hidden', !enabled);
     document.getElementById('pause-challenge-input')?.classList.toggle('hidden', enabled);
+}
+
+export function renderPauseChallengeText(errorIndex = -1) {
+    const challengeTextEl = document.getElementById('pause-challenge-text');
+    if (!challengeTextEl) return;
+    const target = state.pauseChallengeText;
+    if (errorIndex < 0 || errorIndex >= target.length) {
+        challengeTextEl.textContent = target;
+    } else {
+        const before = escapeHtml(target.slice(0, errorIndex));
+        const errorChar = escapeHtml(target[errorIndex]);
+        const after = escapeHtml(target.slice(errorIndex + 1));
+        challengeTextEl.innerHTML = `${before}<span class="error-char">${errorChar}</span>${after}`;
+    }
 }
 
 export function renderPauseWordChallengeState() {
@@ -2823,16 +2829,15 @@ export function applyWelcomeOnboardingLanguage() {
 
     syncWelcomeDemoFullscreenLabel();
 
-    // The welcome demo panel (#welcome-demo-panel, which contains
-    // #welcome-demo-video) is stripped from the Android DOM by
-    // stripNonAndroidUi, so the element never exists there. Guarding the only
-    // reference to welcomeDemoVideoUrl with the compile-time literal lets
-    // Rollup drop the ~1.8 MB reddblock-video.mp4 from the Android bundle.
-    if (!__ANDROID_BUILD__) {
-        const demoVideo = document.getElementById('welcome-demo-video');
-        if (demoVideo && !demoVideo.src) {
-            demoVideo.src = welcomeDemoVideoUrl;
-        }
+    // The demo video is desktop/iOS only — it can't play in the Android
+    // WebView (see initWelcomeDemoControls). Guarding the mp4 import behind
+    // the compile-time __ANDROID_BUILD__ flag lets Rollup drop this branch
+    // and tree-shake the ~1.7 MB asset out of the Android bundle entirely.
+    const demoVideo = document.getElementById('welcome-demo-video');
+    if (!__ANDROID_BUILD__ && demoVideo && !demoVideo.src) {
+        import('./reddblock-video.mp4').then(({ default: welcomeDemoVideoUrl }) => {
+            if (!demoVideo.src) demoVideo.src = welcomeDemoVideoUrl;
+        });
     }
 
     const continueBtn = document.getElementById('welcome-onboarding-continue-btn');

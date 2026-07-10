@@ -2409,11 +2409,6 @@ body.ios:not(.ios-phone) .main-content .schedule-pending-save{
         height: 8px;
     }
 
-    body.ios:not(.ios-phone) .main-content .paused-badge{
-        padding: 3px 10px;
-        font-size: 12px;
-    }
-
     body.ios:not(.ios-phone) .main-content .time-remaining{
         font-size: 14px;
     }
@@ -7162,17 +7157,6 @@ body.android .selection-prompt {
 
 .blocklist-name-status-segment:has(.schedule-badge-snoozed) .app-blocking-snooze-icon{
     opacity: 0.85;
-}
-
-/* Paused is a transient state worth signalling more strongly than a calm
-   countdown — keep a soft coral wash with a subtle outline so it still
-   stands out as "something's different here". */
-.paused-badge{
-    padding: 2px 8px;
-    background: var(--redd-coral-soft);
-    color: var(--redd-coral);
-    border: 1px solid color-mix(in srgb, var(--redd-coral) 25%, transparent);
-    border-radius: 4px;
 }
 
 .time-remaining{

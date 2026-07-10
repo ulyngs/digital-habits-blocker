@@ -665,18 +665,24 @@ pub fn run() {
                 commands::web_automation::auto_start(app.handle());
                 if let Some(path) = commands::canonical_data_path(app.handle()) {
                     crate::app_group::ensure_sync_loop(path.clone());
-                    if let Err(e) =
-                        native_host_install::sync_extension_mode_native_hosts(&path, false)
-                    {
-                        log::warn!(
-                            "native-host sync for extension-mode browsers failed: {e}"
-                        );
-                    }
-                    if crate::cross_app_consent::should_run_profile_scans() {
-                        if let Err(e) = native_host_install::sync_firefox_native_host(false) {
-                            log::warn!("native-host sync for firefox failed: {e}");
+                    // Manifest checks touch browser-owned directories and do
+                    // not affect the first webview frame. Keep them out of
+                    // Tauri's setup callback so the event loop can begin
+                    // painting as soon as the window has been created.
+                    std::thread::spawn(move || {
+                        if let Err(e) =
+                            native_host_install::sync_extension_mode_native_hosts(&path, false)
+                        {
+                            log::warn!(
+                                "native-host sync for extension-mode browsers failed: {e}"
+                            );
                         }
-                    }
+                        if crate::cross_app_consent::should_run_profile_scans() {
+                            if let Err(e) = native_host_install::sync_firefox_native_host(false) {
+                                log::warn!("native-host sync for firefox failed: {e}");
+                            }
+                        }
+                    });
                 }
             }
 

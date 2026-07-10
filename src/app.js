@@ -26,17 +26,6 @@ import screenshotEnableFda from './images/enable-fda.png';
 import snoozeIconUrl from './images/snooze.png';
 import welcomeDemoVideoUrl from './reddblock-video.mp4';
 import {
-    initScheduleOverlayMessageEditor,
-    getScheduleOverlayMessageEditorHtml,
-    setScheduleOverlayMessageEditorHtml,
-    setScheduleOverlayMessageEditorPlaceholder,
-    setScheduleOverlayMessageEditorEnabled,
-    sanitizeOverlayMessageHtml,
-    escapeHtmlForOverlay,
-    normalizeStoredOverlayMessage,
-    isOverlayMessageEmpty,
-} from './schedule-overlay-message-editor.js';
-import {
     resolveReleaseNotesForVersion,
     renderReleaseNotesHtml,
     releaseNotesHasContent,
@@ -143,9 +132,32 @@ state.scheduleSegments = getDefaultScheduleSegments(); // Array of time segments
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     detectPlatform(); // Before loadData so first-launch defaults can differ on iOS
-    setupHandsetModalScreens();
     await loadData();
     await resetDevOnlyEulaAcceptance();
+
+    // Returning Android users already have complete persisted focus-space
+    // state. Paint it before *any* native IPC or listener wiring, then check
+    // Accessibility immediately afterwards. A revoked permission swaps this
+    // optimistic frame for the onboarding gate as soon as the IPC completes.
+    // Fresh installs and upgrades still wait for migration below because they
+    // do not yet have a safe, complete state to render.
+    const renderedAndroidFirstFrame = state.isAndroid
+        && hasAcceptedEula()
+        && state.appData.settings?.androidMigrationDone === true;
+    if (renderedAndroidFirstFrame) {
+        setupTheme();
+        render();
+        await new Promise((resolve) => {
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    state.androidFirstFrameCommitted = true;
+                    resolve();
+                }, 0);
+            });
+        });
+    }
+
+    setupHandsetModalScreens();
     setupMobileExternalLinkOpens();
     if (state.isAndroid) {
         listenForAndroidFrictionGate();
@@ -155,7 +167,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     setupAppBlockingWarningOverlay();
     initWelcomeDemoControls();
-    setupTheme();
+    if (!renderedAndroidFirstFrame) setupTheme();
     setupUiZoomShortcuts();
     setupHelpMenuLinks();
     setupHelperSettings();
@@ -175,7 +187,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (state.isIOS && hasAcceptedEula()) {
         await checkScreentimeAuth();
     } else if (state.isAndroid && hasAcceptedEula()) {
-        await checkAndroidPermissions();
+        // Deliberately after the optimistic persisted first frame above. The
+        // result is still required before Android reconciliation begins.
+        if (state.androidPermissionsGranted == null) {
+            await checkAndroidPermissions();
+        }
     }
 
     if (hasAcceptedEula()) {
@@ -265,13 +281,37 @@ export async function runPostAcceptanceStartup() {
 
     startupInitializationPromise = (async () => {
         await runExpiryOnce(); // Align in-memory state with Screen Time / helper (e.g. after app was closed)
+
+        // Desktop reconciliation and returning-user Android initialization
+        // perform several native scans and IPC round-trips. None is needed to
+        // draw already-migrated persisted focus spaces, so paint those first
+        // and let the browser commit the frame before continuing startup.
+        // Android's one-time legacy migration deliberately remains ahead of
+        // the first render: it owns initial default/imported-space creation.
+        const androidDataReadyForEarlyRender = state.isAndroid
+            && state.appData.settings?.androidMigrationDone === true;
+        const renderedBeforeNativeStartup = state.androidFirstFrameCommitted || (!state.isIOS
+            && (!state.isAndroid || androidDataReadyForEarlyRender));
+        if (renderedBeforeNativeStartup) {
+            render();
+            startTickInterval();
+            await new Promise((resolve) => {
+                requestAnimationFrame(() => setTimeout(resolve, 0));
+            });
+        }
+
         if (state.isIOS) {
             await checkScreentimeAuth();
             if (state.screentimeAuthorized) {
                 await initializeIOSBlockingState();
             }
         } else if (state.isAndroid) {
-            await checkAndroidPermissions();
+            // The normal startup and EULA-acceptance paths check this before
+            // entering post-acceptance startup. Avoid a duplicate native IPC;
+            // retain the fallback for direct/test callers.
+            if (state.androidPermissionsGranted == null) {
+                await checkAndroidPermissions();
+            }
             // Not gated on the accessibility grant: migration must run
             // before ANY set_schedules call, because Kotlin stores the
             // synced schedules under the same legacy prefs key
@@ -311,8 +351,13 @@ export async function runPostAcceptanceStartup() {
             // idle until then anyway.
             await startWebAutomationWatcher();
         }
+        // Desktop has already produced its first meaningful frame. Render
+        // again after reconciliation in case native startup changed any UI
+        // state; mobile reaches its first render here as before.
         render();
-        startTickInterval();
+        if (!renderedBeforeNativeStartup) {
+            startTickInterval();
+        }
 
         // Check for app updates (non-blocking, desktop only)
         if (!state.isIOS && !state.isAndroid) {
@@ -1472,9 +1517,16 @@ function setupModalListeners() {
         }
 
         // Toggle popover on swatch click
-        customEmojiSwatch.addEventListener('click', (e) => {
+        customEmojiSwatch.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
+
+            // The picker carries a sizeable emoji database. Load it only
+            // when somebody opens the custom picker instead of parsing it on
+            // every app launch (especially costly in Android WebView).
+            if (!customElements.get('emoji-picker')) {
+                await import('emoji-picker-element');
+            }
 
             if (emojiPickerPopover.classList.contains('hidden')) {
                 positionEmojiPickerPopover();

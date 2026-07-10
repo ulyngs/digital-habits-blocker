@@ -33,6 +33,11 @@ export const state = {
     // onboarding screen during startup before the native permission check
     // has had a chance to answer.
     androidPermissionsGranted: null,
+    // The returning Android UI is rendered optimistically from persisted data
+    // before the asynchronous Accessibility IPC completes. If that check says
+    // access was revoked, updateOnboardingVisibility immediately replaces it
+    // with the native-permissions gate.
+    androidFirstFrameCommitted: false,
     /** When character count >= OVERRIDE_PREVIEW_TRUNCATE_AT, preview text is frozen (no more regeneration) for random words and gibberish. */
     overridePreviewFrozenByType: { 'random-words': null, 'gibberish': null },
     lastOverridePreviewType: null,

@@ -489,8 +489,10 @@ pub fn load_data(app: AppHandle) -> Result<AppData, String> {
             fs::write(&data_path, &migrated).map_err(|e| e.to_string())?;
             set_shared_permissions(&data_path);
         }
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        super::app_blocking::sync_blocked_apps_from_disk(&app);
+        // The app-watcher registration loop already reads this file as soon
+        // as it starts and then every two seconds. Avoid repeating that work
+        // synchronously on the frontend's first data request: load_data is on
+        // the first-render critical path.
         Ok(data)
     } else {
         // Migrate from per-user location or legacy paths

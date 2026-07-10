@@ -60,6 +60,34 @@ import { loadData, saveData, updateHostsFile } from './persistence.js';
 import { cleanDomainInput, isValidDomain, processWebsiteInput, setupWebsitesImportMenu, resetWebsitesImportMenuPosition } from './website-input.js';
 import { updateBlockedApps, acceptEula, appBlockingWarningSnoozedUntilMs, checkAndroidPermissions, checkHelperStatus, checkScreentimeAuth, collectManualBlockedApps, collectScheduleBlockedApps, detectPlatform, displayNameForBlockedApp, ensureInstalledAppsCache, initializeAndroidBlockingState, initializeIOSBlockingState, listenForAndroidFrictionGate, onAndroidResumed, renderAppBlockingClosedownBanner, renderAppBlockingWarningOverlay, requestScreentimeAuth, runExpiryOnce, setupAndroidBackButtonHandling, setupAppBlockingWarningOverlay, setupHandsetModalScreens, setupMaximizeButtonSync, setupMobileExternalLinkOpens, syncMaximizeButtonFromWindow, updateOnboardingVisibility, openExternal, updateWindowHeight, isHelperInstallCancelled, isHelperConnectionError, joinAppListWithLimit, findResponsibleBlocklistForWarningApps, getActiveAppBlockingSnoozeBlocklistId, formatAppBlockingSnoozeStartsIn, APP_BLOCKING_SNOOZE_ICON_IMG_12 } from './blocking-platform.js';
 import { CURRENT_EULA_REVISION, applyEnforcementDescCopy, applyMacAutomationIntroCopy, ensureExtensionSetupOnboardingShown, getAcceptedEulaRevision, hasAcceptedEula, isFirstRunOnboardingInProgress, resetDevOnlyEulaAcceptance, returnToWelcomeFromEula, runDesktopOnboarding, runInitialOnboardingSequence, setupMacAutomationIntroModal, syncMigrationPostBackButtonVisibility, syncSetupBannerHeadline, welcomeFirefoxInstalled } from './onboarding.js';
+// app.js calls these enforcement.js exports but historically never imported
+// them — they resolved only through Rollup's scope hoisting, which held while
+// the desktop bundle retained every enforcement helper. The Android build now
+// strips desktop-only UI (__ANDROID_BUILD__ guards, CSS purge, DOM removal),
+// so Rollup tree-shakes any export without a real import edge and these bare
+// references become runtime ReferenceErrors (e.g. syncBlockingMethodLabelIcons
+// in applySettingsLanguage). Importing them keeps the edges on every target;
+// the guarded functions remain as no-ops on Android.
+import {
+    MAC_BLOCKING_METHOD_KEYS,
+    browserBlockingMethod,
+    invalidateMigrationMacCopyCache,
+    migrationExtLinesHtml,
+    refreshBehaviourBannerIfStale,
+    renderBrowserInstallButtons,
+    setupAppForegroundRefresh,
+    setupEnforcerUiAlerts,
+    setupSettingsEnforcementSection,
+    setupWebAutomationUiAlerts,
+    startWebAutomationWatcher,
+    syncBlockingMethodLabelIcons,
+    syncMigrationMacHowto,
+    syncMigrationPostHeader,
+    syncSafariFdaOnboardingGrantButton,
+    updateAllEnforcementToggleLocks,
+    updateGraceSettingLock,
+    wireEnforcementToggle,
+} from './enforcement.js';
 import {
     addScheduleSegment, discardSchedulePendingChanges, getCommittedScheduleSegmentCount,
     getDefaultScheduleSegments, getInitialExpandedScheduleSegmentIndex, handleRepeatDateChange,

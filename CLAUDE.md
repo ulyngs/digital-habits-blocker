@@ -60,6 +60,17 @@ $ADB -s $DEV shell am force-stop $PKG
 $ADB -s $DEV shell am start -W -n "$PKG/.MainActivity"   # TotalTime = native+webview shell first frame
 ```
 
+`force-stop` does **not** clear the accessibility grant, so a relaunch loop can
+reuse it. But the grant *is* dropped when the service is uninstalled/replaced
+(and some ROMs clear it on `install -r`), so re-apply the two `settings put`
+lines after any reinstall — otherwise the app cold-starts into the onboarding
+gate instead of the main UI, which looks like a regression but isn't. Verify
+the grant stuck with:
+
+```sh
+$ADB -s $DEV shell settings get secure enabled_accessibility_services   # should list $SVC
+```
+
 Note: `am start -W` `TotalTime` measures the **native activity + webview shell**
 first frame only. The JS bundle parse and first meaningful paint happen *after*
 that in the webview, so `am start -W` under-reports perceived startup. To measure

@@ -40,13 +40,14 @@ if [ -n "${APPLE_SIGNING_IDENTITY_OVERRIDE:-}" ]; then
   )
 fi
 
-TARGET_DIR="${PROJECT_ROOT}/src-tauri/target/${BUILD_TARGET}/release/bundle"
+CARGO_TARGET_DIR="$(node -e 'process.stdout.write(require("./scripts/build-env").getCargoTargetDir(process.env))')"
+export CARGO_TARGET_DIR
+TARGET_DIR="${CARGO_TARGET_DIR}/${BUILD_TARGET}/release/bundle"
 
 echo "Building Digital Habits Blocker for macOS (${BUILD_TARGET})..."
 # `--bundles app` tells Tauri to produce only the .app, skipping its
 # own .dmg target. We distribute via scripts/build-mac-pkg.sh, which
 # wraps the .app in a signed .pkg with migration pre/post-install scripts.
-CARGO_TARGET_DIR="${PROJECT_ROOT}/src-tauri/target" \
 CI="${TAURI_CI:-false}" \
 npm run tauri -- build --bundles app --target "${BUILD_TARGET}" ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}
 

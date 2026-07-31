@@ -7,4 +7,4 @@ cd "$ROOT_DIR"
 
 PATH="$ROOT_DIR/scripts:$PATH" \
 APPLE_DEVELOPMENT_TEAM=JD647S9RT6 \
-tauri ios dev --host "$@"
+node "$ROOT_DIR/scripts/run-tauri.js" ios dev --host "$@"

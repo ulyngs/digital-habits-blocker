@@ -2,20 +2,22 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { getBuildEnvironment, getCargoTargetDir } = require('./build-env');
 
 const root = path.join(__dirname, '..');
 const svg = path.join(root, 'assets', 'reddblock-icon.svg');
 const tauriDir = path.join(root, 'src-tauri');
+const cargoTargetDir = getCargoTargetDir(process.env);
 
 const DEV_ICON = {
   darwin: {
     icon: path.join(tauriDir, 'icons', 'icon.icns'),
-    bin: path.join(tauriDir, 'target', 'debug', 'redd-block'),
+    bin: path.join(cargoTargetDir, 'debug', 'redd-block'),
     label: 'icon.icns',
   },
   win32: {
     icon: path.join(tauriDir, 'icons', 'icon.ico'),
-    bin: path.join(tauriDir, 'target', 'debug', 'redd-block.exe'),
+    bin: path.join(cargoTargetDir, 'debug', 'redd-block.exe'),
     label: 'icon.ico',
   },
 }[process.platform];
@@ -55,6 +57,7 @@ if (!fs.existsSync(DEV_ICON.bin) || iconMtime > getMtime(DEV_ICON.bin)) {
   console.log(`ensure-dev-icons: rebuilding debug binary for updated ${DEV_ICON.label}…`);
   const res = spawnSync('cargo', ['build', '-q'], {
     cwd: tauriDir,
+    env: getBuildEnvironment(process.env),
     stdio: 'inherit',
     shell: true,
   });

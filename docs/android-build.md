@@ -23,6 +23,24 @@ for the app-specific edits to preserve if it's ever re-initialized).
   ```
 - **Tauri CLI** (`npm install` provides it locally as `./node_modules/.bin/tauri`).
 
+## Build cache
+
+Tauri commands launched through npm use a shared Cargo target cache outside the
+repository, so linked Git worktrees reuse compiled Rust dependencies instead of
+creating a separate `src-tauri/target/` in each checkout. Set
+`REDD_BLOCK_CARGO_TARGET_DIR` to override the location, or
+`REDD_BLOCK_BUILD_CACHE_DIR` to change the cache root.
+
+The cache includes every Rust target and build profile you use. Stop active
+builds before pruning it:
+
+```bash
+npm run clean:build-cache -- --all
+```
+
+This removes generated Cargo, Vite, and Android build output only. It does not
+remove `node_modules` or files in `for-distribution/`.
+
 ## Environment variables
 
 The Tauri/Gradle build reads the SDK, NDK, and JDK from the environment. These
@@ -43,7 +61,7 @@ Paths above are macOS defaults. On Linux the SDK is typically
 ## Debug APK (for local testing)
 
 ```bash
-./node_modules/.bin/tauri android build --apk true --aab false --debug --target aarch64
+npm run build:android:debug
 ```
 
 - `--apk true --aab false` — build the APK, skip the Play Store AAB. (In Tauri

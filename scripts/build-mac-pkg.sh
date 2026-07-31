@@ -34,6 +34,8 @@ if [ -f .env ]; then
   set +a
 fi
 
+CARGO_TARGET_DIR="$(node -e 'process.stdout.write(require("./scripts/build-env").getCargoTargetDir(process.env))')"
+
 PROFILE="debug"
 if [[ "${1:-}" == "--release" ]]; then
     PROFILE="release"
@@ -52,9 +54,9 @@ BUILD_TARGET="${BUILD_MAC_TARGET-universal-apple-darwin}"
 resolve_bundle_base() {
     local target="$1"
     if [[ -n "$target" ]]; then
-        echo "src-tauri/target/${target}/${PROFILE}/bundle"
+        echo "${CARGO_TARGET_DIR}/${target}/${PROFILE}/bundle"
     else
-        echo "src-tauri/target/${PROFILE}/bundle"
+        echo "${CARGO_TARGET_DIR}/${PROFILE}/bundle"
     fi
 }
 
@@ -64,7 +66,10 @@ APP_PATH="${BUNDLE_BASE}/macos/${APP_NAME}.app"
 # Fall back to the legacy non-target path if the targeted .app is missing
 # (e.g. someone ran a plain `tauri build` instead of `npm run build:mac`).
 if [[ ! -d "$APP_PATH" && -n "$BUILD_TARGET" ]]; then
-    LEGACY_BUNDLE_BASE="$(resolve_bundle_base "")"
+    LEGACY_BUNDLE_BASE="${REPO_ROOT}/src-tauri/target/${BUILD_TARGET}/${PROFILE}/bundle"
+    if [[ ! -d "$LEGACY_BUNDLE_BASE" ]]; then
+        LEGACY_BUNDLE_BASE="${REPO_ROOT}/src-tauri/target/${PROFILE}/bundle"
+    fi
     LEGACY_APP_PATH="${LEGACY_BUNDLE_BASE}/macos/${APP_NAME}.app"
     if [[ -d "$LEGACY_APP_PATH" ]]; then
         echo "Note: '${APP_PATH}' missing, falling back to '${LEGACY_APP_PATH}'."

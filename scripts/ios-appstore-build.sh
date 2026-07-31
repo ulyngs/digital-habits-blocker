@@ -18,7 +18,7 @@ cp "$STORE" "$ACTIVE"
 
 PATH="$ROOT_DIR/scripts:$PATH" \
 APPLE_DEVELOPMENT_TEAM=JD647S9RT6 \
-npx tauri ios build
+node "$ROOT_DIR/scripts/run-tauri.js" ios build
 
 mkdir -p "$ROOT_DIR/for-distribution"
 cp "$ROOT_DIR/src-tauri/gen/apple/build/arm64/Digital Habits Blocker.ipa" "$ROOT_DIR/for-distribution/Digital Habits Blocker.ipa"

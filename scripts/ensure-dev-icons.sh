@@ -7,7 +7,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SVG="$ROOT/assets/reddblock-icon.svg"
 ICNS="$ROOT/src-tauri/icons/icon.icns"
-BIN="$ROOT/src-tauri/target/debug/redd-block"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${REDD_BLOCK_CARGO_TARGET_DIR:-${REDD_BLOCK_BUILD_CACHE_DIR:-$HOME/Library/Caches/Digital Habits Blocker/build-cache}/cargo-target}}"
+BIN="$CARGO_TARGET_DIR/debug/redd-block"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 0
@@ -25,5 +26,5 @@ fi
 
 if [[ ! -f "$BIN" || "$ICNS" -nt "$BIN" ]]; then
   echo "ensure-dev-icons: rebuilding debug binary for updated icon.icns…"
-  (cd "$ROOT/src-tauri" && cargo build -q)
+  (cd "$ROOT/src-tauri" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build -q)
 fi

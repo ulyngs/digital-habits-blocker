@@ -6,6 +6,7 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 const { loadDotenv } = require('./load-dotenv');
+const { getBuildEnvironment } = require('./build-env');
 
 const repoRoot = path.join(__dirname, '..');
 const { count, path: envPath, missing } = loadDotenv(repoRoot);
@@ -23,7 +24,7 @@ const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
 const result = spawnSync(cmd, args, {
   cwd: repoRoot,
-  env: process.env,
+  env: getBuildEnvironment(process.env),
   stdio: 'inherit',
   shell: true,
 });

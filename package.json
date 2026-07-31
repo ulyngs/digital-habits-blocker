@@ -40,23 +40,23 @@
   },
   "license": "CC-BY-NC-ND-3.0",
   "dependencies": {
-    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-fs": "^2.4.5",
-    "@tauri-apps/plugin-opener": "^2.5.0",
-    "@tauri-apps/plugin-shell": "^2.3.4",
-    "emoji-picker-element": "^1.28.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "emoji-picker-element": "^1.29.1",
     "quill": "^2.0.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.9.6",
-    "dotenv": "^17.2.3",
-    "playwright": "^1.61.1",
-    "png-to-ico": "^3.0.1",
+    "@tauri-apps/cli": "^2.11.4",
+    "dotenv": "^17.4.2",
+    "playwright": "^1.62.0",
+    "png-to-ico": "^3.0.2",
     "purgecss": "^8.0.0",
     "rollup-plugin-visualizer": "^7.0.1",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.3",
     "vite": "^7.3.1"
   }
 }

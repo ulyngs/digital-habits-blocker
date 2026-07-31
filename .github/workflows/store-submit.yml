@@ -29,10 +29,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
 
@@ -101,7 +101,7 @@ jobs:
           cat whats_new.txt
 
       - name: Setup Microsoft Store CLI
-        uses: microsoft/microsoft-store-apppublisher@v1.3
+        uses: microsoft/microsoft-store-apppublisher@v1.4
 
       - name: Submit to Partner Center
         shell: pwsh

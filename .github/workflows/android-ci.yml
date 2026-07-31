@@ -1,0 +1,59 @@
+# Build a debug Android APK only when files that can affect the Android app
+# change. The general CI workflow covers the fast frontend checks for every PR.
+name: Android CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'tauri-plugin-android-blocker/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.js'
+      - 'scripts/run-tauri.js'
+      - '.github/workflows/android-ci.yml'
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v4
+      - name: Install Android SDK packages + NDK
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-36" \
+            "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          # Keep Cargo dependency downloads reusable, but do not persist the
+          # large cross-compiled target/ tree for every pull request.
+          cache-targets: false
+      - run: npm ci
+      # Real Android build: compiles the aarch64 Rust lib (exercises the
+      # #[cfg(target_os = "android")] command surface) and assembles a debug
+      # APK via Gradle. Single ABI to keep CI time down.
+      - name: Build debug APK
+        run: npm run tauri -- android build --debug --apk true --target aarch64

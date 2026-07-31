@@ -1,15 +1,10 @@
-# PR checks: build the frontend bundle, run the Tier 1 logic suite headlessly,
-# and build a debug Android APK. This is the first workflow that runs on pull
-# requests — release.yml only runs on tags/dispatch, so until now nothing
-# verified that a PR even compiles (see the duplicate-import bug that a plain
-# `vite build` catches, and the Android command surface that only a real
-# Android build exercises).
+# PR checks: build the frontend bundle and run the Tier 1 logic suite headlessly.
+# The Android debug build lives in android-ci.yml so frontend-only and desktop-
+# only PRs do not pay for the Android toolchain.
 name: CI
 
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 concurrency:
@@ -48,35 +43,3 @@ jobs:
       # Boots the Vite dev server, runs runBlockingTests() in headless
       # Chromium, fails on any failed assertion or a mid-suite crash.
       - run: npm run test:tier1
-
-  android:
-    name: Android debug APK
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-      - uses: android-actions/setup-android@v4
-      - name: Install Android SDK packages + NDK
-        run: |
-          sdkmanager --install "platform-tools" "platforms;android-36" \
-            "build-tools;36.0.0" "ndk;27.2.12479018"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - run: npm ci
-      # Real Android build: compiles the aarch64 Rust lib (exercises the
-      # #[cfg(target_os = "android")] command surface) and assembles a debug
-      # APK via Gradle. Single ABI to keep CI time down.
-      - name: Build debug APK
-        run: npm run tauri -- android build --debug --apk true --target aarch64

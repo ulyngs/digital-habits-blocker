@@ -11249,8 +11249,11 @@ body.handset-device #blocklist-modal .tags-input-stacked .browse-btn{
     gap: 6px;
 }
 
-/* iOS iPhone: app input is hidden — picker button should span the full input row width. */
-body.ios-phone #blocklist-modal .tags-input-stacked .apps-input-with-button .browse-btn{
+/* iPhone and Android: app input is hidden — picker button spans the full row. */
+body.ios-phone #blocklist-modal .tags-input-stacked .apps-input-with-button .browse-btn,
+body.android #blocklist-modal .tags-input-stacked .apps-input-with-button .browse-btn,
+body.ios-phone #quick-start-modal .tags-input-stacked .apps-input-with-button .browse-btn,
+body.android #quick-start-modal .tags-input-stacked .apps-input-with-button .browse-btn{
     width: 100%;
     max-width: 100%;
     flex: 1 1 auto;

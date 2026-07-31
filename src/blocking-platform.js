@@ -1565,6 +1565,32 @@ export function setupHandsetModalScreens() {
 }
 
 
+function configureMobileBlocklistFields() {
+    // Mobile apps are selected from the platform picker. Keep the text fields
+    // out of the UI and the tab order so app names cannot be entered manually.
+    ['app-input', 'modal-app-input', 'quick-start-app-input'].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.style.display = 'none';
+        input.disabled = true;
+        input.setAttribute('aria-hidden', 'true');
+        input.tabIndex = -1;
+    });
+
+    // Keep desktop's website-first layout, but put apps first in both mobile
+    // entry points. Moving the nodes also keeps accessibility/tab order in
+    // sync with what is shown on screen.
+    [
+        ['blocklist-apps-group', 'blocklist-websites-group'],
+        ['quick-start-apps-group', 'quick-start-websites-group'],
+    ].forEach(([appsId, websitesId]) => {
+        const appsGroup = document.getElementById(appsId);
+        const websitesGroup = document.getElementById(websitesId);
+        if (!appsGroup || !websitesGroup || appsGroup.parentElement !== websitesGroup.parentElement) return;
+        websitesGroup.parentElement.insertBefore(appsGroup, websitesGroup);
+    });
+}
+
 // Detect platform for window controls and iOS
 export function detectPlatform() {
     // Check for iOS (Tauri iOS uses a WKWebView with standard iOS user agent)
@@ -1587,23 +1613,8 @@ export function detectPlatform() {
         // Hide helper-related settings section on iOS
         document.getElementById('helper-settings-section')?.classList.add('hidden');
 
-        // On iOS, app blocking uses Screen Time tokens (not app names).
-        // Hide the text input for apps and show only the picker button.
-        const appInput = document.getElementById('app-input');
-        if (appInput) appInput.style.display = 'none';
-        const modalAppInput = document.getElementById('modal-app-input');
-        if (modalAppInput) modalAppInput.style.display = 'none';
-
-
-
-        // Update hint/tooltip for modal — find via modal-app-input's parent
-        const modalAppGroup = document.querySelector('#modal-app-input')?.closest('.form-group');
-        if (modalAppGroup) {
-            const modalTooltip = modalAppGroup.querySelector('.info-tooltip');
-            if (modalTooltip) modalTooltip.textContent = 'On iOS, apps are selected using Apple\'s Screen Time picker. Tap the button to choose which apps to block.';
-        }
-
-        /* Browse buttons in #blocklist-modal: layout + captions from CSS (body.ios …) and applySettingsLanguage(). */
+        // iOS app blocking uses Screen Time tokens (not app names).
+        configureMobileBlocklistFields();
     } else if (/Android/.test(navigator.userAgent)) {
         state.isAndroid = true;
         document.body.classList.add('android');
@@ -1614,9 +1625,9 @@ export function detectPlatform() {
         document.getElementById('window-controls')?.classList.add('hidden');
         document.querySelector('.title-bar')?.classList.add('hidden');
         document.getElementById('helper-settings-section')?.classList.add('hidden');
-        // Unlike iOS, Android app blocking uses plain package names (same
-        // shape as desktop's process names), so the text input + picker
-        // both stay usable — no UI to hide here.
+        // Android app blocking uses the installed-app picker. Keep package
+        // names out of the manual text-entry path on mobile.
+        configureMobileBlocklistFields();
     } else {
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         if (isMac) {

@@ -1589,6 +1589,21 @@ function configureMobileBlocklistFields() {
         if (!appsGroup || !websitesGroup || appsGroup.parentElement !== websitesGroup.parentElement) return;
         websitesGroup.parentElement.insertBefore(appsGroup, websitesGroup);
     });
+
+    // On handset-sized screens, keep the primary blocking choices together
+    // before the less frequent appearance controls. Desktop keeps the
+    // existing name → emoji → color ordering.
+    const emojiGroup = document.getElementById('blocklist-emoji-group');
+    const colorGroup = document.getElementById('blocklist-color-group');
+    const overrideGroup = document.getElementById('blocklist-override-group');
+    const advancedToggle = document.getElementById('blocklist-advanced-toggle');
+    if (emojiGroup && colorGroup && overrideGroup && advancedToggle
+        && emojiGroup.parentElement === overrideGroup.parentElement
+        && advancedToggle.parentElement === overrideGroup.parentElement) {
+        const parent = overrideGroup.parentElement;
+        parent.insertBefore(emojiGroup, advancedToggle);
+        parent.insertBefore(colorGroup, advancedToggle);
+    }
 }
 
 // Detect platform for window controls and iOS

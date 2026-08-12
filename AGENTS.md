@@ -177,6 +177,9 @@ Tier 1 and Tier 2 have CLI runners, and both also run **inside the app** in dev
 mode via the dev console. Full details, including the "What runs in CI" table:
 [testing.md](testing.md).
 
+- **Tier 0** (unit, pure `src/` helpers, no app shell): `npm run test:tier0`
+  (vitest). Cases in `test/tier0/`, config in `vitest.config.mjs`. The home for
+  a leaf function's edge cases; composed behavior belongs in Tier 1.
 - **Tier 1** (logic, instant, no system changes): `npm run test:tier1`
   headlessly, or `Cmd+Shift+T` / `Ctrl+Shift+T` / `runBlockingTests()` in dev.
   Cases in `src/blocking-tests.js`.
@@ -185,10 +188,17 @@ mode via the dev console. Full details, including the "What runs in CI" table:
   `runIntegrationTests('core' | 'full')` in the dev console. Cases in
   `src/integration-tests.js`. **Tier 2 asserts the Rust-derived
   `current_blocking` snapshot — it does not prove a browser actually redirects.**
-- **Android URL parsing**: JVM unit tests in `BrowserUrlParserTest`
-  (`cd src-tauri/gen/android && ./gradlew :tauri-plugin-android-blocker:testDebugUnitTest`).
-  Fixtures are raw URL-bar strings dumped from real devices — add one whenever
-  you touch the supported-browser list.
+- **Android**: JVM unit tests, `cd src-tauri/gen/android && ./gradlew
+  :tauri-plugin-android-blocker:testDebugUnitTest`. Four suites —
+  `BrowserUrlParserTest` (fixtures are raw URL-bar strings dumped from real
+  devices; add one whenever you touch the supported-browser list),
+  `SchedulesTest` (block/allow decisions, session and pause gating, the
+  SharedPreferences round-trip), and two Robolectric suites,
+  `BlockerServiceTest` (an event arrives → the gate launches, or provably does
+  not) and `UnlockActivityTest` (challenge, pause commit, dismissal).
+  **`Schedules.kt` re-implements semantics the desktop side derives in
+  `native_host::derive_payload`, and nothing but these tests keeps the two in
+  step** — a change to blocking semantics needs a case on both sides.
 - **Rust backend**: `#[cfg(test)]` unit tests in the module under test.
 - **Website-enforcement correctness** (Automation redirects, extension blocking)
   is validated manually — `scripts/manual-test-checklist.md`.
@@ -214,34 +224,48 @@ Put the test where CI will actually run it, matching the layer you changed:
 
 | What you changed | Where the test goes |
 | --- | --- |
+| A single pure helper in `src/` — boundaries, malformed input | `test/tier0/` (Tier 0) |
 | Blocking/schedule/allowlist logic in `src/` | `src/blocking-tests.js` (Tier 1) |
 | Desktop enforcement semantics — derivation, URL decisions, payloads | `#[cfg(test)]` in the Rust module |
+| Android blocking decisions / schedule persistence | `SchedulesTest` |
+| Android interception or friction-gate behavior | `BlockerServiceTest` / `UnlockActivityTest` (Robolectric) |
 | Android URL-bar parsing / a new browser | `BrowserUrlParserTest` fixtures |
 | Command paths, persistence round-trips | `src/integration-tests.js` (Tier 2) |
 
-Prefer the highest row that can hold the case. Reaching for
+Prefer the highest row that can hold the case — except that a case about
+*composed* behavior belongs in Tier 1 even when its pieces are individually
+Tier 0-able. Reaching for
 `scripts/manual-test-checklist.md` is correct only when no automated layer can
 express the case — a real browser redirecting, a real app being quit — and not
 because writing the automated test is awkward.
 
 ### What CI does and does not cover
 
-All four automated suites run on PRs to `main` and again on the resulting `main`
-commits. Lint + Tier 1 (`ci.yml`) run on every PR; the Rust tests
+Every automated suite runs on PRs to `main` and again on the resulting `main`
+commits. Lint + Tier 0 + Tier 1 (`ci.yml`) run on every PR; the Rust tests
 (`rust-ci.yml`), the Android build and Kotlin tests (`android-ci.yml`) and
 Tier 2 (`e2e-ci.yml`) are path-filtered, so a PR that misses their filters shows
 green without ever having run them. Releases additionally gate every build job
 on lint + Tier 1 and run `cargo test --lib` before macOS signing.
 
-Two blind spots to know about before you trust a green run:
+Things to know before you trust a green run:
 
-- **Clippy only runs against the Android target**, which compiles a minority of
-  `src-tauri/src`. Everything gated `cfg(not(any(ios, android)))` —
-  `app_watcher`, `enforcer`, `native_host`, `profile_scan`, … — plus the
-  macOS/Windows-only modules compile out. The desktop enforcement engine is
-  *not* linted and is not currently clippy-clean, so a green Android CI says
-  nothing about whether your macOS/Windows change passes clippy. There is no
+- **Clippy runs against three targets, and each sees different code.** The
+  Android job (`android-ci.yml`) compiles out everything gated
+  `cfg(not(any(ios, android)))` — `app_watcher`, `enforcer`, `native_host`,
+  `profile_scan`, … — plus the macOS/Windows-only modules, so it covers a
+  minority of `src-tauri/src`. The `clippy` job in `rust-ci.yml` covers the rest
+  on **macOS and Windows**, both at `-D warnings`. Both hosts are needed: many
+  dead-code and cfg-dispatch findings are live on one platform and dead on the
+  other, so a macOS-only gate would demand deleting Windows code. There is no
   Linux clippy job because the lib does not compile on Linux at all.
+- **The desktop lib is clippy-clean; keep it that way.** Two standing allows
+  carry a reason worth reading before you add a third: `[lints.rust]` in
+  `src-tauri/Cargo.toml` silences an `unexpected_cfgs` warning the `objc`
+  crate's `msg_send!` macro emits at every call site, and the macOS FFI modules
+  carry a scoped `#![allow(deprecated)]` because the `cocoa` crate is deprecated
+  wholesale in favour of `objc2` — a real, separate migration. Both are scoped
+  so every other lint still fires.
 - **eslint is `js/recommended` only, and `no-unused-vars` is a warning, not an
   error.** There is a standing backlog of dead bindings the gate deliberately
   does not fail on. Clearing them is worthwhile — dead asset imports become

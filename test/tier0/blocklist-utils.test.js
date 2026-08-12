@@ -9,6 +9,7 @@ import {
     isProtectedApp,
     isProtectedDomain,
     isQuickStartBlocklist,
+    mergeIOSScreenTimeSelectionAdditive,
     normalizeBlocklist,
     normalizeIOSScreenTimeSelection,
     parseLegacyScreenTimeSummary,
@@ -212,5 +213,99 @@ describe('focus space colours', () => {
         expect(lists[0].color).toBeUndefined();
         expect(healFocusSpaceColors([])).toBe(false);
         expect(healFocusSpaceColors(null)).toBe(false);
+    });
+});
+
+describe('additive Screen Time merge (picker cannot remove while enforcing)', () => {
+    const sel = (apps = [], cats = []) => normalizeIOSScreenTimeSelection({
+        applicationTokens: apps,
+        categoryTokens: cats,
+        requiresReselection: false,
+    });
+
+    test('a picker result that drops a saved app keeps it', () => {
+        // Issue #81: the activity picker returns a *replacement* selection, so
+        // deselecting inside it is the one way to unblock an app mid-session.
+        const merged = mergeIOSScreenTimeSelectionAdditive(
+            sel(['tok-instagram', 'tok-tiktok']),
+            sel(['tok-tiktok']),
+        );
+        expect(merged.applicationTokens).toEqual(
+            expect.arrayContaining(['tok-instagram', 'tok-tiktok']),
+        );
+    });
+
+    test('deselecting everything falls back to the saved selection', () => {
+        // The fastest form of the bypass: open Browse, clear it, Done.
+        const merged = mergeIOSScreenTimeSelectionAdditive(sel(['tok-instagram']), null);
+        expect(merged.applicationTokens).toEqual(['tok-instagram']);
+    });
+
+    test('genuinely new picks are still added', () => {
+        // Tightening stays free — that is the rule everywhere else.
+        const merged = mergeIOSScreenTimeSelectionAdditive(
+            sel(['tok-instagram']),
+            sel(['tok-instagram', 'tok-x']),
+        );
+        expect(merged.applicationTokens).toEqual(
+            expect.arrayContaining(['tok-instagram', 'tok-x']),
+        );
+        expect(merged.applicationTokens).toHaveLength(2);
+    });
+
+    test('category tokens merge on the same terms', () => {
+        const merged = mergeIOSScreenTimeSelectionAdditive(
+            sel([], ['cat-social']),
+            sel([], ['cat-games']),
+        );
+        expect(merged.categoryTokens).toEqual(
+            expect.arrayContaining(['cat-social', 'cat-games']),
+        );
+    });
+
+    test('counts describe the merge, not the picker result', () => {
+        // A count carried over from the replacement would label "1 app" over a
+        // two-token selection, and the summary label is what the modal shows.
+        const merged = mergeIOSScreenTimeSelectionAdditive(
+            sel(['tok-instagram']),
+            normalizeIOSScreenTimeSelection({
+                applicationTokens: ['tok-x'],
+                applicationCount: 1,
+                categoryCount: 0,
+                requiresReselection: false,
+            }),
+        );
+        expect(merged.applicationCount).toBe(2);
+        expect(merged.categoryCount).toBe(0);
+    });
+
+    test('repeated tokens do not accumulate', () => {
+        const merged = mergeIOSScreenTimeSelectionAdditive(
+            sel(['tok-x', 'tok-x']),
+            sel(['tok-x']),
+        );
+        expect(merged.applicationTokens).toEqual(['tok-x']);
+    });
+
+    test('an empty merge is null, not an empty selection', () => {
+        // Callers treat null as "no Screen Time selection"; an empty object
+        // would render a stray tag.
+        expect(mergeIOSScreenTimeSelectionAdditive(null, null)).toBeNull();
+        expect(mergeIOSScreenTimeSelectionAdditive(sel([], []), sel([], []))).toBeNull();
+    });
+
+    test('a selection needing reselection is repaired by a fresh pick', () => {
+        // Tokens the OS can no longer resolve protect nothing, so there is
+        // nothing to preserve underneath the new pick.
+        const stale = normalizeIOSScreenTimeSelection({
+            applicationTokens: [],
+            categoryTokens: [],
+            applicationCount: 3,
+            categoryCount: 0,
+            requiresReselection: true,
+        });
+        const merged = mergeIOSScreenTimeSelectionAdditive(stale, sel(['tok-x']));
+        expect(merged.applicationTokens).toEqual(['tok-x']);
+        expect(merged.requiresReselection).toBe(false);
     });
 });

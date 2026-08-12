@@ -205,6 +205,21 @@ Screen Time APIs — no hosts file, helper, or browser extension.
 - [ ] Pause/resume and override flows
 - [ ] No desktop-only settings (Clean hosts, helper lifecycle)
 
+### 14.0 Screen Time picker cannot loosen a running block
+
+Only a real `FamilyActivityPicker` can cover this — no automated tier can drive
+the native sheet. Block-mode focus space, with a block or committed schedule
+currently running:
+
+- [ ] Edit → Browse → deselect a blocked app → Done: the app is still listed,
+      and still blocked after Save
+- [ ] Edit → Browse → deselect *everything* → Done: the selection returns to
+      what was saved, not empty
+- [ ] Edit → Browse → add an app → Done: the addition sticks (tightening stays
+      free) and enforces after Save
+- [ ] Pause the block first → Browse → deselect: the removal now goes through
+- [ ] No block or schedule running → Browse → deselect: removal goes through
+
 ### 14.1 iOS allowlist matrix (Allow-mode focus spaces)
 
 Prereqs: physical device, Screen Time authorized, note any other authorized

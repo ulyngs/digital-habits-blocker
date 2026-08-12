@@ -1,6 +1,7 @@
 // Main render cycle: week calendar, now-blocking chips, blocklist selector
 // sync, and the 1s tick loop. Extracted verbatim from app.js.
 import { state } from './state.js';
+import { getCalendarLanePresentation } from './calendar-layout.js';
 import { escapeHtml, getContrastTextColor } from './utils.js';
 import { tSettings, weekdayAbbrevMon0List } from './i18n.js';
 import { isBlockAlwaysOn, isQuickStartBlocklist, QUICK_START_EMOJI } from './blocklist-utils.js';
@@ -284,6 +285,8 @@ export function buildManualBlockElement(block, blocklist, leftPct, widthPct, seg
     const timeLabel = isRunning
         ? `until ${formatTime(segmentEndDate)}`
         : `${formatTime(segmentStartDate)} - ${formatTime(segmentEndDate)}`;
+
+    blockEl.title = `${blocklist.name} · ${timeLabel}`;
 
     blockEl.innerHTML = `
         <span class="block-emoji">${blocklist.emoji || '🚫'}</span>
@@ -914,8 +917,10 @@ export function renderScheduleVisibilityChips() {
         chip.title = visible ? 'Hide from schedule' : 'Show in schedule';
         chip.innerHTML = `
             ${visible ? eyeOpenSvg : eyeClosedSvg}
+            <span class="schedule-visibility-chip-dot" aria-hidden="true"></span>
             <span class="schedule-visibility-chip-name">${bl.emoji ? escapeHtml(bl.emoji) + ' ' : ''}${escapeHtml(bl.name || '')}</span>
         `;
+        chip.querySelector('.schedule-visibility-chip-dot').style.backgroundColor = bl.color || 'var(--accent-color)';
         chip.addEventListener('click', async () => {
             const blocklist = state.appData.blocklists.find(b => b.id === bl.id);
             if (!blocklist) return;
@@ -943,6 +948,7 @@ export function layoutOverlappingBlocks() {
             b.style.top = '';
             b.style.bottom = '';
             b.style.height = '';
+            b.classList.remove('compact');
         });
         if (blocks.length <= 1) return;
 
@@ -1011,11 +1017,11 @@ export function layoutOverlappingBlocks() {
 
         blockData.forEach(data => {
             if (data.totalLanes > 1) {
-                const lanePercent = 100 / data.totalLanes;
-                const topPercent = (data.lane - 1) * lanePercent;
-                data.element.style.top = `calc(${topPercent}% + 2px)`;
-                data.element.style.height = `calc(${lanePercent}% - 4px)`;
+                const presentation = getCalendarLanePresentation(data.lane, data.totalLanes);
+                data.element.style.top = presentation.top;
+                data.element.style.height = presentation.height;
                 data.element.style.bottom = 'auto';
+                data.element.classList.toggle('compact', presentation.compact);
             }
         });
     });
@@ -1090,6 +1096,7 @@ export function renderScheduleSegmentOnWeekday(schedule, segment, segmentIdx, da
         el.dataset.day = hostDayIndex;
         el.style.left = `${leftPct}%`;
         el.style.width = `${widthPct}%`;
+        el.title = `${blocklist.name} · ${startTimeStr} - ${endTimeStr}`;
 
         if (blocklist.color) {
             el.style.background = blocklist.color;

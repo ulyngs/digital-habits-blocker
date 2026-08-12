@@ -4464,6 +4464,19 @@ body.dark-mode .day-row.weekend{
     flex-shrink: 0;
 }
 
+/* Three or more overlapping schedules leave less than one text line per lane.
+   Render them as clean colour bands; the matching header swatches identify the
+   focus space and the native title tooltip retains the full name and time. */
+.calendar-block.compact{
+    padding: 0 2px;
+    border-radius: 2px;
+    box-shadow: none;
+}
+
+.calendar-block.compact > *{
+    display: none;
+}
+
 .calendar-block.expired{
     opacity: 0.4;
     filter: grayscale(30%);

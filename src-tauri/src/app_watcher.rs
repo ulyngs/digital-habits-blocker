@@ -232,6 +232,7 @@ pub fn is_protected_app_name(name: &str) -> bool {
 /// "Android Studio") while `sysinfo` reports the bundle executable
 /// (e.g. "studio") — also accept processes whose path lives inside
 /// `/Applications/<label>.app/`.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // macOS-only branch below
 fn process_matches_app_label(
     label: &str,
     proc_name: &str,
@@ -611,6 +612,48 @@ enum EntryOrigin {
     Allowlist,
 }
 
+/// One tick of the per-PID quit state machine, decided purely from the
+/// current phase and the clock.
+///
+/// The side effects (polite quit, SIGKILL, warning teardown) stay with the
+/// callers — `sweep` for blocklist-matched PIDs and `advance_pid_entry` for
+/// everything else. Both used to carry their own copy of these transitions;
+/// routing them through one decision keeps the two paths from drifting and
+/// makes the timings assertable without a live process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PidStep {
+    /// Stay in the current phase; nothing to do this tick.
+    Hold,
+    /// PreQuit elapsed — send the polite quit, then enter PostQuit.
+    RequestQuit,
+    /// PostQuit grace elapsed — SIGKILL.
+    ForceKill,
+}
+
+fn next_pid_step(phase: &PidPhase, now: Instant) -> PidStep {
+    match phase {
+        // Sit tight until the user clicks Let's go. (Or until the PID
+        // disappears — handled by the dropped-pids cleanup in `sweep`.)
+        PidPhase::AwaitingUserAck => PidStep::Hold,
+        PidPhase::PreQuit { quit_at } => {
+            if now < *quit_at {
+                // Still inside the user's wrap-up window.
+                PidStep::Hold
+            } else {
+                PidStep::RequestQuit
+            }
+        }
+        PidPhase::PostQuit { kill_at } => {
+            if now < *kill_at {
+                // Polite quit dispatched; let the save sheet (if any) play out.
+                PidStep::Hold
+            } else {
+                PidStep::ForceKill
+            }
+        }
+    }
+}
+
 /// Sentinel PID for the allowlist block-start overlay when no non-allowed
 /// apps need closing — the frontend renders intention-only copy.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -651,6 +694,8 @@ struct PidEntry {
 // ---- Run loop -------------------------------------------------------------
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(clippy::too_many_arguments)] // one sweep call site; splitting the
+                                     // signature would only move the argument list somewhere else
 fn run(
     app: Option<AppHandle>,
     apps: BlockedApps,
@@ -730,6 +775,8 @@ fn run(
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(clippy::too_many_arguments)] // one sweep call site; splitting the
+                                     // signature would only move the argument list somewhere else
 fn sweep(
     app: Option<&AppHandle>,
     apps: &BlockedApps,
@@ -886,67 +933,44 @@ fn sweep(
                     });
                 }
             }
-            Entry::Occupied(slot) => {
-                let current = slot.get();
-                let next_phase = match &current.phase {
-                    PidPhase::AwaitingUserAck => {
-                        // Sit tight until the user clicks Let's go.
-                        // (Or until the PID disappears — handled below
-                        // in the dropped-pids cleanup.)
-                        PidPhase::AwaitingUserAck
-                    }
-                    PidPhase::PreQuit { quit_at } => {
-                        let quit_at = *quit_at;
-                        if now < quit_at {
-                            // Still inside the user's wrap-up window.
-                            PidPhase::PreQuit { quit_at }
-                        } else {
-                            log::info!(
-                                "app_watcher: PreQuit elapsed for pid={pid} name='{name}'; sending polite quit"
+            Entry::Occupied(mut slot) => match next_pid_step(&slot.get().phase, now) {
+                PidStep::Hold => {}
+                PidStep::RequestQuit => {
+                    log::info!(
+                        "app_watcher: PreQuit elapsed for pid={pid} name='{name}'; sending polite quit"
+                    );
+                    request_graceful_quit(*pid, &name, proc_);
+                    slot.get_mut().phase = PidPhase::PostQuit {
+                        kill_at: now + POSTQUIT_GRACE,
+                    };
+                }
+                PidStep::ForceKill => {
+                    let matched_name = slot.get().matched_name.clone();
+                    let warning_raised = slot.get().warning_raised;
+                    log::info!(
+                        "app_watcher: PostQuit grace elapsed for pid={pid} name='{matched_name}'; SIGKILL"
+                    );
+                    if proc_.kill() {
+                        // Mid-block PIDs (warning_raised=false) never showed a
+                        // warning; suppress the hide event for them so the
+                        // panel-mode refcount stays balanced with the shows.
+                        if warning_raised {
+                            emit_warning_hide(
+                                app,
+                                pid.as_u32(),
+                                &matched_name,
+                                HideReason::ForceKilled,
                             );
-                            request_graceful_quit(*pid, &name, proc_);
-                            PidPhase::PostQuit {
-                                kill_at: now + POSTQUIT_GRACE,
-                            }
                         }
+                        slot.remove();
+                        continue;
                     }
-                    PidPhase::PostQuit { kill_at } => {
-                        let kill_at = *kill_at;
-                        if now < kill_at {
-                            // Polite quit dispatched; let the save
-                            // sheet (if any) play out.
-                            PidPhase::PostQuit { kill_at }
-                        } else {
-                            log::info!(
-                                "app_watcher: PostQuit grace elapsed for pid={pid} name='{}'; SIGKILL",
-                                current.matched_name
-                            );
-                            if proc_.kill() {
-                                // Mid-block PIDs (warning_raised=false)
-                                // never showed a warning; suppress the
-                                // hide event for them so the panel-mode
-                                // refcount stays balanced with the
-                                // shows.
-                                if current.warning_raised {
-                                    emit_warning_hide(
-                                        app,
-                                        pid.as_u32(),
-                                        &current.matched_name,
-                                        HideReason::ForceKilled,
-                                    );
-                                }
-                                slot.remove();
-                                continue;
-                            }
-                            log::warn!(
-                                "app_watcher: SIGKILL failed for pid={pid} name='{name}' — will retry"
-                            );
-                            PidPhase::PostQuit { kill_at }
-                        }
-                    }
-                };
-                slot.into_mut().phase = next_phase;
-            }
+                    log::warn!(
+                        "app_watcher: SIGKILL failed for pid={pid} name='{name}' — will retry"
+                    );
+                    // Phase unchanged: retry on the next tick.
+                }
+            },
         }
     }
 
@@ -1036,6 +1060,8 @@ fn sweep(
 /// Advance a tracked PID one step through the quit state machine.
 /// Returns `true` when the entry should be removed (SIGKILL completed).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(clippy::too_many_arguments)] // one sweep call site; splitting the
+                                     // signature would only move the argument list somewhere else
 fn advance_pid_entry(
     app: Option<&AppHandle>,
     pid: sysinfo::Pid,
@@ -1062,44 +1088,31 @@ fn advance_pid_entry(
         return true;
     }
 
-    let next = match phase {
-        PidPhase::AwaitingUserAck => PidPhase::AwaitingUserAck,
-        PidPhase::PreQuit { quit_at } => {
-            let quit_at = *quit_at;
-            if now < quit_at {
-                PidPhase::PreQuit { quit_at }
-            } else {
-                log::info!(
-                    "app_watcher: PreQuit elapsed for pid={pid} name='{proc_name}'; sending polite quit"
-                );
-                request_graceful_quit(pid, proc_name, proc_);
-                PidPhase::PostQuit {
-                    kill_at: now + POSTQUIT_GRACE,
-                }
-            }
+    match next_pid_step(phase, now) {
+        PidStep::Hold => {}
+        PidStep::RequestQuit => {
+            log::info!(
+                "app_watcher: PreQuit elapsed for pid={pid} name='{proc_name}'; sending polite quit"
+            );
+            request_graceful_quit(pid, proc_name, proc_);
+            *phase = PidPhase::PostQuit {
+                kill_at: now + POSTQUIT_GRACE,
+            };
         }
-        PidPhase::PostQuit { kill_at } => {
-            let kill_at = *kill_at;
-            if now < kill_at {
-                PidPhase::PostQuit { kill_at }
-            } else {
-                log::info!(
-                    "app_watcher: PostQuit grace elapsed for pid={pid} name='{proc_name}'; SIGKILL"
-                );
-                if proc_.kill() {
-                    if warning_raised {
-                        emit_warning_hide(app, pid.as_u32(), matched_name, HideReason::ForceKilled);
-                    }
-                    return true;
+        PidStep::ForceKill => {
+            log::info!(
+                "app_watcher: PostQuit grace elapsed for pid={pid} name='{proc_name}'; SIGKILL"
+            );
+            if proc_.kill() {
+                if warning_raised {
+                    emit_warning_hide(app, pid.as_u32(), matched_name, HideReason::ForceKilled);
                 }
-                log::warn!(
-                    "app_watcher: SIGKILL failed for pid={pid} name='{proc_name}' — will retry"
-                );
-                PidPhase::PostQuit { kill_at }
+                return true;
             }
+            log::warn!("app_watcher: SIGKILL failed for pid={pid} name='{proc_name}' — will retry");
+            // Phase unchanged: retry on the next tick.
         }
-    };
-    *phase = next;
+    }
     false
 }
 
@@ -1119,6 +1132,8 @@ fn refresh_pid(sys: &mut sysinfo::System, pid: sysinfo::Pid) {
 /// warning on that one sweep — not just the first. After that, only the
 /// frontmost app is checked so background agents (Dropbox, etc.) keep running.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(clippy::too_many_arguments)] // one sweep call site; splitting the
+                                     // signature would only move the argument list somewhere else
 fn sweep_allowlist(
     app: Option<&AppHandle>,
     allowed: &[String],
@@ -1275,6 +1290,7 @@ fn visible_non_allowed_regular_apps(allowed: &[String]) -> Vec<(sysinfo::Pid, St
 
 /// User-facing apps/windows that count as closable allowlist targets.
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn visible_regular_running_apps() -> Vec<(sysinfo::Pid, String, String, Option<std::path::PathBuf>)>
 {
     use cocoa::base::{id, YES};
@@ -1461,7 +1477,7 @@ fn collect_user_facing_windows() -> Vec<UserFacingWindow> {
         if is_windows_cloaked_window(hwnd) {
             return BOOL(1);
         }
-        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or(HWND::default());
+        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or_default();
         if owner != HWND::default() {
             return BOOL(1);
         }
@@ -1531,6 +1547,7 @@ fn collect_user_facing_windows() -> Vec<UserFacingWindow> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn visible_regular_running_apps() -> Vec<(sysinfo::Pid, String, String, Option<std::path::PathBuf>)>
 {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
@@ -1580,6 +1597,7 @@ fn visible_regular_running_apps() -> Vec<(sysinfo::Pid, String, String, Option<s
 }
 
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn frontmost_app_pid_and_name() -> Option<(sysinfo::Pid, String, String)> {
     use cocoa::base::id;
     use objc::runtime::Class;
@@ -1616,6 +1634,7 @@ fn frontmost_app_pid_and_name() -> Option<(sysinfo::Pid, String, String)> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn frontmost_app_pid_and_name() -> Option<(sysinfo::Pid, String, String)> {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
     use windows::Win32::Foundation::HWND;
@@ -1716,6 +1735,7 @@ fn allowlist_entry_still_user_facing(
 }
 
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn pid_has_regular_activation_policy(pid: sysinfo::Pid) -> bool {
     use cocoa::base::id;
     use objc::runtime::Class;
@@ -1762,6 +1782,7 @@ pub(crate) fn request_graceful_quit(pid: sysinfo::Pid, name: &str, proc_: &sysin
 }
 
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn request_graceful_quit_impl(pid: sysinfo::Pid, name: &str, proc_: &sysinfo::Process) {
     crate::commands::activate_external_process_by_pid(pid.as_u32());
     // -[NSRunningApplication terminate] sends the AppKit quit Apple
@@ -1807,6 +1828,7 @@ fn request_graceful_quit_impl(pid: sysinfo::Pid, name: &str, proc_: &sysinfo::Pr
 }
 
 #[cfg(target_os = "windows")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 fn request_graceful_quit_impl(pid: sysinfo::Pid, name: &str, _proc: &sysinfo::Process) {
     crate::commands::activate_external_process_by_pid(pid.as_u32());
     // `taskkill /PID <pid>` (without `/F`) posts WM_CLOSE to the
@@ -1919,5 +1941,219 @@ fn polite_quit_for_pid_list(pids: &[u32]) {
             }
             None => log::debug!("app_watcher: polite quit skipped — pid={pid_u} not running"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The watcher's two dangerous behaviours are "force-quits the wrong
+    // process" and "force-quits the right process too early". Both are
+    // decided by pure functions — the protection list, the label matcher,
+    // and the phase machine — so they are asserted here directly.
+    //
+    // Not covered at this layer: `sweep` itself, which needs a live
+    // `sysinfo::Process` to enrol a PID and to call `kill()`. The enrolment
+    // rules (warning-eligible first sighting vs. silent mid-block PostQuit)
+    // stay with the manual checklist.
+
+    // ---- protection list --------------------------------------------
+
+    #[test]
+    fn protected_names_are_never_targets() {
+        // Quitting any of these would either kill the blocker itself —
+        // the one process that must survive to keep enforcing — or take
+        // the desktop down with it.
+        for name in [
+            "Digital Habits Blocker",
+            "Digital Habits: Blocker",
+            "ReDD Blocker",
+            "redd-block",
+            "Finder",
+            "loginwindow",
+            "WindowServer",
+            "explorer.exe",
+            "dwm.exe",
+            "winlogon.exe",
+        ] {
+            assert!(is_protected_app_name(name), "{name} must be protected");
+        }
+    }
+
+    #[test]
+    fn protection_ignores_case_and_the_exe_suffix() {
+        assert!(is_protected_app_name("finder"));
+        assert!(is_protected_app_name("FINDER"));
+        assert!(is_protected_app_name("EXPLORER.EXE"));
+        // "Taskmgr" is listed without a suffix; the Windows process carries one.
+        assert!(is_protected_app_name("Taskmgr.exe"));
+        assert!(is_protected_app_name("Task Manager"));
+    }
+
+    #[test]
+    fn ordinary_apps_are_not_protected() {
+        // An over-broad protection rule silently exempts apps the user
+        // asked to block, which reads as "blocking is broken".
+        for name in [
+            "Safari",
+            "Slack",
+            "Microsoft Word",
+            "Finder Helper",
+            "MyWindowServerThing",
+            "chrome.exe",
+        ] {
+            assert!(!is_protected_app_name(name), "{name} must not be protected");
+        }
+    }
+
+    // ---- label matching ---------------------------------------------
+
+    #[test]
+    fn label_matches_process_name_case_insensitively() {
+        assert!(process_matches_app_label("Slack", "Slack", None));
+        assert!(process_matches_app_label("slack", "Slack", None));
+        assert!(process_matches_app_label("Chrome", "chrome.exe", None));
+    }
+
+    #[test]
+    fn label_does_not_match_a_different_app_with_a_shared_prefix() {
+        // Substring matching here would quit apps the user never listed.
+        assert!(!process_matches_app_label("Slack", "Slackbot", None));
+        assert!(!process_matches_app_label("Code", "Codex", None));
+        assert!(!process_matches_app_label("Mail", "Mailspring", None));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn label_matches_the_bundle_directory_when_the_executable_differs() {
+        // sysinfo reports the bundle executable ("studio"), the user's list
+        // holds the bundle name ("Android Studio") — without the path check
+        // the app is simply never matched and never blocked.
+        let exe = std::path::Path::new("/Applications/Android Studio.app/Contents/MacOS/studio");
+        assert!(process_matches_app_label(
+            "Android Studio",
+            "studio",
+            Some(exe)
+        ));
+        assert!(!process_matches_app_label("Xcode", "studio", Some(exe)));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bundle_path_match_does_not_fire_on_a_longer_bundle_name() {
+        let exe = std::path::Path::new("/Applications/Codex.app/Contents/MacOS/Codex");
+        assert!(!process_matches_app_label("Code", "Codex", Some(exe)));
+    }
+
+    #[test]
+    fn allow_check_spans_the_whole_allowed_list() {
+        let allowed = vec!["Safari".to_string(), "Notes".to_string()];
+        assert!(process_is_allowed(&allowed, "Notes", None));
+        assert!(!process_is_allowed(&allowed, "Slack", None));
+        assert!(!process_is_allowed(&[], "Notes", None));
+    }
+
+    // ---- phase machine ----------------------------------------------
+
+    #[test]
+    fn awaiting_ack_never_advances_on_its_own() {
+        // The Let's go overlay must wait for the user however long it takes;
+        // an elapsed timer here would quit an app with no warning shown.
+        let now = Instant::now();
+        assert_eq!(
+            next_pid_step(&PidPhase::AwaitingUserAck, now),
+            PidStep::Hold
+        );
+        assert_eq!(
+            next_pid_step(&PidPhase::AwaitingUserAck, now + Duration::from_secs(3600)),
+            PidStep::Hold
+        );
+    }
+
+    #[test]
+    fn prequit_holds_until_its_deadline_then_asks_for_a_polite_quit() {
+        let now = Instant::now();
+        let phase = PidPhase::PreQuit {
+            quit_at: now + PREQUIT_DURATION,
+        };
+        assert_eq!(next_pid_step(&phase, now), PidStep::Hold);
+        assert_eq!(
+            next_pid_step(&phase, now + PREQUIT_DURATION - Duration::from_millis(1)),
+            PidStep::Hold
+        );
+        // The deadline itself fires — `now < quit_at` is the hold condition.
+        assert_eq!(
+            next_pid_step(&phase, now + PREQUIT_DURATION),
+            PidStep::RequestQuit
+        );
+    }
+
+    #[test]
+    fn postquit_holds_through_the_grace_then_force_kills() {
+        let now = Instant::now();
+        let phase = PidPhase::PostQuit {
+            kill_at: now + POSTQUIT_GRACE,
+        };
+        assert_eq!(next_pid_step(&phase, now), PidStep::Hold);
+        assert_eq!(
+            next_pid_step(&phase, now + POSTQUIT_GRACE - Duration::from_millis(1)),
+            PidStep::Hold
+        );
+        assert_eq!(
+            next_pid_step(&phase, now + POSTQUIT_GRACE),
+            PidStep::ForceKill
+        );
+    }
+
+    #[test]
+    fn the_full_sequence_gives_the_user_both_grace_windows() {
+        // Walk warn -> polite quit -> SIGKILL the way a sweep would, and
+        // check nothing escalates early. Shortening either window is a
+        // user-visible regression (an app killed mid-save).
+        let start = Instant::now();
+        let mut phase = PidPhase::AwaitingUserAck;
+
+        // User clicks "Let's go!" — `sweep` performs this transition.
+        phase = PidPhase::PreQuit {
+            quit_at: start + PREQUIT_DURATION,
+        };
+
+        let mut t = start;
+        while t < start + PREQUIT_DURATION {
+            assert_eq!(
+                next_pid_step(&phase, t),
+                PidStep::Hold,
+                "early quit at {t:?}"
+            );
+            t += Duration::from_secs(1);
+        }
+        let quit_at = start + PREQUIT_DURATION;
+        assert_eq!(next_pid_step(&phase, quit_at), PidStep::RequestQuit);
+
+        phase = PidPhase::PostQuit {
+            kill_at: quit_at + POSTQUIT_GRACE,
+        };
+        let mut t = quit_at;
+        while t < quit_at + POSTQUIT_GRACE {
+            assert_eq!(
+                next_pid_step(&phase, t),
+                PidStep::Hold,
+                "early kill at {t:?}"
+            );
+            t += Duration::from_secs(1);
+        }
+        assert_eq!(
+            next_pid_step(&phase, quit_at + POSTQUIT_GRACE),
+            PidStep::ForceKill
+        );
+    }
+
+    #[test]
+    fn grace_windows_are_long_enough_to_be_usable() {
+        // Guards against a zero/near-zero constant slipping in: the whole
+        // point of the state machine is that the user gets time to save.
+        assert!(PREQUIT_DURATION >= Duration::from_secs(10));
+        assert!(POSTQUIT_GRACE >= Duration::from_secs(5));
     }
 }

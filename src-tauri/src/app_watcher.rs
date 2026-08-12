@@ -232,6 +232,7 @@ pub fn is_protected_app_name(name: &str) -> bool {
 /// "Android Studio") while `sysinfo` reports the bundle executable
 /// (e.g. "studio") — also accept processes whose path lives inside
 /// `/Applications/<label>.app/`.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // macOS-only branch below
 fn process_matches_app_label(
     label: &str,
     proc_name: &str,
@@ -1476,7 +1477,7 @@ fn collect_user_facing_windows() -> Vec<UserFacingWindow> {
         if is_windows_cloaked_window(hwnd) {
             return BOOL(1);
         }
-        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or(HWND::default());
+        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or_default();
         if owner != HWND::default() {
             return BOOL(1);
         }

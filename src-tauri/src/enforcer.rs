@@ -23,7 +23,10 @@ use std::time::{Duration, Instant};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::profile_scan::{self, BrowserStatus, ProfileStatus};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
+// Only the macOS Automation path calls `try_state`.
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 
 const TICK: Duration = Duration::from_secs(5);
 const TICK_FAST: Duration = Duration::from_secs(1);
@@ -195,6 +198,7 @@ impl BrowserKey {
     }
 
     /// Short settings key (`chrome`, `brave`, …).
+    #[allow(dead_code)] // used on macOS; dead on Windows
     fn setting_key(self) -> &'static str {
         match self {
             BrowserKey::Firefox => "firefox",
@@ -805,6 +809,7 @@ fn diagnose_issue(b: &BrowserStatus) -> ExtensionIssue {
 /// compliant — same leniency as before for unmeasurable state. Firefox
 /// (all platforms) and every browser on Windows fall back to the
 /// extension scan.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // macOS-only branch below
 fn compliance_issue(
     app: &AppHandle,
     key: BrowserKey,

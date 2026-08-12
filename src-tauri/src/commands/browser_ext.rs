@@ -163,7 +163,7 @@ pub fn activate_external_process_by_pid(target_pid: u32) {
         if !IsWindowVisible(hwnd).as_bool() {
             return BOOL(1); // continue enumeration
         }
-        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or(HWND::default());
+        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or_default();
         if owner != HWND::default() {
             return BOOL(1); // continue enumeration
         }
@@ -848,6 +848,7 @@ pub async fn browser_profiles_compliant() -> Result<bool, String> {
 /// Accessibility permission for System Events; tries both the legacy
 /// toolbar layout and the Ventura+ sidebar layout.
 #[cfg(target_os = "macos")]
+#[allow(dead_code)] // used on macOS; dead on Windows
 pub(crate) fn open_safari_extensions_settings_applescript() -> Result<(), String> {
     const SCRIPT: &str = concat!(
         "tell application \"Safari\" to activate\n",
@@ -894,6 +895,7 @@ pub(crate) fn open_safari_extensions_settings_applescript() -> Result<(), String
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)] // used on macOS; dead on Windows
 pub(crate) fn open_safari_extensions_settings_applescript() -> Result<(), String> {
     Err("Safari is macOS-only".into())
 }
@@ -980,6 +982,7 @@ pub fn open_browser_extension_settings(browser: String) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 fn is_mac_app_store_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.starts_with("macappstore://")

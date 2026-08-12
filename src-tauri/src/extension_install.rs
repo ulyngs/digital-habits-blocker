@@ -83,6 +83,9 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
+// The Chromium external-update hint and its tests are the only users, and
+// neither is compiled on Windows.
+#[cfg(not(target_os = "windows"))]
 use serde_json::json;
 
 use crate::native_host_install::{CHROMIUM_EXT_ID, FIREFOX_EXT_ID};
@@ -849,10 +852,9 @@ fn write_hkcu_named_value(path: &str, value_name: &str, value: &str) -> std::io:
             None,
         );
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegCreateKeyExW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegCreateKeyExW failed: {status:?}"
+            )));
         }
         let name_wide = to_wide(value_name);
         let data_wide = to_wide(value);
@@ -868,10 +870,9 @@ fn write_hkcu_named_value(path: &str, value_name: &str, value: &str) -> std::io:
         );
         let _ = RegCloseKey(hkey);
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegSetValueExW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegSetValueExW failed: {status:?}"
+            )));
         }
     }
     Ok(())
@@ -887,10 +888,9 @@ fn delete_hkcu_key(path: &str) -> std::io::Result<()> {
         let wide = to_wide(path);
         let status = RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(wide.as_ptr()));
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegDeleteKeyW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegDeleteKeyW failed: {status:?}"
+            )));
         }
     }
     Ok(())

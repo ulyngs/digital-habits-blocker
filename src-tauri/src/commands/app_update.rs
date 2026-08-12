@@ -18,6 +18,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 const GITHUB_RELEASES: &str = "https://github.com/ulyngs/digital-habits-blocker/releases/download";
+#[allow(dead_code)] // used on macOS; dead on Windows
 const LATEST_VERSIONS_URL: &str =
     "https://ulyngs.github.io/digital-habits-blocker/latest-versions.json";
 
@@ -30,12 +31,14 @@ struct UpdateDownloadProgress {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // used on macOS; dead on Windows
 struct LatestVersionsManifest {
     macos: Option<serde_json::Value>,
     sha256: Option<ManifestChecksums>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // used on macOS; dead on Windows
 struct ManifestChecksums {
     #[serde(rename = "macosPkg")]
     macos_pkg: Option<String>,
@@ -45,6 +48,7 @@ fn normalize_version(version: &str) -> String {
     version.trim().trim_start_matches('v').trim().to_string()
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 fn platform_version_from_manifest(value: &serde_json::Value) -> Option<String> {
     match value {
         serde_json::Value::String(version) => Some(normalize_version(version)),
@@ -56,6 +60,7 @@ fn platform_version_from_manifest(value: &serde_json::Value) -> Option<String> {
     }
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 async fn fetch_expected_macos_pkg_sha256(version: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent(format!("ReDD-Blocker/{}", env!("CARGO_PKG_VERSION")))
@@ -95,6 +100,7 @@ async fn fetch_expected_macos_pkg_sha256(version: &str) -> Result<String, String
         })
 }
 
+#[allow(clippy::needless_return)] // cfg dispatch: the return is load-bearing on the other platform
 fn release_asset(version: &str) -> Result<(String, String), String> {
     let version = normalize_version(version);
     if version.is_empty() {
@@ -179,6 +185,7 @@ async fn download_file(app: &AppHandle, url: &str, dest: &Path) -> Result<(), St
     Ok(())
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 async fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
     let mut file = tokio::fs::File::open(path)
         .await

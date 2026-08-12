@@ -223,6 +223,7 @@ pub fn scan_for_diagnostics() -> ScanResult {
     }
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 fn empty_scan_result() -> ScanResult {
     ScanResult {
         firefox: empty("firefox"),
@@ -658,6 +659,7 @@ impl ChromiumBrowser {
     }
 
     /// Install + running flags only — no profile-dir reads (macOS onboarding).
+    #[allow(dead_code)] // used on macOS; dead on Windows
     fn presence_only(self) -> BrowserStatus {
         BrowserStatus {
             present: self.app_present(),

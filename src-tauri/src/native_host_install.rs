@@ -64,6 +64,7 @@ impl BrowserTarget {
 
     /// Directory where the browser expects to find native-messaging
     /// host manifests. User-scope only.
+    #[cfg_attr(target_os = "windows", allow(unused_variables))] // `home` is macOS/Linux only
     fn manifest_dir(self) -> Option<PathBuf> {
         let home = dirs::home_dir()?;
         #[cfg(target_os = "macos")]
@@ -162,27 +163,26 @@ pub fn is_msix_packaged_exe_path(_path: &std::path::Path) -> bool {
 /// Does not copy files — safe to call from hot paths like profile scan.
 #[cfg(target_os = "windows")]
 fn host_binary_path_for_manifest() -> std::io::Result<String> {
-    let source = std::env::current_exe()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    let source = std::env::current_exe().map_err(|e| std::io::Error::other(e.to_string()))?;
     if is_msix_packaged_exe_path(&source) {
-        let dest_dir = native_host_stage_dir().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve LOCALAPPDATA")
-        })?;
+        let dest_dir = native_host_stage_dir()
+            .ok_or_else(|| std::io::Error::other("cannot resolve LOCALAPPDATA"))?;
         let dest_exe = dest_dir.join(STAGED_NATIVE_HOST_EXE);
         if dest_exe.exists() {
             if staged_copy_stale(&source, &dest_exe) {
                 ensure_staged_native_host(&source)?;
             }
-            return dest_exe.to_str().map(String::from).ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::Other, "non-utf8 staged path")
-            });
+            return dest_exe
+                .to_str()
+                .map(String::from)
+                .ok_or_else(|| std::io::Error::other("non-utf8 staged path"));
         }
         return ensure_staged_native_host(&source);
     }
     source
         .to_str()
         .map(String::from)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "non-utf8 exe path"))
+        .ok_or_else(|| std::io::Error::other("non-utf8 exe path"))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -199,8 +199,7 @@ fn host_binary_path_for_manifest() -> std::io::Result<String> {
 fn manifest_binary_path() -> std::io::Result<String> {
     #[cfg(target_os = "windows")]
     {
-        let source = std::env::current_exe()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let source = std::env::current_exe().map_err(|e| std::io::Error::other(e.to_string()))?;
         if is_msix_packaged_exe_path(&source) {
             return ensure_staged_native_host(&source);
         }
@@ -298,22 +297,21 @@ fn sync_install_dir_to_stage(
 fn ensure_staged_native_host(source_exe: &std::path::Path) -> std::io::Result<String> {
     let source_dir = source_exe
         .parent()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "exe has no parent dir"))?;
-    let dest_dir = native_host_stage_dir().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve LOCALAPPDATA")
-    })?;
+        .ok_or_else(|| std::io::Error::other("exe has no parent dir"))?;
+    let dest_dir = native_host_stage_dir()
+        .ok_or_else(|| std::io::Error::other("cannot resolve LOCALAPPDATA"))?;
     sync_install_dir_to_stage(source_dir, &dest_dir)?;
     let dest_exe = dest_dir.join(STAGED_NATIVE_HOST_EXE);
     if !dest_exe.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("staged exe missing at {}", dest_exe.display()),
-        ));
+        return Err(std::io::Error::other(format!(
+            "staged exe missing at {}",
+            dest_exe.display()
+        )));
     }
     dest_exe
         .to_str()
         .map(String::from)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "non-utf8 staged path"))
+        .ok_or_else(|| std::io::Error::other("non-utf8 staged path"))
 }
 
 #[cfg(target_os = "windows")]
@@ -549,6 +547,7 @@ pub fn firefox_native_host_is_current() -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(clippy::needless_return)] // cfg dispatch: the return is load-bearing on the other platform
 pub fn firefox_native_host_is_current() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -733,9 +732,9 @@ fn uninstall_one(browser: BrowserTarget) -> std::io::Result<()> {
 #[cfg(target_os = "windows")]
 fn install_one(browser: BrowserTarget, binary: &str) -> std::io::Result<()> {
     // 1. Write the manifest to %LOCALAPPDATA%\Digital Habits Blocker\native-host\.
-    let dir = browser.manifest_dir().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve manifest dir")
-    })?;
+    let dir = browser
+        .manifest_dir()
+        .ok_or_else(|| std::io::Error::other("cannot resolve manifest dir"))?;
     std::fs::create_dir_all(&dir)?;
     let manifest_path = dir.join(format!("{HOST_NAME}-{}.json", browser_slug(browser)));
     let body = manifest_body(browser, binary);
@@ -745,7 +744,7 @@ fn install_one(browser: BrowserTarget, binary: &str) -> std::io::Result<()> {
     let registry_key = registry_key_path(browser);
     let manifest_str = manifest_path
         .to_str()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "non-utf8 manifest path"))?;
+        .ok_or_else(|| std::io::Error::other("non-utf8 manifest path"))?;
     write_hkcu_default(&registry_key, manifest_str)?;
     Ok(())
 }
@@ -868,10 +867,9 @@ fn write_hkcu_default(path: &str, value: &str) -> std::io::Result<()> {
             None,
         );
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegCreateKeyExW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegCreateKeyExW failed: {status:?}"
+            )));
         }
         let data_wide = to_wide(value);
         let bytes_len = (data_wide.len() * 2) as u32;
@@ -881,10 +879,9 @@ fn write_hkcu_default(path: &str, value: &str) -> std::io::Result<()> {
         let status = RegSetValueExW(hkey, PCWSTR::null(), Some(0), REG_SZ, Some(data_bytes));
         let _ = RegCloseKey(hkey);
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegSetValueExW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegSetValueExW failed: {status:?}"
+            )));
         }
     }
     Ok(())
@@ -900,10 +897,9 @@ fn delete_hkcu_key(path: &str) -> std::io::Result<()> {
         let wide = to_wide(path);
         let status = RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(wide.as_ptr()));
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegDeleteKeyW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegDeleteKeyW failed: {status:?}"
+            )));
         }
     }
     Ok(())

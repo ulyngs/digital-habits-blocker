@@ -69,6 +69,7 @@ fn read_map_from_value(data: &Value) -> HashMap<String, String> {
 }
 
 /// Effective blocking method for a browser key on this platform.
+#[allow(clippy::needless_return)] // cfg dispatch: the return is load-bearing on the other platform
 pub fn method_for_key_at_path(path: &Path, key: &str) -> Method {
     #[cfg(not(target_os = "macos"))]
     {

@@ -268,6 +268,9 @@ pub struct BlockInfo {
     pub started_at: Option<u64>,
 }
 
+// Referenced by serde as a string in `#[serde(default = "...")]`, which the
+// dead-code pass cannot see.
+#[allow(dead_code)]
 fn default_blocklist_mode() -> String {
     "blocklist".to_string()
 }
@@ -275,6 +278,16 @@ fn default_blocklist_mode() -> String {
 pub fn blocklist_mode_is_allowlist(mode: &str) -> bool {
     mode.eq_ignore_ascii_case("allowlist")
 }
+
+/// `(name, emoji, color, mode, websites_lowercased, apps)` for one blocklist.
+type BlocklistMeta = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    Vec<String>,
+    Vec<String>,
+);
 
 /// Read redd-block-data.json and compute (a) the deduped legacy flat
 /// blocklist domain list, (b) the additive per-block metadata array sorted
@@ -309,15 +322,7 @@ pub fn derive_payload(data_path: &std::path::Path) -> (Vec<String>, Vec<BlockInf
         .cloned()
         .unwrap_or_default();
 
-    // (name, emoji, color, mode, websites_lowercased, apps) for the matching blocklist.
-    let blocklist_meta = |id: &str| -> Option<(
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-        Vec<String>,
-        Vec<String>,
-    )> {
+    let blocklist_meta = |id: &str| -> Option<BlocklistMeta> {
         blocklists
             .iter()
             .find(|b| b.get("id").and_then(|v| v.as_str()) == Some(id))
@@ -803,7 +808,7 @@ fn local_time_components_full(now_ms: u64) -> Option<(u8, u8, u8, u8)> {
         use windows::Win32::System::Time::FileTimeToSystemTime;
         // Convert unix seconds to a FILETIME (100ns ticks since 1601-01-01).
         const EPOCH_DIFF_100NS: i64 = 116_444_736_000_000_000;
-        let ticks = (secs as i64) * 10_000_000 + EPOCH_DIFF_100NS;
+        let ticks = secs * 10_000_000 + EPOCH_DIFF_100NS;
         let ft = FILETIME {
             dwLowDateTime: (ticks as u32),
             dwHighDateTime: ((ticks >> 32) as u32),

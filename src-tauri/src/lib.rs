@@ -29,9 +29,11 @@ use tauri::Manager;
 /// runtime so the app behaves like Cold Turkey Blocker:
 ///   - window visible  → Regular  (Dock icon, menu bar present)
 ///   - window hidden   → Accessory (tray-only, runs in the background)
+///
 /// The enforcer keeps running regardless of the policy; this is purely
 /// a UI affordance.
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 pub(crate) fn set_macos_activation_policy(regular: bool) {
     use cocoa::appkit::NSApplication;
     use cocoa::appkit::NSApplicationActivationPolicy::{
@@ -156,6 +158,7 @@ pub mod windows_process;
 /// hook it at the AppKit layer ourselves. In-app uninstall exits via
 /// `std::process::exit(0)` and so is not routed through here.
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa crate; objc2 migration is separate work
 unsafe fn install_terminate_guard(ns_app: cocoa::base::id) {
     use cocoa::base::id;
     use objc::runtime::{class_addMethod, class_getInstanceMethod, method_setImplementation, Sel};
@@ -184,10 +187,10 @@ unsafe fn install_terminate_guard(ns_app: cocoa::base::id) {
     let sel = sel!(applicationShouldTerminate:);
     let method = class_getInstanceMethod(cls, sel) as *mut objc::runtime::Method;
     let imp = should_terminate as extern "C" fn(id, Sel, id) -> u64;
-    let imp_ptr = std::mem::transmute::<_, objc::runtime::Imp>(imp);
+    let imp_ptr = std::mem::transmute::<extern "C" fn(id, Sel, id) -> u64, objc::runtime::Imp>(imp);
     if method.is_null() {
         // Encoding for `NSApplicationTerminateReply (^)(id self, SEL _cmd, id sender)`.
-        let types = b"Q@:@\0".as_ptr() as *const i8;
+        let types = c"Q@:@".as_ptr();
         let added = class_addMethod(cls, sel, imp_ptr, types);
         log::info!("install_terminate_guard: added applicationShouldTerminate: ({added})");
     } else {
@@ -348,6 +351,7 @@ pub fn run() {
             // survives every "quit" gesture and keeps running in the
             // tray.
             #[cfg(target_os = "macos")]
+            #[allow(deprecated)] // cocoa crate; objc2 migration is separate work
             unsafe {
                 let is_autostart = std::env::args().any(|a| a == "--autostart");
                 set_macos_activation_policy(!is_autostart);
@@ -391,10 +395,14 @@ pub fn run() {
                 commands::ensure_macos_traffic_lights_visible(app.handle());
 
                 // Set background color to match app (white)
+                #[allow(deprecated)] // cocoa crate; objc2 migration is separate work
                 use cocoa::appkit::{NSColor, NSWindow};
+                #[allow(deprecated)]
                 use cocoa::base::{id, nil};
 
+                #[allow(deprecated)] // cocoa crate; objc2 migration is separate work
                 let ns_window = window.ns_window().unwrap() as id;
+                #[allow(deprecated)] // cocoa crate; objc2 migration is separate work
                 unsafe {
                     // Pure white background
                     let bg_color = NSColor::colorWithRed_green_blue_alpha_(

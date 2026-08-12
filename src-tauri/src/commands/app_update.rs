@@ -1,5 +1,11 @@
 //! Download a GitHub release installer and open it in the system installer UI.
 
+#![allow(deprecated)]
+// The macOS FFI in this module goes through the `cocoa` crate, whose entire
+// surface is deprecated in favour of `objc2`. That migration is real work and
+// unrelated to what this module does; scoping the allow here keeps the
+// `-D warnings` clippy gate meaningful for every other lint.
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -12,6 +18,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 const GITHUB_RELEASES: &str = "https://github.com/ulyngs/digital-habits-blocker/releases/download";
+#[allow(dead_code)] // used on macOS; dead on Windows
 const LATEST_VERSIONS_URL: &str =
     "https://ulyngs.github.io/digital-habits-blocker/latest-versions.json";
 
@@ -24,12 +31,14 @@ struct UpdateDownloadProgress {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // used on macOS; dead on Windows
 struct LatestVersionsManifest {
     macos: Option<serde_json::Value>,
     sha256: Option<ManifestChecksums>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // used on macOS; dead on Windows
 struct ManifestChecksums {
     #[serde(rename = "macosPkg")]
     macos_pkg: Option<String>,
@@ -39,6 +48,7 @@ fn normalize_version(version: &str) -> String {
     version.trim().trim_start_matches('v').trim().to_string()
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 fn platform_version_from_manifest(value: &serde_json::Value) -> Option<String> {
     match value {
         serde_json::Value::String(version) => Some(normalize_version(version)),
@@ -50,6 +60,7 @@ fn platform_version_from_manifest(value: &serde_json::Value) -> Option<String> {
     }
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 async fn fetch_expected_macos_pkg_sha256(version: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent(format!("ReDD-Blocker/{}", env!("CARGO_PKG_VERSION")))
@@ -89,6 +100,7 @@ async fn fetch_expected_macos_pkg_sha256(version: &str) -> Result<String, String
         })
 }
 
+#[allow(clippy::needless_return)] // cfg dispatch: the return is load-bearing on the other platform
 fn release_asset(version: &str) -> Result<(String, String), String> {
     let version = normalize_version(version);
     if version.is_empty() {
@@ -100,7 +112,7 @@ fn release_asset(version: &str) -> Result<(String, String), String> {
     {
         let filename = format!("Digital-Habits-Blocker-{version}.pkg");
         let url = format!("{GITHUB_RELEASES}/{tag}/{filename}");
-        return Ok((url, filename));
+        Ok((url, filename))
     }
 
     #[cfg(target_os = "windows")]
@@ -173,6 +185,7 @@ async fn download_file(app: &AppHandle, url: &str, dest: &Path) -> Result<(), St
     Ok(())
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 async fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
     let mut file = tokio::fs::File::open(path)
         .await
@@ -205,11 +218,11 @@ async fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
 
 fn emit_progress(app: &AppHandle, bytes_received: u64, total_bytes: Option<u64>) {
     let percent = total_bytes.map(|total| {
-        if total == 0 {
-            0
-        } else {
-            ((bytes_received.saturating_mul(100)) / total).min(100) as u8
-        }
+        bytes_received
+            .saturating_mul(100)
+            .checked_div(total)
+            .unwrap_or(0)
+            .min(100) as u8
     });
     let _ = app.emit(
         "update-download-progress",

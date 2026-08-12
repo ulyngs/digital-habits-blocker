@@ -45,6 +45,7 @@ pub fn set_blocking_method(
     Ok(blocking_method::read_map_from_path(&path))
 }
 
+#[cfg_attr(target_os = "windows", allow(unreachable_code))] // the cfg arm above returns
 fn apply_side_effects(app: &AppHandle, browser: &str, method: Method) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {

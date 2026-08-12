@@ -1,3 +1,9 @@
+#![allow(deprecated)]
+// The macOS FFI in this module goes through the `cocoa` crate, whose entire
+// surface is deprecated in favour of `objc2`. That migration is real work and
+// unrelated to what this module does; scoping the allow here keeps the
+// `-D warnings` clippy gate meaningful for every other lint.
+
 // Tauri commands for browser-extension-based blocking (Windows path).
 //
 // The UI calls these during onboarding and background enforcement. All
@@ -28,9 +34,12 @@ const MAIN_RESTORE_MIN_H: f64 = 360.0;
 
 /// Inner width (logical points) for the warning-only shell — frontend
 /// measures height and calls [`resize_blocking_warning_inner_size`].
+// Used by the Windows app-blocking warning window.
+#[allow(dead_code)]
 const WARNING_COMPACT_W: f64 = 592.0;
 
 /// Short-lived bootstrap height before JS fits the window to content.
+#[allow(dead_code)]
 const WARNING_COMPACT_BOOTSTRAP_H: f64 = 360.0;
 
 /// Loose bounds so we can shrink below the normal app min. The
@@ -71,7 +80,7 @@ pub async fn scan_browser_profiles() -> Result<profile_scan::ScanResult, String>
 /// no Dock click to bring the process back to the front.
 #[tauri::command]
 pub fn activate_app(window: tauri::Window) {
-    reveal_app(&window.app_handle());
+    reveal_app(window.app_handle());
 }
 
 /// Show the main window and put the app in Regular activation
@@ -154,7 +163,7 @@ pub fn activate_external_process_by_pid(target_pid: u32) {
         if !IsWindowVisible(hwnd).as_bool() {
             return BOOL(1); // continue enumeration
         }
-        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or(HWND::default());
+        let owner = GetWindow(hwnd, GW_OWNER).unwrap_or_default();
         if owner != HWND::default() {
             return BOOL(1); // continue enumeration
         }
@@ -839,6 +848,7 @@ pub async fn browser_profiles_compliant() -> Result<bool, String> {
 /// Accessibility permission for System Events; tries both the legacy
 /// toolbar layout and the Ventura+ sidebar layout.
 #[cfg(target_os = "macos")]
+#[allow(dead_code)] // used on macOS; dead on Windows
 pub(crate) fn open_safari_extensions_settings_applescript() -> Result<(), String> {
     const SCRIPT: &str = concat!(
         "tell application \"Safari\" to activate\n",
@@ -885,6 +895,7 @@ pub(crate) fn open_safari_extensions_settings_applescript() -> Result<(), String
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)] // used on macOS; dead on Windows
 pub(crate) fn open_safari_extensions_settings_applescript() -> Result<(), String> {
     Err("Safari is macOS-only".into())
 }
@@ -971,6 +982,7 @@ pub fn open_browser_extension_settings(browser: String) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)] // used on macOS; dead on Windows
 fn is_mac_app_store_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     lower.starts_with("macappstore://")

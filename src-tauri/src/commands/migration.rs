@@ -306,7 +306,7 @@ pub async fn run_upgrade_migration(app: tauri::AppHandle) -> Result<bool, String
         None => return Ok(false),
     };
 
-    let mut data = read_data(&data_path).unwrap_or_else(serde_json::Map::new);
+    let mut data = read_data(&data_path).unwrap_or_default();
 
     // (A) Detect. The residue check is the authoritative gate, NOT
     // the version stamp — residue can reappear (e.g., a manual
@@ -329,7 +329,7 @@ pub async fn run_upgrade_migration(app: tauri::AppHandle) -> Result<bool, String
     let app_data_dir = data_path
         .parent()
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir());
+        .unwrap_or_else(std::env::temp_dir);
     let outcome = run_elevated_migration(Some(&app_data_dir));
 
     // (D) Validate from userspace before stamping.

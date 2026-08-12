@@ -83,6 +83,9 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
+// The Chromium external-update hint and its tests are the only users, and
+// neither is compiled on Windows.
+#[cfg(not(target_os = "windows"))]
 use serde_json::json;
 
 use crate::native_host_install::{CHROMIUM_EXT_ID, FIREFOX_EXT_ID};
@@ -206,21 +209,29 @@ fn firefox_policies_json_path() -> PathBuf {
 /// running it on every app launch keeps the hints in place and
 /// re-creates them if the user removed any manually.
 pub fn install() -> std::io::Result<()> {
+    // macOS installs no hints at all: the Firefox extension is set up by hand
+    // and the Chromium browsers are driven by Automation, not the extension.
+    // (A `cfg(macos)` Firefox-policy block used to sit at the end of this
+    // function, unreachable behind this early return — removed with the
+    // restructure rather than left as dead code.)
     #[cfg(target_os = "macos")]
     {
         log::info!("extension_install::install() skipped on macOS — Firefox extension is manual");
-        return Ok(());
+        Ok(())
     }
-
-    log::info!("tcc-probe: extension_install::install() entered");
     #[cfg(not(target_os = "macos"))]
     {
+        log::info!("tcc-probe: extension_install::install() entered");
         for browser in BrowserTarget::all() {
             log::info!("tcc-probe: extension_install::install_chromium({browser:?}) start");
             if let Err(e) = install_chromium(browser) {
                 log::warn!("extension-install hint for {browser:?} failed: {e}");
             }
             log::info!("tcc-probe: extension_install::install_chromium({browser:?}) done");
+        }
+        #[cfg(target_os = "windows")]
+        if let Err(e) = install_firefox_registry() {
+            log::warn!("extension-install Firefox registry policy failed: {e}");
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -229,30 +240,15 @@ pub fn install() -> std::io::Result<()> {
             );
             maybe_scrub_external_uninstalls_once();
             log::info!("tcc-probe: extension_install::maybe_scrub_external_uninstalls_once() done");
+            log::info!("tcc-probe: extension_install::install_firefox_policy() start");
+            if let Err(e) = install_firefox_policy() {
+                log::warn!("extension-install Firefox policy failed: {e}");
+            }
+            log::info!("tcc-probe: extension_install::install_firefox_policy() done");
         }
+        log::info!("tcc-probe: extension_install::install() exited");
+        Ok(())
     }
-    #[cfg(target_os = "macos")]
-    {
-        log::info!("tcc-probe: extension_install::install_firefox_policy() start");
-        if let Err(e) = install_firefox_policy() {
-            log::warn!("extension-install Firefox policy failed: {e}");
-        }
-        log::info!("tcc-probe: extension_install::install_firefox_policy() done");
-    }
-    #[cfg(all(not(target_os = "macos"), target_os = "windows"))]
-    if let Err(e) = install_firefox_registry() {
-        log::warn!("extension-install Firefox registry policy failed: {e}");
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        log::info!("tcc-probe: extension_install::install_firefox_policy() start");
-        if let Err(e) = install_firefox_policy() {
-            log::warn!("extension-install Firefox policy failed: {e}");
-        }
-        log::info!("tcc-probe: extension_install::install_firefox_policy() done");
-    }
-    log::info!("tcc-probe: extension_install::install() exited");
-    Ok(())
 }
 
 /// Remove the install hint for every supported browser. Safe to call
@@ -294,12 +290,9 @@ fn install_chromium(browser: BrowserTarget) -> std::io::Result<()> {
     // on next launch. See the file-level doc for why we don't use
     // ExtensionSettings / `~/Library/Preferences/<bundle>.plist` on
     // macOS (Recommended-scope only; force-install needs Mandatory).
-    let dir = browser.external_extensions_dir().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "cannot resolve external-extensions dir",
-        )
-    })?;
+    let dir = browser
+        .external_extensions_dir()
+        .ok_or_else(|| std::io::Error::other("cannot resolve external-extensions dir"))?;
 
     // Skip if the parent (browser user-data dir) doesn't exist — no
     // point populating a hint for a browser that's never been
@@ -308,8 +301,7 @@ fn install_chromium(browser: BrowserTarget) -> std::io::Result<()> {
     // dir's existence is a good proxy for "browser has profile state
     // on this machine".
     let Some(parent) = dir.parent() else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        return Err(std::io::Error::other(
             "external-extensions dir has no parent",
         ));
     };
@@ -373,12 +365,9 @@ fn install_chromium(browser: BrowserTarget) -> std::io::Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn uninstall_chromium(browser: BrowserTarget) -> std::io::Result<()> {
-    let dir = browser.external_extensions_dir().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "cannot resolve external-extensions dir",
-        )
-    })?;
+    let dir = browser
+        .external_extensions_dir()
+        .ok_or_else(|| std::io::Error::other("cannot resolve external-extensions dir"))?;
     let path = dir.join(format!("{CHROMIUM_EXT_ID}.json"));
     if path.exists() {
         std::fs::remove_file(&path)?;
@@ -651,19 +640,14 @@ fn strip_tombstone_from_prefs(prefs_path: &std::path::Path) -> std::io::Result<(
 /// - We don't have write access to the bundle (e.g. non-admin macOS
 ///   account).
 #[cfg(target_os = "macos")]
+#[allow(dead_code)] // Linux path only; macOS sets Firefox up manually
 fn install_firefox_policy() -> std::io::Result<()> {
     let policies_path = firefox_policies_json_path();
     let Some(distribution_dir) = policies_path.parent() else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "policies.json path has no parent",
-        ));
+        return Err(std::io::Error::other("policies.json path has no parent"));
     };
     let Some(resources_dir) = distribution_dir.parent() else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "distribution dir has no parent",
-        ));
+        return Err(std::io::Error::other("distribution dir has no parent"));
     };
 
     log::info!(
@@ -868,10 +852,9 @@ fn write_hkcu_named_value(path: &str, value_name: &str, value: &str) -> std::io:
             None,
         );
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegCreateKeyExW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegCreateKeyExW failed: {status:?}"
+            )));
         }
         let name_wide = to_wide(value_name);
         let data_wide = to_wide(value);
@@ -887,10 +870,9 @@ fn write_hkcu_named_value(path: &str, value_name: &str, value: &str) -> std::io:
         );
         let _ = RegCloseKey(hkey);
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegSetValueExW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegSetValueExW failed: {status:?}"
+            )));
         }
     }
     Ok(())
@@ -906,10 +888,9 @@ fn delete_hkcu_key(path: &str) -> std::io::Result<()> {
         let wide = to_wide(path);
         let status = RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(wide.as_ptr()));
         if status != ERROR_SUCCESS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("RegDeleteKeyW failed: {status:?}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "RegDeleteKeyW failed: {status:?}"
+            )));
         }
     }
     Ok(())

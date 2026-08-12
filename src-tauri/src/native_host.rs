@@ -808,7 +808,7 @@ fn local_time_components_full(now_ms: u64) -> Option<(u8, u8, u8, u8)> {
         use windows::Win32::System::Time::FileTimeToSystemTime;
         // Convert unix seconds to a FILETIME (100ns ticks since 1601-01-01).
         const EPOCH_DIFF_100NS: i64 = 116_444_736_000_000_000;
-        let ticks = (secs as i64) * 10_000_000 + EPOCH_DIFF_100NS;
+        let ticks = secs * 10_000_000 + EPOCH_DIFF_100NS;
         let ft = FILETIME {
             dwLowDateTime: (ticks as u32),
             dwHighDateTime: ((ticks >> 32) as u32),

@@ -56,9 +56,8 @@ fn delete_legacy_tasks() {
 }
 
 fn write_wrappers(exe: &Path) -> std::io::Result<PathBuf> {
-    let dir = wrapper_dir(exe).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve wrapper dir")
-    })?;
+    let dir =
+        wrapper_dir(exe).ok_or_else(|| std::io::Error::other("cannot resolve wrapper dir"))?;
     std::fs::create_dir_all(&dir)?;
 
     let exe_name = exe

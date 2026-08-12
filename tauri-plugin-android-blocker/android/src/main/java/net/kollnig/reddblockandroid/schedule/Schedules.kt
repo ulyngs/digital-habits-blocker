@@ -167,19 +167,9 @@ object Schedules {
      */
     fun pauseSchedule(context: Context, scheduleId: String, untilMs: Long) {
         Log.d(TAG, "Pausing schedule $scheduleId until $untilMs")
-        val baseId = scheduleId.substringBefore("-").let {
-            // Flattened ids are `<uuid>-<segIdx>[-<occIdx>]`; a UUID itself
-            // contains dashes, so take the first 36 chars when it looks like
-            // a UUID, otherwise treat the whole id as the base.
-            if (scheduleId.length >= 36) scheduleId.take(36) else scheduleId
-        }
+        val baseId = pauseBaseId(scheduleId)
         val schedules = getAll().map { schedule ->
-            // Only touch entities that are currently enabled — an entity the
-            // user disabled from the webview must not be resurrected by the
-            // pause-expiry ReEnableWorker.
-            if (schedule.isEnabled &&
-                (schedule.id == scheduleId || schedule.id == baseId || schedule.id.startsWith("$baseId-"))
-            ) {
+            if (isPauseTarget(schedule, scheduleId, baseId)) {
                 ScheduleManager.scheduleReEnable(context, schedule.id, untilMs - System.currentTimeMillis())
                 schedule.copy(isEnabled = false, disabledUntil = untilMs)
             } else {
@@ -188,6 +178,27 @@ object Schedules {
         }
         saveAll(schedules)
     }
+
+    /**
+     * Base id shared by every entity of one webview schedule.
+     *
+     * Flattened ids are `<uuid>-<segIdx>[-<occIdx>]`; a UUID itself contains
+     * dashes, so take the first 36 chars when the id is long enough to carry
+     * one, otherwise treat the whole id as the base.
+     */
+    internal fun pauseBaseId(scheduleId: String): String =
+        if (scheduleId.length >= 36) scheduleId.take(36) else scheduleId
+
+    /**
+     * Whether [schedule] is disabled by a pause of [scheduleId].
+     *
+     * Only entities that are currently enabled are touched — an entity the
+     * user disabled from the webview must not be resurrected by the
+     * pause-expiry [ReEnableWorker].
+     */
+    internal fun isPauseTarget(schedule: Schedule, scheduleId: String, baseId: String): Boolean =
+        schedule.isEnabled &&
+            (schedule.id == scheduleId || schedule.id == baseId || schedule.id.startsWith("$baseId-"))
 
     /** Ends a pause: re-enables the schedule when [ReEnableWorker] fires. */
     fun reEnableSchedule(context: Context, scheduleId: String) {

@@ -4,6 +4,7 @@ This document expands the `README.md` testing section with a deeper technical ex
 
 Terminology in this file follows `README.md`:
 
+- **Tier 0** = plain unit tests over pure `src/` helpers (vitest, no app shell)
 - **Tier 1** = in-app logic tests
 - **Tier 2** = in-app integration tests (desktop command-path + legacy hosts checks)
 
@@ -15,15 +16,26 @@ There is **no Tier 3** anymore — the v1.x privileged helper daemon and its smo
 
 Each tier answers a different quality question:
 
+- **Tier 0**: Is an individual exported helper correct in isolation?
 - **Tier 1**: Is our blocking logic correct as pure behavior?
 - **Tier 2**: Do app → Tauri command paths, data persistence, and migration cleanup behave correctly?
 
 No single tier is sufficient on its own. **Website blocking enforcement** (macOS Automation redirects, Windows/Firefox native messaging) is validated primarily through the **manual checklist** — Tier 2 asserts the Rust-derived enforcement snapshot (`current_blocking`), which proves derivation is correct but not that a browser actually redirects.
 
+Tier 0 and Tier 1 overlap in kind but not in reach. Tier 1 owns the
+*composed* question — schedule windows, overlaps, allowlist resolution — and
+runs the real runner inside a page. Tier 0 exists for the leaf functions that
+composition is built out of, which previously had no home above Tier 2: things
+like `clampDefaultPauseMinutes`, `androidFrictionChallengeFields` or
+`isProtectedApp` are pure, are asserted in milliseconds, and do not need a
+browser to be meaningful. When a case fits both, prefer Tier 1 — it is the
+layer closer to observed behavior.
+
 ---
 
 ## Quick run guide
 
+- **Tier 0**: `npm run test:tier0` (add `-- --watch` while iterating)
 - **Tier 1**
   - Start app in dev mode: `npm run dev`
   - Trigger tests: `Cmd+Shift+T` (macOS) or `Ctrl+Shift+T` (Windows)
@@ -44,10 +56,12 @@ summarized below:
 | Workflow | Job | Runs | Trigger |
 | --- | --- | --- | --- |
 | `ci.yml` | Frontend bundle | `vite:build`, `vite:build:android`, `verify:android-bundle` | every PR, every push to `main` |
+| `ci.yml` | Tier 0 unit tests | `npm run test:tier0` — vitest over `test/tier0/**` | every PR, every push to `main` |
 | `ci.yml` | Tier 1 logic tests | `npm run test:tier1` — `runBlockingTests()` in headless Chromium | every PR, every push to `main` |
 | `release.yml` | Checks (lint + Tier 1) | `npm run lint`, `npm run test:tier1` — gates all four build jobs | every release run |
 | `release.yml` | macOS (.pkg) | `cargo test --lib` before signing | every release run |
 | `rust-ci.yml` | Rust unit tests | `cargo test --lib` on `macos-latest` | `src-tauri/**` changes, on PRs and `main` |
+| `rust-ci.yml` | Clippy (desktop) | `cargo clippy --lib -- -D warnings` on `macos-latest` **and** `windows-latest` | `src-tauri/**` changes, on PRs and `main` |
 | `android-ci.yml` | Android debug APK | debug APK build, then `:tauri-plugin-android-blocker:testDebugUnitTest` | `src/**`, `src-tauri/**`, plugin, build config, on PRs and `main` |
 | `e2e-ci.yml` | Tier 2 (macOS + Windows) | `runIntegrationTests('full')` against a real built app over WebDriver | Tier 2 sources, `e2e/**`, `vite.config.js`, on PRs and `main` |
 
@@ -81,11 +95,106 @@ Notes on the non-obvious choices:
   applies the generated, gitignored `tauri.settings.gradle`, which is what adds
   `:tauri-android` and `:tauri-plugin-android-blocker` to the build. Gradle
   cannot configure the project until the Tauri CLI has written it.
+- **The Robolectric suites need network on their first run.** Robolectric
+  fetches an `android-all` runtime jar from Maven for the SDK level pinned in
+  `src/test/resources/robolectric.properties` and caches it. CI has network, so
+  this only shows up as a slower first run; offline, those two suites fail while
+  the plain-JUnit ones still pass.
 
 **Tier 2 runs in CI** (`e2e-ci.yml`) against a real built app, because it drives
 the actual Tauri command layer and cannot run on a bare page like Tier 1. See
 "Tier 2 under WebDriver" below. Running it by hand from the dev console still
 works and is unchanged.
+
+---
+
+## Tier 0: Unit Tests
+
+### Purpose
+
+Tier 0 asserts individual exported helpers from `src/` directly, with no app
+shell, no built bundle and no Tauri layer. It is where a leaf function's edge
+cases belong — boundary values, malformed input, "exact match, not substring".
+
+### Entry points and structure
+
+- Cases: `test/tier0/**/*.test.js`
+- Config: `vitest.config.mjs` (kept separate from `vite.config.js`, which
+  carries the index.html rewriting, PurgeCSS and Android asset-pruning plugins
+  that mean nothing when the entry point is a test file)
+- Run: `npm run test:tier0`
+
+### What it covers today
+
+| File | Module under test |
+| --- | --- |
+| `blocklist-utils.test.js` | protected apps/domains, always-on detection, iOS Screen Time selection normalization, quick-start healing, focus-space colours |
+| `schedule-engine.test.js` | Android payload mapping (day names, friction fields), repeat classification, one-off enforcement windows, pause state |
+| `pause-and-time-inputs.test.js` | default pause clamp (mirrors Kotlin `coerceDefaultPauseMinutes`), end-time field parsing |
+
+### Notes on the environment
+
+- `environment: 'jsdom'`. Most of these modules are leaf-ish, but several
+  import siblings that touch `document` at import time; jsdom means a Tier 0
+  test never has to hand-roll a DOM just to get an import to resolve.
+- `__ANDROID_BUILD__` is defined as `false`, so modules resolve the same
+  branches they do in a desktop build. A helper whose Android behavior differs
+  needs the runtime `state.isAndroid` flag, not the compile-time constant — see
+  the note in `AGENTS.md`.
+- Tests that mutate the shared `state` object must restore it (`try`/`finally`);
+  vitest runs a file's tests in one module registry, so a leaked `state.appData`
+  is visible to every later case in that file.
+
+### What differentiates Tier 0
+
+- Fastest feedback in the repo — the whole suite is well under two seconds,
+  versus a Vite dev server for Tier 1 and a full app build for Tier 2.
+- Proves nothing about composition or about anything reaching the Tauri layer.
+  A passing Tier 0 suite and broken blocking are entirely compatible.
+
+---
+
+## Android Kotlin unit tests
+
+Run: `cd src-tauri/gen/android && ./gradlew :tauri-plugin-android-blocker:testDebugUnitTest`
+
+| Suite | Covers | Runner |
+| --- | --- | --- |
+| `BrowserUrlParserTest` | URL-bar text → blockable domain, per browser | plain JUnit |
+| `SchedulesTest` | which schedule blocks an app/domain; session, pause and time-window gating; SharedPreferences round-trip | plain JUnit |
+| `BlockerServiceTest` | an accessibility event → the friction gate launches with the right payload, or provably does not (keyguard, self-package, throttle, unblocked app) | Robolectric |
+| `UnlockActivityTest` | the friction gate: challenge generation and validation, pause commit, dismissal paths | Robolectric |
+
+Why this matters more than it looks: **Android shares none of the desktop
+enforcement code.** `Schedules.kt` re-implements the semantics `native_host::derive_payload`
+derives on desktop, and nothing but these two test suites keeps the two in step.
+A change to blocking semantics needs a case on both sides.
+
+### Environment notes
+
+- `isReturnDefaultValues = true` keeps plain-JUnit tests from throwing on
+  `android.util.Log`. Robolectric supplies its own framework implementation and
+  is unaffected.
+- A real `org.json` is on the test classpath ahead of the stub, so
+  `Schedules`'s persistence round-trips actually round-trip instead of silently
+  producing empty data.
+- Robolectric emulates the SDK level pinned in
+  `src/test/resources/robolectric.properties` rather than following `compileSdk`,
+  so bumping `compileSdk` does not silently change what the tests run against.
+- `isIncludeAndroidResources = true` lets `UnlockActivityTest` inflate
+  `R.layout.activity_unlock` and resolve `R.string` / `R.color`.
+- `androidx.work:work-testing` supplies the WorkManager that
+  `Schedules.pauseSchedule` enqueues a `ReEnableWorker` into; without it the
+  gate's confirm path throws.
+
+### What these do not cover
+
+- The **website interception path** in `BlockerService`, which reads the browser
+  accessibility tree via `rootInActiveWindow`. Robolectric cannot populate that
+  for an AccessibilityService. The parsing half is covered by
+  `BrowserUrlParserTest`; the end-to-end half stays on the manual checklist.
+- `ScheduleManager`'s real WorkManager scheduling, and anything that depends on
+  a real device's accessibility grant.
 
 ---
 

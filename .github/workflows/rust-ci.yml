@@ -61,3 +61,42 @@ jobs:
       - name: cargo test --lib
         working-directory: src-tauri
         run: cargo test --lib
+
+  # Static analysis for the desktop enforcement engine. The Android job's
+  # clippy run compiles out everything gated `cfg(not(any(ios, android)))` —
+  # app_watcher, enforcer, native_host, profile_scan — plus every macOS- and
+  # Windows-only module, so roughly 60% of src-tauri/src had no lint coverage
+  # at all until this job existed.
+  #
+  # Both hosts, because the two see genuinely different code: most of the
+  # dead-code and cfg-dispatch findings here are live on one platform and dead
+  # on the other, and a macOS-only gate would demand deleting Windows code.
+  # There is no Linux entry — the lib does not compile there (see the header).
+  clippy:
+    name: Clippy (desktop, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: clippy-${{ matrix.os }}
+      - run: npm ci
+      # Same reason as the test job: build.rs validates that ../dist exists.
+      - run: npm run vite:build
+      # `--lib` matches the Android clippy invocation and skips the stale
+      # `test_watcher` example.
+      - name: cargo clippy --lib
+        working-directory: src-tauri
+        run: cargo clippy --lib -- -D warnings

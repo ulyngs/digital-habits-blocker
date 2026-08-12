@@ -1,5 +1,11 @@
 //! Download a GitHub release installer and open it in the system installer UI.
 
+#![allow(deprecated)]
+// The macOS FFI in this module goes through the `cocoa` crate, whose entire
+// surface is deprecated in favour of `objc2`. That migration is real work and
+// unrelated to what this module does; scoping the allow here keeps the
+// `-D warnings` clippy gate meaningful for every other lint.
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -100,7 +106,7 @@ fn release_asset(version: &str) -> Result<(String, String), String> {
     {
         let filename = format!("Digital-Habits-Blocker-{version}.pkg");
         let url = format!("{GITHUB_RELEASES}/{tag}/{filename}");
-        return Ok((url, filename));
+        Ok((url, filename))
     }
 
     #[cfg(target_os = "windows")]
@@ -205,11 +211,11 @@ async fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
 
 fn emit_progress(app: &AppHandle, bytes_received: u64, total_bytes: Option<u64>) {
     let percent = total_bytes.map(|total| {
-        if total == 0 {
-            0
-        } else {
-            ((bytes_received.saturating_mul(100)) / total).min(100) as u8
-        }
+        bytes_received
+            .saturating_mul(100)
+            .checked_div(total)
+            .unwrap_or(0)
+            .min(100) as u8
     });
     let _ = app.emit(
         "update-download-progress",

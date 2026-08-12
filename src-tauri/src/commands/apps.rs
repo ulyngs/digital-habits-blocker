@@ -42,7 +42,7 @@ pub async fn open_app_picker(app: tauri::AppHandle) -> Result<Vec<String>, Strin
         Some(file_paths) => {
             let mut app_names = Vec::new();
             for file_path in file_paths {
-                if let Some(path) = file_path.into_path().ok() {
+                if let Ok(path) = file_path.into_path() {
                     if let Some(name) = path.file_stem() {
                         app_names.push(name.to_string_lossy().to_string());
                     } else {

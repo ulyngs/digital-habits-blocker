@@ -26,6 +26,12 @@
 //! its legacy polling cadence — event delivery is a power optimization,
 //! never a correctness dependency.
 
+#![allow(deprecated)]
+// The macOS FFI in this module goes through the `cocoa` crate, whose entire
+// surface is deprecated in favour of `objc2`. That migration is real work and
+// unrelated to what this module does; scoping the allow here keeps the
+// `-D warnings` clippy gate meaningful for every other lint.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 

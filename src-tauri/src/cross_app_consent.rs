@@ -127,7 +127,7 @@ fn safari_fda_marker_path() -> Option<PathBuf> {
 
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SafariFdaChoice {
+pub enum SafariFdaChoice {
     Granted,
     Revoked,
 }

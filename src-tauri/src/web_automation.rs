@@ -559,13 +559,10 @@ fn tick(
 /// True when any active block enforces website restrictions (blocklist
 /// domains or allowlist-only browsing).
 pub fn web_enforcement_active(blocks: &[BlockInfo]) -> bool {
-    blocks.iter().any(|b| {
-        if native_host::blocklist_mode_is_allowlist(&b.mode) {
-            !b.domains.is_empty()
-        } else {
-            !b.domains.is_empty()
-        }
-    })
+    // Both modes come down to the same question: an allowlist block with no
+    // domains allows everything, and a blocklist block with no domains blocks
+    // nothing. Matches `enforcer::website_blocking_active`.
+    blocks.iter().any(|b| !b.domains.is_empty())
 }
 
 /// Decide what to do with each tab: redirect blocked sites to the block
@@ -1254,16 +1251,6 @@ pub fn url_is_blocked(url: &str, blocks: &[BlockInfo]) -> bool {
     false
 }
 
-fn is_blocked(url: &str, domains: &[String]) -> bool {
-    if domains.is_empty() {
-        return false;
-    }
-    match hostname_of(url) {
-        Some(host) => domains.iter().any(|d| domain_matches(&host, d)),
-        None => false,
-    }
-}
-
 fn domain_matches(host: &str, domain: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
@@ -1451,12 +1438,13 @@ mod tests {
     }
 
     #[test]
-    fn is_blocked_matches_extension_semantics() {
-        let domains = vec!["reddit.com".to_string(), "x.com".to_string()];
-        assert!(is_blocked("https://old.reddit.com/", &domains));
-        assert!(is_blocked("https://x.com", &domains));
-        assert!(!is_blocked("https://example.com", &domains));
-        assert!(!is_blocked("file:///x", &domains));
+    fn blocklist_blocks_listed_hosts_and_their_subdomains() {
+        let blocks = vec![block("b", "blocklist", &["reddit.com", "x.com"], 0, 999)];
+        assert!(url_is_blocked("https://old.reddit.com/", &blocks));
+        assert!(url_is_blocked("https://x.com", &blocks));
+        assert!(!url_is_blocked("https://example.com", &blocks));
+        // Non-http schemes are never redirected.
+        assert!(!url_is_blocked("file:///x", &blocks));
     }
 
     #[test]

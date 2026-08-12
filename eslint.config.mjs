@@ -20,6 +20,9 @@ export default [
             'src-tauri/target/**',
             'src-tauri/gen/**',
             'browser-ext-migration/**',
+            // Gradle output — the Kotlin unit-test run drops an HTML report
+            // with its own bundled JS in here. Git ignores it too.
+            'tauri-plugin-android-blocker/android/build/**',
         ],
     },
 
@@ -71,8 +74,23 @@ export default [
     },
 
     {
+        // Tier 0 unit tests. They import `describe`/`test`/`expect` explicitly
+        // rather than relying on vitest globals, so only the DOM globals of the
+        // jsdom environment need declaring.
+        files: ['test/tier0/**/*.js'],
+        languageOptions: {
+            ecmaVersion: 2024,
+            sourceType: 'module',
+            globals: {
+                ...globals.browser,
+                __ANDROID_BUILD__: 'readonly',
+            },
+        },
+    },
+
+    {
         // Build/CI/release tooling.
-        files: ['scripts/**/*.{js,mjs,cjs}', 'vite.config.js'],
+        files: ['scripts/**/*.{js,mjs,cjs}', 'vite.config.js', 'vitest.config.mjs'],
         languageOptions: {
             ecmaVersion: 2024,
             sourceType: 'module',

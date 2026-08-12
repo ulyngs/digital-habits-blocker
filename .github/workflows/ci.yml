@@ -73,6 +73,21 @@ jobs:
       - run: npm run vite:build:android
       - run: npm run verify:android-bundle
 
+  tier0:
+    name: Tier 0 unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Plain vitest over the pure helpers in src/. No browser, no built
+      # bundle, no native toolchain — it is the cheapest suite here and is
+      # deliberately unfiltered by path for the same reason as `lint`.
+      - run: npm run test:tier0
+
   tier1:
     name: Tier 1 logic tests (headless)
     runs-on: ubuntu-latest

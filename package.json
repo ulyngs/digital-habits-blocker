@@ -27,6 +27,7 @@
     "vite:build:e2e": "vite build --mode e2e",
     "build:e2e-app": "npm run tauri -- build --debug --no-bundle --features e2e-webdriver --config src-tauri/tauri.e2e.conf.json",
     "test:tier2": "wdio run e2e/wdio.conf.js",
+    "test:tier0": "vitest run --config vitest.config.mjs",
     "verify:android-bundle": "node scripts/ci/verify-android-vite-output.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -71,6 +72,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9.39.5",
     "globals": "^16.5.0",
+    "jsdom": "^30.0.1",
     "lightningcss": "^1.33.0",
     "playwright": "^1.62.1",
     "png-to-ico": "^3.0.2",
@@ -78,6 +80,7 @@
     "rollup-plugin-visualizer": "^7.0.1",
     "sharp": "^0.35.3",
     "vite": "^8.2.1",
+    "vitest": "^4.1.10",
     "webdriverio": "^9.30.1"
   }
 }

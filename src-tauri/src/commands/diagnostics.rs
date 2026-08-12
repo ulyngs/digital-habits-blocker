@@ -446,6 +446,8 @@ fn strip_diagnostics_only_execution_fields(value: &mut serde_json::Value) {
 /// FDA snapshot for diagnostics — marker only, no live plist read.
 /// Reading Safari's protected Extensions.plist here can stall on TCC
 /// while the modal is open.
+// The macOS arm returns above; the trailing literal is the non-macOS value.
+#[cfg_attr(target_os = "macos", allow(unreachable_code))]
 fn collect_fda_info_for_diagnostics(browsers: &profile_scan::ScanResult) -> FdaInfo {
     #[cfg(target_os = "macos")]
     {

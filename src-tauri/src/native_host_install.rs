@@ -52,6 +52,7 @@ pub enum BrowserTarget {
 }
 
 impl BrowserTarget {
+    #[allow(dead_code)] // iterated by the non-macOS install path
     fn all() -> [BrowserTarget; 4] {
         [
             BrowserTarget::Chrome,
@@ -187,10 +188,10 @@ fn host_binary_path_for_manifest() -> std::io::Result<String> {
 #[cfg(not(target_os = "windows"))]
 fn host_binary_path_for_manifest() -> std::io::Result<String> {
     std::env::current_exe()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| std::io::Error::other(e.to_string()))?
         .to_str()
         .map(String::from)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "non-utf8 exe path"))
+        .ok_or_else(|| std::io::Error::other("non-utf8 exe path"))
 }
 
 /// Path written into native-messaging manifests. MSIX builds stage a
@@ -401,6 +402,9 @@ pub fn native_host_is_current(_browser: BrowserTarget) -> bool {
 ///
 /// For an explicit "reinstall manifests now" affordance (e.g. user
 /// hits a Reinstall hints button in the UI), use [`install_force`].
+// On macOS this function is an early return by design (Firefox setup is
+// manual there); the rest of the body is the Windows/Linux path.
+#[cfg_attr(target_os = "macos", allow(unreachable_code))]
 pub fn install() -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -408,9 +412,8 @@ pub fn install() -> std::io::Result<()> {
         return Ok(());
     }
 
-    let binary = current_binary_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve current exe")
-    })?;
+    let binary =
+        current_binary_path().ok_or_else(|| std::io::Error::other("cannot resolve current exe"))?;
 
     log::info!("tcc-probe: native_host_install::install() entered, binary={binary}");
 
@@ -484,9 +487,8 @@ pub fn sync_extension_mode_native_hosts(
 ) -> std::io::Result<()> {
     use crate::blocking_method::{self, Method, MAC_CHROMIUM_KEYS};
 
-    let binary = current_binary_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve current exe")
-    })?;
+    let binary =
+        current_binary_path().ok_or_else(|| std::io::Error::other("cannot resolve current exe"))?;
 
     for key in MAC_CHROMIUM_KEYS {
         if blocking_method::method_for_key_at_path(path, key) != Method::Extension {
@@ -523,9 +525,8 @@ pub fn sync_firefox_native_host(force: bool) -> std::io::Result<()> {
     if !crate::profile_scan::firefox_app_installed() {
         return Ok(());
     }
-    let binary = current_binary_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve current exe")
-    })?;
+    let binary =
+        current_binary_path().ok_or_else(|| std::io::Error::other("cannot resolve current exe"))?;
     if !force && !manifest_needs_update(BrowserTarget::Firefox, &binary) {
         log::debug!("native-host sync: firefox manifest already current, skipping");
         return Ok(());
@@ -569,6 +570,9 @@ pub fn uninstall_native_host_for(browser: BrowserTarget) -> std::io::Result<()> 
 /// hints" command — they're explicitly asking us to refresh, so the
 /// TCC prompt is contextually expected. Drops the marker on success
 /// so the next startup call stays silent.
+// On macOS this function is an early return by design (Firefox setup is
+// manual there); the rest of the body is the Windows/Linux path.
+#[cfg_attr(target_os = "macos", allow(unreachable_code))]
 pub fn install_force() -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -578,9 +582,8 @@ pub fn install_force() -> std::io::Result<()> {
         return Ok(());
     }
 
-    let binary = current_binary_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve current exe")
-    })?;
+    let binary =
+        current_binary_path().ok_or_else(|| std::io::Error::other("cannot resolve current exe"))?;
     log::info!("tcc-probe: native_host_install::install_force() entered, binary={binary}");
     let manifest_binary = manifest_binary_path()?;
     install_inner(&manifest_binary);
@@ -691,9 +694,9 @@ fn clear_startup_install_marker() {
 
 #[cfg(not(target_os = "windows"))]
 fn install_one(browser: BrowserTarget, binary: &str) -> std::io::Result<()> {
-    let dir = browser.manifest_dir().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve manifest dir")
-    })?;
+    let dir = browser
+        .manifest_dir()
+        .ok_or_else(|| std::io::Error::other("cannot resolve manifest dir"))?;
     log::info!(
         "tcc-probe: about to create_dir_all (cross-app) {} [browser={browser:?}]",
         dir.display()
@@ -711,9 +714,9 @@ fn install_one(browser: BrowserTarget, binary: &str) -> std::io::Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn uninstall_one(browser: BrowserTarget) -> std::io::Result<()> {
-    let dir = browser.manifest_dir().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "cannot resolve manifest dir")
-    })?;
+    let dir = browser
+        .manifest_dir()
+        .ok_or_else(|| std::io::Error::other("cannot resolve manifest dir"))?;
     let path = dir.join(format!("{HOST_NAME}.json"));
     if path.exists() {
         std::fs::remove_file(&path)?;

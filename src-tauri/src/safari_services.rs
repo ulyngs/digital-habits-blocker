@@ -22,7 +22,7 @@
 
 #![cfg(target_os = "macos")]
 
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CString};
 
 extern "C" {
     /// Writes a JSON object describing the extension state into
@@ -144,5 +144,5 @@ fn _ensure_cstr_lifetime() {
     // stack is sufficient. This empty function exists purely so a
     // future refactor doesn't accidentally pass &CStr::as_ptr()
     // across an await boundary.
-    let _ = CStr::from_bytes_with_nul(b"x\0");
+    let _ = c"x";
 }

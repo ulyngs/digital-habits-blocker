@@ -284,6 +284,9 @@ fn app_bundle_path() -> Option<String> {
 /// uses [`scrub_all_autostart_plists`], which also removes the current
 /// bundle's plist.
 #[cfg(target_os = "macos")]
+// Called from the release-only autostart bootstrap in lib.rs, so it reads as
+// dead in a debug build.
+#[allow(dead_code)]
 pub(crate) fn scrub_stale_autostart_plists() {
     scrub_autostart_plists(false);
 }

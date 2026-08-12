@@ -24,6 +24,16 @@ incremental = false
 name = "redd_block_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The `objc` crate's `msg_send!` macro still expands to a
+# `#[cfg(feature = "cargo-clippy")]` guard, which this crate does not (and
+# should not) declare. Without this, every macOS FFI call site emits an
+# `unexpected_cfgs` warning — 64 of them — which would drown a `-D warnings`
+# clippy gate in noise from a dependency we don't control.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(feature, values("cargo-clippy"))',
+] }
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

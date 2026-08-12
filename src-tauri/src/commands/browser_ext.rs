@@ -1,3 +1,9 @@
+#![allow(deprecated)]
+// The macOS FFI in this module goes through the `cocoa` crate, whose entire
+// surface is deprecated in favour of `objc2`. That migration is real work and
+// unrelated to what this module does; scoping the allow here keeps the
+// `-D warnings` clippy gate meaningful for every other lint.
+
 // Tauri commands for browser-extension-based blocking (Windows path).
 //
 // The UI calls these during onboarding and background enforcement. All
@@ -28,9 +34,12 @@ const MAIN_RESTORE_MIN_H: f64 = 360.0;
 
 /// Inner width (logical points) for the warning-only shell — frontend
 /// measures height and calls [`resize_blocking_warning_inner_size`].
+// Used by the Windows app-blocking warning window.
+#[allow(dead_code)]
 const WARNING_COMPACT_W: f64 = 592.0;
 
 /// Short-lived bootstrap height before JS fits the window to content.
+#[allow(dead_code)]
 const WARNING_COMPACT_BOOTSTRAP_H: f64 = 360.0;
 
 /// Loose bounds so we can shrink below the normal app min. The
@@ -71,7 +80,7 @@ pub async fn scan_browser_profiles() -> Result<profile_scan::ScanResult, String>
 /// no Dock click to bring the process back to the front.
 #[tauri::command]
 pub fn activate_app(window: tauri::Window) {
-    reveal_app(&window.app_handle());
+    reveal_app(window.app_handle());
 }
 
 /// Show the main window and put the app in Regular activation

@@ -181,14 +181,14 @@ export function blocklistNeedsIOSSelectionRefresh(blocklist) {
  * Stable serialization of an iOS Screen Time selection, for equality checks.
  *
  * Deliberately excludes `applicationCount` / `categoryCount` (derived — see
- * normalizeIOSScreenTimeSelection) and `requiresReselection` (a health flag that
- * can flip on read, which would make a no-op edit look like a change).
+ * normalizeIOSScreenTimeSelection), `summaryLabel` (display metadata), and
+ * `requiresReselection` (a health flag that can flip on read, which would make
+ * a no-op edit look like a change).
  */
 export function iosScreenTimeSelectionKey(selection) {
     return JSON.stringify({
         app: [...(selection?.applicationTokens || [])].sort(),
-        cat: [...(selection?.categoryTokens || [])].sort(),
-        summary: selection?.summaryLabel || ''
+        cat: [...(selection?.categoryTokens || [])].sort()
     });
 }
 
@@ -269,7 +269,7 @@ function difficultyComparable(difficulty) {
     // countBeforeMax / typeBeforeMax are UI-restore bookkeeping, not behaviour.
     return JSON.stringify({
         type: difficulty?.type ?? 'random-words',
-        count: Number(difficulty?.count) || 0,
+        count: Number(difficulty?.count ?? 50) || 0,
         maxDifficulty: difficulty?.maxDifficulty === true,
         customText: String(difficulty?.customText ?? ''),
     });
@@ -551,4 +551,3 @@ export function collectActiveIOSManualBlockPayload(now = Date.now()) {
     }
     return out;
 }
-

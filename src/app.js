@@ -1131,6 +1131,7 @@ function setupModalListeners() {
         state.lastBlocklistNameValue = nameInput.value;
     });
 
+    modalWebsiteInput.addEventListener('input', syncBlocklistUnlockHint);
     modalWebsiteInput.addEventListener('keydown', (e) => {
         const accel = e.metaKey || e.ctrlKey;
 
@@ -1211,6 +1212,7 @@ function setupModalListeners() {
         }
     });
 
+    modalAppInput.addEventListener('input', syncBlocklistUnlockHint);
     modalAppInput.addEventListener('keydown', (e) => {
         const accel = e.metaKey || e.ctrlKey;
 
@@ -1917,7 +1919,7 @@ function setupModalListeners() {
             // a five-second exercise. Snapshotted before commitBlocklistSave
             // runs, because that replaces blocklists[idx] by reference and
             // detaches `prev` from the store.
-            difficulty: cloneOverrideDifficulty(prev.overrideDifficulty, 10),
+            difficulty: cloneOverrideDifficulty(prev.overrideDifficulty),
             progressColor: prev.color,
             comparison,
         };

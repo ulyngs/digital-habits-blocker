@@ -2500,7 +2500,7 @@ export function openBlocklistModal(blocklist = null, options = {}) {
     document.getElementById('blocklist-name').classList.remove('input-error');
     state.lastBlocklistNameValue = modalName;
 
-    const normalizedDifficulty = cloneOverrideDifficulty(blocklist?.overrideDifficulty, 10);
+    const normalizedDifficulty = cloneOverrideDifficulty(blocklist?.overrideDifficulty);
     document.getElementById('override-type').value = normalizedDifficulty.type;
     document.getElementById('override-count').value = normalizedDifficulty.count;
     document.getElementById('custom-override-text').value = normalizedDifficulty.customText || '';
@@ -2657,8 +2657,6 @@ export function openBlocklistModal(blocklist = null, options = {}) {
     }
 
     document.getElementById('blocklist-modal').classList.remove('hidden');
-    // Clear any hint left over from a previous edit (nothing is pending yet).
-    syncBlocklistUnlockHint();
     // Clear any hint left over from a previous edit (nothing is pending yet).
     syncBlocklistUnlockHint();
 }
@@ -3433,10 +3431,6 @@ export function updateOverridePreview() {
 
     previewEl.textContent = previewText;
     previewEl.title = previewText;
-
-    // Convergence point for every exit-difficulty edit (type, count, steppers,
-    // max toggle, custom text), so one hook covers them all.
-    syncBlocklistUnlockHint();
 
     // Convergence point for every exit-difficulty edit (type, count, steppers,
     // max toggle, custom text), so one hook covers them all.

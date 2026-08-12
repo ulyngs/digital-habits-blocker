@@ -2687,6 +2687,24 @@
             assert(r.reasons.length >= 2, 'T93: each loosening gets its own reason');
             assertEqual(r.primaryReasonCode, R.WEBSITES_ALLOW_SCOPE_OPENED, 'T93: most severe reason is reported first');
         })();
+
+        (function T94() {
+            const legacy = block({ overrideDifficulty: undefined });
+            const normalized = { ...legacy, overrideDifficulty: { type: 'random-words', count: 50 } };
+            assert(cmp(legacy, normalized).loosens === false, 'T94: missing difficulty uses the effective 50-word default');
+        })();
+
+        (function T95() {
+            const a = block({ iosScreenTimeSelection: sel(['t1']) });
+            const relabelled = {
+                ...a,
+                iosScreenTimeSelection: {
+                    ...a.iosScreenTimeSelection,
+                    summaryLabel: 'Same token, refreshed display label',
+                },
+            };
+            assert(cmp(a, relabelled).loosens === false, 'T95: Screen Time display-label changes do not affect strictness');
+        })();
     }
 
     // ========================================

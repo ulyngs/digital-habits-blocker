@@ -22,6 +22,11 @@ class BlockAppsForTokensArgs: Decodable {
 
 class UnblockAppsArgs: Decodable {}
 
+class RefreshActivityTokensArgs: Decodable {
+    let applicationTokenData: [String]
+    let categoryTokenData: [String]
+}
+
 class StartBlockArgs: Decodable {
     /// Legacy field: domains to BLOCK (blocklist semantics). Kept for back-compat.
     let domains: [String]
@@ -360,7 +365,7 @@ class ScreentimePlugin: Plugin {
         let readStatus = {
             let status = AuthorizationCenter.shared.authorizationStatus
             switch status {
-            case .approved:
+            case .approved, .approvedWithDataAccess:
                 Self.hasCachedAuthorizationApproval = true
                 return status
             case .denied:
@@ -386,14 +391,14 @@ class ScreentimePlugin: Plugin {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
                 let status = self.resolvedAuthorizationStatus()
                 invoke.resolve([
-                    "granted": status == .approved,
+                    "granted": self.authorizationIsApproved(status),
                     "status": self.statusString(status)
                 ])
             } catch {
                 // iOS can occasionally report a cancellation error even though the
                 // authorization state has already switched to approved.
                 let status = self.resolvedAuthorizationStatus()
-                if status == .approved {
+                if self.authorizationIsApproved(status) {
                     invoke.resolve([
                         "granted": true,
                         "status": self.statusString(status)
@@ -412,7 +417,7 @@ class ScreentimePlugin: Plugin {
     @objc public func checkAuthorization(_ invoke: Invoke) throws {
         let status = resolvedAuthorizationStatus()
         invoke.resolve([
-            "granted": status == .approved,
+            "granted": authorizationIsApproved(status),
             "status": statusString(status)
         ])
     }
@@ -506,6 +511,41 @@ class ScreentimePlugin: Plugin {
             }
             return data.base64EncodedString()
         }
+    }
+
+    private func decodeApplicationTokenArray(_ tokenData: [String]) -> [ApplicationToken]? {
+        var tokens: [ApplicationToken] = []
+        for tokenString in tokenData {
+            guard let data = Data(base64Encoded: tokenString),
+                  let token = try? JSONDecoder().decode(ApplicationToken.self, from: data) else {
+                return nil
+            }
+            tokens.append(token)
+        }
+        return tokens
+    }
+
+    private func decodeCategoryTokenArray(_ tokenData: [String]) -> [ActivityCategoryToken]? {
+        var tokens: [ActivityCategoryToken] = []
+        for tokenString in tokenData {
+            guard let data = Data(base64Encoded: tokenString),
+                  let token = try? JSONDecoder().decode(ActivityCategoryToken.self, from: data) else {
+                return nil
+            }
+            tokens.append(token)
+        }
+        return tokens
+    }
+
+    private func encodeTokenArray<T: Encodable>(_ tokens: [T]) -> [String]? {
+        var encoded: [String] = []
+        for token in tokens {
+            guard let data = try? JSONEncoder().encode(token) else {
+                return nil
+            }
+            encoded.append(data.base64EncodedString())
+        }
+        return encoded
     }
 
     private func decodeApplicationTokens(_ tokenData: [String]?) -> Set<ApplicationToken> {
@@ -628,7 +668,18 @@ class ScreentimePlugin: Plugin {
     
     /// Check if Screen Time authorization is granted
     private func isAuthorized() -> Bool {
-        return resolvedAuthorizationStatus() == .approved
+        return authorizationIsApproved(resolvedAuthorizationStatus())
+    }
+
+    private func authorizationIsApproved(_ status: AuthorizationStatus) -> Bool {
+        switch status {
+        case .approved, .approvedWithDataAccess:
+            return true
+        case .notDetermined, .denied:
+            return false
+        @unknown default:
+            return false
+        }
     }
     
     @objc public func blockWebsites(_ invoke: Invoke) throws {
@@ -721,6 +772,71 @@ class ScreentimePlugin: Plugin {
         store.shield.applications = nil
         persistManualShieldSnapshot(replaceDomains: nil, replaceAppTokens: [], replaceCategoryTokens: nil)
         invoke.resolve(["success": true])
+    }
+
+    /// Refresh picker-issued tokens before JS rewrites schedules and manual
+    /// block state. The API was introduced in iOS 26.5; older systems keep the
+    /// stable token behavior they have always used and report a clean no-op.
+    @objc public func refreshActivityTokens(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(RefreshActivityTokensArgs.self)
+
+        guard #available(iOS 26.5, *) else {
+            invoke.resolve([
+                "success": true,
+                "supported": false,
+                "applicationTokens": args.applicationTokenData,
+                "categoryTokens": args.categoryTokenData,
+            ])
+            return
+        }
+
+        guard isAuthorized() else {
+            invoke.resolve([
+                "success": false,
+                "supported": true,
+                "error": "Screen Time authorization not granted",
+            ])
+            return
+        }
+        guard var applicationTokens = decodeApplicationTokenArray(args.applicationTokenData),
+              var categoryTokens = decodeCategoryTokenArray(args.categoryTokenData) else {
+            invoke.resolve([
+                "success": false,
+                "supported": true,
+                "error": "One or more saved Screen Time tokens could not be decoded",
+            ])
+            return
+        }
+
+        do {
+            if !applicationTokens.isEmpty {
+                try ManagedSettingsStore.refresh(&applicationTokens)
+            }
+            if !categoryTokens.isEmpty {
+                try ManagedSettingsStore.refresh(&categoryTokens)
+            }
+            guard let encodedApplications = encodeTokenArray(applicationTokens),
+                  let encodedCategories = encodeTokenArray(categoryTokens) else {
+                invoke.resolve([
+                    "success": false,
+                    "supported": true,
+                    "error": "Refreshed Screen Time tokens could not be encoded",
+                ])
+                return
+            }
+            invoke.resolve([
+                "success": true,
+                "supported": true,
+                "applicationTokens": encodedApplications,
+                "categoryTokens": encodedCategories,
+            ])
+        } catch {
+            invoke.resolve([
+                "success": false,
+                "supported": true,
+                "error": error.localizedDescription,
+            ])
+        }
     }
     
     // MARK: - Combined Block (websites + explicit app/category payloads)
@@ -1255,6 +1371,8 @@ class ScreentimePlugin: Plugin {
             return "denied"
         case .approved:
             return "approved"
+        case .approvedWithDataAccess:
+            return "approvedWithDataAccess"
         @unknown default:
             return "unknown"
         }

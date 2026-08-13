@@ -8,7 +8,13 @@ import snoozeIconUrl from './images/snooze.png';
 import { tauriAPI, openUrl } from './tauri-api.js';
 import { escapeHtml } from './utils.js';
 import { tSettings, tSettingsFmt } from './i18n.js';
-import { isProtectedApp, ALWAYS_ON_END_TIME } from './blocklist-utils.js';
+import {
+    ALWAYS_ON_END_TIME,
+    applyIOSScreenTimeTokenRefreshResult,
+    getBlocklistIOSScreenTimeSelection,
+    hasUsableIOSScreenTimeSelection,
+    isProtectedApp,
+} from './blocklist-utils.js';
 import { isSchedulePausedNow, refreshDesktopHelperStatus, scheduleHasFutureSingleOccurrence, syncSchedulesToHelper } from './schedule-engine.js';
 import { saveData, updateHostsFile, createDefaultBlocklist } from './persistence.js';
 import { render } from './render.js';
@@ -1264,6 +1270,7 @@ export function openAndroidFrictionGateModal(event) {
 }
 
 export async function initializeIOSBlockingState() {
+    await refreshIOSScreenTimeSelections();
     // Sync state.lastBlockedDomains from active (non-paused) blocks so pause/resume works after restart
     const now = Date.now();
     const activeDomains = new Set();
@@ -1276,6 +1283,54 @@ export async function initializeIOSBlockingState() {
     state.lastBlockedDomains = activeDomains;
     // Re-register DeviceActivity schedules so background activation survives app restarts.
     await syncSchedulesToHelper();
+}
+
+/**
+ * Refresh Apple's opaque Screen Time tokens before rebuilding native schedule
+ * state. ManagedSettingsStore.refresh is new in iOS 26.5; the native command
+ * reports `supported: false` on older releases and this becomes a no-op.
+ *
+ * Refresh each focus space separately so a failure marks only that selection
+ * for picker reselection. Keep the old tokens visible instead of silently
+ * replacing the selection with an empty one.
+ */
+export async function refreshIOSScreenTimeSelections() {
+    if (!state.isIOS) return { supported: false, changed: false, failures: 0 };
+
+    let supported = false;
+    let changed = false;
+    let failures = 0;
+
+    for (const blocklist of state.appData.blocklists || []) {
+        const selection = getBlocklistIOSScreenTimeSelection(blocklist);
+        if (!hasUsableIOSScreenTimeSelection(selection)) continue;
+
+        let result;
+        try {
+            result = await tauriAPI.screentimeRefreshActivityTokens(
+                selection.applicationTokens,
+                selection.categoryTokens,
+            );
+        } catch (error) {
+            console.error('[iOS token refresh] Native refresh failed:', error);
+            result = { supported: true, success: false, error: String(error) };
+        }
+
+        if (result?.supported !== true) {
+            return { supported: false, changed: false, failures: 0 };
+        }
+        supported = true;
+
+        const refreshed = applyIOSScreenTimeTokenRefreshResult(selection, result);
+        if (refreshed?.requiresReselection) failures += 1;
+        if (JSON.stringify(refreshed) !== JSON.stringify(selection)) {
+            blocklist.iosScreenTimeSelection = refreshed;
+            changed = true;
+        }
+    }
+
+    if (changed) await saveData();
+    return { supported, changed, failures };
 }
 
 export function updateOnboardingVisibility() {

@@ -5,6 +5,7 @@ const COMMANDS: &[&str] = &[
     "unblock_websites",
     "block_apps",
     "unblock_apps",
+    "refresh_activity_tokens",
     "screentime_start_block",
     "screentime_clear_block",
     "schedule_block",

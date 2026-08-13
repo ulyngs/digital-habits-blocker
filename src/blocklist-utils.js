@@ -181,7 +181,45 @@ export function getBlocklistIOSPayload(blocklist) {
 
 export function blocklistNeedsIOSSelectionRefresh(blocklist) {
     const selection = getBlocklistIOSScreenTimeSelection(blocklist);
-    return !!selection && selection.requiresReselection === true && !hasUsableIOSScreenTimeSelection(selection);
+    return !!selection && selection.requiresReselection === true;
+}
+
+/**
+ * Apply the result of iOS 26.5's ManagedSettings token refresh without ever
+ * turning a refresh problem into an empty selection.
+ *
+ * Older iOS versions do not expose ManagedSettingsStore.refresh, so an
+ * unsupported result is a no-op. A supported refresh that fails, or silently
+ * drops any previously stored token, preserves the saved tokens
+ * for display/retry but marks them as requiring picker reselection. Callers
+ * must not start new enforcement while that marker is set.
+ */
+export function applyIOSScreenTimeTokenRefreshResult(selection, result) {
+    const saved = normalizeIOSScreenTimeSelection(selection);
+    if (!saved || result?.supported !== true) return saved;
+
+    const refreshFailed = result.success !== true;
+    const refreshedApps = Array.isArray(result.applicationTokens)
+        ? result.applicationTokens
+        : [];
+    const refreshedCategories = Array.isArray(result.categoryTokens)
+        ? result.categoryTokens
+        : [];
+    const droppedApps = refreshedApps.length < saved.applicationTokens.length;
+    const droppedCategories = refreshedCategories.length < saved.categoryTokens.length;
+
+    if (refreshFailed || droppedApps || droppedCategories) {
+        return {
+            ...saved,
+            requiresReselection: true,
+        };
+    }
+
+    return normalizeIOSScreenTimeSelection({
+        applicationTokens: refreshedApps,
+        categoryTokens: refreshedCategories,
+        requiresReselection: false,
+    });
 }
 
 /**
@@ -408,4 +446,3 @@ export function collectActiveIOSManualBlockPayload(now = Date.now()) {
     }
     return out;
 }
-

@@ -57,6 +57,26 @@ pub struct BlockAppsResponse {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshActivityTokensRequest {
+    pub application_token_data: Vec<String>,
+    pub category_token_data: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshActivityTokensResponse {
+    pub success: bool,
+    pub supported: bool,
+    #[serde(default)]
+    pub application_tokens: Vec<String>,
+    #[serde(default)]
+    pub category_tokens: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 // --- Combined Block (matches existing frontend API) ---
 
 #[derive(Debug, Serialize, Deserialize)]

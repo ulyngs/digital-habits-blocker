@@ -7,6 +7,7 @@ permissions = [
     "allow-unblock-websites",
     "allow-block-apps",
     "allow-unblock-apps",
+    "allow-refresh-activity-tokens",
     "allow-screentime-start-block",
     "allow-screentime-clear-block",
     "allow-schedule-block",

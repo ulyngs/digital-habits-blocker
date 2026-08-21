@@ -511,25 +511,53 @@ enum IOSAppPolicyApplier {
     static let exceptionLimit = 50
 
     private static func decodeAppTokens(_ tokenData: [String]) -> Set<ApplicationToken> {
-        var tokens = Set<ApplicationToken>()
+        var tokens: [ApplicationToken] = []
         for tokenString in tokenData {
             if let data = Data(base64Encoded: tokenString),
                let token = try? JSONDecoder().decode(ApplicationToken.self, from: data) {
-                tokens.insert(token)
+                tokens.append(token)
             }
         }
-        return tokens
+        if #available(iOS 26.5, *), !tokens.isEmpty {
+            do {
+                var refreshedTokens = tokens
+                try ManagedSettingsStore.refresh(&refreshedTokens)
+                if refreshedTokens.count == tokens.count {
+                    tokens = refreshedTokens
+                } else {
+                    NSLog("[ReDD Screen Time] Application token refresh dropped saved tokens; keeping originals")
+                }
+            } catch {
+                // Keep the original decoded tokens as a best-effort shield.
+                // The main app marks this selection for picker reselection.
+                NSLog("[ReDD Screen Time] Application token refresh failed: %@", error.localizedDescription)
+            }
+        }
+        return Set(tokens)
     }
 
     private static func decodeCategoryTokens(_ tokenData: [String]) -> Set<ActivityCategoryToken> {
-        var tokens = Set<ActivityCategoryToken>()
+        var tokens: [ActivityCategoryToken] = []
         for tokenString in tokenData {
             if let data = Data(base64Encoded: tokenString),
                let token = try? JSONDecoder().decode(ActivityCategoryToken.self, from: data) {
-                tokens.insert(token)
+                tokens.append(token)
             }
         }
-        return tokens
+        if #available(iOS 26.5, *), !tokens.isEmpty {
+            do {
+                var refreshedTokens = tokens
+                try ManagedSettingsStore.refresh(&refreshedTokens)
+                if refreshedTokens.count == tokens.count {
+                    tokens = refreshedTokens
+                } else {
+                    NSLog("[ReDD Screen Time] Category token refresh dropped saved tokens; keeping originals")
+                }
+            } catch {
+                NSLog("[ReDD Screen Time] Category token refresh failed: %@", error.localizedDescription)
+            }
+        }
+        return Set(tokens)
     }
 
     /// Legacy behavior for the manual channel: shields from the manual blocked record.

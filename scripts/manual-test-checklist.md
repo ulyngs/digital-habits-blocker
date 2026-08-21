@@ -250,6 +250,20 @@ Screen Time apps and Settings › Screen Time › Always Allowed contents first
 - [ ] Fresh-install upgrade with pre-existing shield snapshot data: shield extension renders without crashing
 - [ ] Save/edit/duplicate/import round-trips keep Allow mode; card shows "Allows N"
 
+### 14.2 Screen Time token refresh (iOS 26.5+)
+
+Apple only exposes token refresh and expiry notifications from iOS 26.5. Use a
+physical device on 26.5 or later and keep a second iOS 16–26.4 device/simulator
+for the availability-guard check.
+
+- [ ] Existing picker selections survive app relaunch and still shield the same apps
+- [ ] Existing manual and scheduled app/category blocks still enforce after startup refresh
+- [ ] A schedule transition with the app closed refreshes tokens before applying shields
+- [ ] Corrupt one saved token in a development build: the focus space stays visible,
+      is marked for reselection, and cannot start a new block/schedule silently
+- [ ] Re-select in `FamilyActivityPicker`: the reselection marker clears and enforcement resumes
+- [ ] On iOS 16–26.4, startup and schedule transitions remain unchanged (no unavailable-API crash)
+
 ---
 
 ## 15. Desktop Allowlist (Allow-Mode Focus Spaces)

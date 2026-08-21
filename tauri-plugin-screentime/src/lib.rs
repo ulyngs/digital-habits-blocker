@@ -42,6 +42,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::unblock_websites,
             commands::block_apps,
             commands::unblock_apps,
+            commands::refresh_activity_tokens,
             commands::screentime_start_block,
             commands::screentime_clear_block,
             commands::schedule_block,

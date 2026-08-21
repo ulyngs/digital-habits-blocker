@@ -3,6 +3,8 @@ import {
     ALWAYS_ON_END_TIME,
     FOCUS_SPACE_COLOR_PALETTE,
     QUICK_START_EMOJI,
+    applyIOSScreenTimeTokenRefreshResult,
+    blocklistNeedsIOSSelectionRefresh,
     healFocusSpaceColors,
     hasUsableIOSScreenTimeSelection,
     isBlockAlwaysOn,
@@ -307,5 +309,66 @@ describe('additive Screen Time merge (picker cannot remove while enforcing)', ()
         const merged = mergeIOSScreenTimeSelectionAdditive(stale, sel(['tok-x']));
         expect(merged.applicationTokens).toEqual(['tok-x']);
         expect(merged.requiresReselection).toBe(false);
+    });
+});
+
+describe('Screen Time token refresh recovery', () => {
+    const sel = (apps = [], cats = []) => normalizeIOSScreenTimeSelection({
+        applicationTokens: apps,
+        categoryTokens: cats,
+        requiresReselection: false,
+    });
+
+    test('replaces persisted tokens with the values refreshed by iOS', () => {
+        const refreshed = applyIOSScreenTimeTokenRefreshResult(
+            sel(['old-app'], ['old-category']),
+            {
+                supported: true,
+                success: true,
+                applicationTokens: ['new-app'],
+                categoryTokens: ['new-category'],
+            },
+        );
+
+        expect(refreshed).toMatchObject({
+            applicationTokens: ['new-app'],
+            categoryTokens: ['new-category'],
+            applicationCount: 1,
+            categoryCount: 1,
+            requiresReselection: false,
+        });
+    });
+
+    test('preserves tokens unchanged when refresh is unavailable before iOS 26.5', () => {
+        const original = sel(['app'], ['category']);
+        expect(applyIOSScreenTimeTokenRefreshResult(original, {
+            supported: false,
+            success: true,
+        })).toEqual(original);
+    });
+
+    test('keeps failed tokens visible but marks them for reselection', () => {
+        const stale = applyIOSScreenTimeTokenRefreshResult(sel(['app']), {
+            supported: true,
+            success: false,
+            error: 'The token could not be refreshed',
+        });
+
+        expect(stale.applicationTokens).toEqual(['app']);
+        expect(stale.requiresReselection).toBe(true);
+        expect(blocklistNeedsIOSSelectionRefresh({ iosScreenTimeSelection: stale })).toBe(true);
+    });
+
+    test('fails closed when refresh silently drops any saved token', () => {
+        const stale = applyIOSScreenTimeTokenRefreshResult(sel(['app-1', 'app-2'], ['category']), {
+            supported: true,
+            success: true,
+            applicationTokens: ['new-app-1'],
+            categoryTokens: ['new-category'],
+        });
+
+        expect(stale.applicationTokens).toEqual(['app-1', 'app-2']);
+        expect(stale.categoryTokens).toEqual(['category']);
+        expect(stale.requiresReselection).toBe(true);
     });
 });

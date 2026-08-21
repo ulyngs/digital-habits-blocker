@@ -72,6 +72,11 @@ export const tauriAPI = {
     screentimeStartBlock: (payload) =>
         invoke('plugin:screentime|screentime_start_block', { payload }),
     screentimeClearBlock: () => invoke('plugin:screentime|screentime_clear_block'),
+    screentimeRefreshActivityTokens: (applicationTokens, categoryTokens) =>
+        invoke('plugin:screentime|refresh_activity_tokens', {
+            applicationTokenData: applicationTokens,
+            categoryTokenData: categoryTokens,
+        }),
     showActivityPicker: (payload = {}) => invoke('plugin:screentime|show_activity_picker', payload),
     setSchedulesPlugin: (schedules) => invoke('plugin:screentime|set_schedules', { schedules }),
     screentimeRegisterOneOffActivity: (activityName, startTimestampMs) =>

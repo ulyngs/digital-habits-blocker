@@ -61,7 +61,7 @@ dependencies {
     // framework implementation on the JVM — they are an Activity and an
     // AccessibilityService, so neither can be exercised by plain JUnit.
     // Pinned SDK level lives in src/test/resources/robolectric.properties.
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.6.1")
     // UnlockActivity's confirm path reaches Schedules.pauseSchedule, which
     // enqueues a ReEnableWorker; without a test WorkManager that call throws.

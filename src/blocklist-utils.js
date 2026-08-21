@@ -184,6 +184,56 @@ export function blocklistNeedsIOSSelectionRefresh(blocklist) {
     return !!selection && selection.requiresReselection === true && !hasUsableIOSScreenTimeSelection(selection);
 }
 
+/**
+ * Merge a freshly-picked Screen Time selection into a saved one, keeping every
+ * saved token.
+ *
+ * The iOS activity picker hands back a *replacement* selection, which makes it
+ * the one edit surface that can unblock an app while a focus space is
+ * enforcing: the edit modal's locked tags cover only the summary label ("3
+ * apps"), never the tokens behind it. Unioning turns the picker additive, which
+ * is the rule already in force for every other item on every other platform —
+ * while enforcing you may add, never remove.
+ *
+ * Block mode only, and the caller is responsible for that check. In allow mode
+ * the picker expands categories into their member app tokens and returns no
+ * category tokens, so a union there would resurrect a saved category token the
+ * allow-mode resolver cannot enforce — and adding is the loosening direction in
+ * allow mode anyway.
+ *
+ * Counts are deliberately not carried over from either input: they describe the
+ * replacement, not the merge, and the summary label is derived from them. Left
+ * null, normalizeIOSScreenTimeSelection recomputes both from the merged arrays.
+ *
+ * @param {object|null} saved - the persisted selection, the floor to stay above.
+ * @param {object|null} picked - what the picker returned (null when it came back empty).
+ * @returns {object|null} normalized selection, or null when both sides are empty.
+ */
+export function mergeIOSScreenTimeSelectionAdditive(saved, picked) {
+    const union = (a, b) => {
+        const seen = new Set();
+        const out = [];
+        for (const token of [...(a || []), ...(b || [])]) {
+            if (typeof token !== 'string' || !token || seen.has(token)) continue;
+            seen.add(token);
+            out.push(token);
+        }
+        return out;
+    };
+
+    const applicationTokens = union(saved?.applicationTokens, picked?.applicationTokens);
+    const categoryTokens = union(saved?.categoryTokens, picked?.categoryTokens);
+    if (applicationTokens.length === 0 && categoryTokens.length === 0) return null;
+
+    // A merge always carries real tokens, so whatever `requiresReselection` the
+    // saved side had is repaired by definition.
+    return normalizeIOSScreenTimeSelection({
+        applicationTokens,
+        categoryTokens,
+        requiresReselection: false,
+    });
+}
+
 export function ensureIOSBlocklistSelectionReady(blocklist, actionLabel) {
     if (!state.isIOS || !blocklistNeedsIOSSelectionRefresh(blocklist)) {
         return true;

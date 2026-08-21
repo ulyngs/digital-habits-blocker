@@ -157,19 +157,41 @@ in-process watcher, driven by frontend commands.
 
 ### 3.2 Desktop app-data paths
 
-Canonical shared paths (preferred once activated):
+Canonical paths — **per user, one branch, no machine-wide alternative**:
 
-- macOS: `/var/lib/redd-block/redd-block-data.json`
-- Windows: `%PROGRAMDATA%\Digital Habits Blocker\redd-block-data.json` (legacy: `%PROGRAMDATA%\Fristed\...`, `%PROGRAMDATA%\ReDD Block\...`)
+- macOS: `~/Library/Application Support/com.reddblock/redd-block-data.json`
+- Windows: `%APPDATA%\com.reddblock\redd-block-data.json`
 
-Legacy per-user paths (used on fresh install until shared dir is writable /
-exists):
+Resolved by `data.rs` (`canonical_data_path_static`, and `get_data_path` for
+handle-holding callers). `native_host.rs::resolve_data_path` routes through the
+same function rather than reimplementing it, so a browser-spawned host and the
+app cannot disagree about which file is canonical.
+
+Legacy per-user paths, still read as a migration fallback:
 
 - macOS: `~/Library/Application Support/com.redd.block/redd-block-data.json`
 - Windows: `%APPDATA%\com.redd.block\redd-block-data.json`
 
-Selection logic in `data.rs` (`should_use_shared_data_path`) keeps the path
-stable across reinstall so data does not silently flip locations.
+Machine-wide paths written by pre-3.x builds are now **import sources only**:
+
+- macOS: `/var/lib/redd-block/redd-block-data.json` (v1/v2 helper era)
+- Windows: `%PROGRAMDATA%\Digital Habits Blocker\redd-block-data.json` (legacy: `%PROGRAMDATA%\Fristed\...`, `%PROGRAMDATA%\ReDD Block\...`)
+
+`import_shared_data_into_per_user` copies the first one that exists into the
+account's own store, once per process, and never deletes the source — the other
+accounts on the machine still need to import it too. The destination wins only
+when it is *newer*: the pre-v3 per-user → shared migration copied without
+deleting, so an upgrading account can hold a per-user file frozen at migration
+time beside the shared file it has been editing ever since, and preferring the
+local copy would silently revert the blocklist.
+
+Why per-user: one shared file meant every account on a PC got the same
+blocklist — a parent could not block a site for a child without blocking it for
+themselves — and because `C:\ProgramData` grants Users create-*folders* but not
+create-files, only the account that created the file could write it. The rest
+read it and had their edits fail. Nothing needs cross-user access: the native
+host is a child of the user's own browser, and the Windows watchdog task
+registers unelevated as the invoking user (`/RL LIMITED`, no `/RU`).
 
 Legacy v1 helper state may still exist at
 `/var/lib/redd-block/helper-state.json` (macOS) or
@@ -517,8 +539,10 @@ running regardless.
 
 - detect hosts markers or legacy daemon install
 - one elevated script: backup hosts → strip ReDD markers → flush DNS → remove
-  launchd/task + helper binary + `/var/lib/redd-block` → stamp
-  `migrationRanAtVersion`
+  launchd/task + helper binary + `/var/lib/redd-block/helper-state.json` →
+  stamp `migrationRanAtVersion`. It deletes the daemon-specific files only —
+  `/var/lib/redd-block` itself stays, because the per-user data import still
+  reads `redd-block-data.json` out of it (§3.2).
 - idempotent and retryable; `migration_pending` banner if user cancels elevation
 
 ---
@@ -654,8 +678,9 @@ desktop `current_blocking` state and shows nothing on iOS).
 
 | Artifact | macOS | Windows | iOS |
 |---|---|---|---|
-| App data (canonical) | `/var/lib/redd-block/redd-block-data.json` | `%PROGRAMDATA%\Digital Habits Blocker\redd-block-data.json` (legacy: `%PROGRAMDATA%\Fristed\...`, `%PROGRAMDATA%\ReDD Block\...`) | App sandbox |
-| App data (legacy) | `~/Library/Application Support/com.redd.block/...` | `%APPDATA%\com.redd.block\...` | — |
+| App data (canonical, per user) | `~/Library/Application Support/com.reddblock/redd-block-data.json` | `%APPDATA%\com.reddblock\redd-block-data.json` | App sandbox |
+| App data (legacy per-user) | `~/Library/Application Support/com.redd.block/...` | `%APPDATA%\com.redd.block\...` | — |
+| App data (pre-3.x machine-wide; import source only) | `/var/lib/redd-block/redd-block-data.json` | `%PROGRAMDATA%\Digital Habits Blocker\redd-block-data.json` (legacy: `%PROGRAMDATA%\Fristed\...`, `%PROGRAMDATA%\ReDD Block\...`) | — |
 | Bundled block page | Inside `.app` Resources | Inside install dir | — |
 | Native host manifests | `~/Library/Application Support/<vendor>/NativeMessagingHosts/` | `HKCU\Software\<vendor>\...\NativeMessagingHosts\` | — |
 | Legacy helper state (v1 residue) | `/var/lib/redd-block/helper-state.json` | `%PROGRAMDATA%\ReDD Block\helper-state.json` | — |

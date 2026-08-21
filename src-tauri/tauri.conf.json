@@ -19,8 +19,7 @@
           "requireLiteralLeadingDot": false,
           "allow": [
             "$APPDATA/**",
-            "$APPLOCALDATA/**",
-            "/var/lib/redd-block/**"
+            "$APPLOCALDATA/**"
           ]
         }
       }

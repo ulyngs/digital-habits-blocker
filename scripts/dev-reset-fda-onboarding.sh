@@ -82,9 +82,10 @@ else
     done
 fi
 
-# Clear welcome / EULA flags from redd-block-data.json. On desktop
-# the canonical file may live in either the per-user app-data dir
-# or /var/lib/redd-block once shared storage is active — reset
+# Clear welcome / EULA flags from redd-block-data.json. The canonical
+# file is the per-user app-data one, but a machine that ran a pre-3.x
+# build can still have /var/lib/redd-block — and the app imports from
+# there on first launch, which would put the flags straight back. Reset
 # both so a relaunch actually starts on the welcome screen.
 # (--nuke deletes the per-user dir but shared storage persists.)
 clear_onboarding_json_fields() {

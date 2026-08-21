@@ -21,7 +21,8 @@
 //      5. atomic temp-file + rename onto /etc/hosts
 //      6. flush DNS
 //      7. ONLY NOW remove daemon (bootout + rm plist + rm binary
-//         + rm /var/lib/redd-block)
+//         + rm /var/lib/redd-block/helper-state.json — the directory
+//         itself stays; see `legacy_artefacts_present` below)
 //      8. ONLY NOW remove the legacy /etc/hosts.redd-backup
 //      9. write a status marker so Rust knows the script reached
 //         the end
@@ -111,10 +112,10 @@ fn hosts_has_markers(content: &str) -> bool {
 fn legacy_artefacts_present() -> bool {
     // We only count daemon-specific files as residue. The shared data
     // dir (/var/lib/redd-block on macOS, ProgramData\<product> on
-    // Windows) intentionally stays — the new app's data path resolver
-    // (commands::data::should_use_shared_data_path) keeps using it
-    // when v1.x activated it, so the user's redd-block-data.json must
-    // not be touched by migration.
+    // Windows) intentionally stays: nothing writes it any more, but
+    // commands::data::import_shared_data_into_per_user still reads the
+    // user's redd-block-data.json out of it, and accounts that have not
+    // launched the new build yet have not imported theirs.
     #[cfg(target_os = "macos")]
     {
         let paths = [

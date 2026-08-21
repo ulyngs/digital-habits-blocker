@@ -831,61 +831,40 @@ fn local_time_components_full(now_ms: u64) -> Option<(u8, u8, u8, u8)> {
     }
 }
 
-/// Canonical app-data path for the running user. Mirrors
-/// `commands::data` path selection for the desktop case. The native
-/// host runs as a child of the user's browser (not as the Tauri app),
-/// so it can't ask Tauri for `app_data_dir()` — we replicate the
-/// resolution logic against the Tauri bundle id.
+/// Canonical app-data path for the running user.
+///
+/// The native host runs as a child of the user's browser (not as the
+/// Tauri app), so it can't ask Tauri for `app_data_dir()`. It does not
+/// need to: `canonical_data_path_static` resolves the same per-user path
+/// without a handle, and routing through it is what keeps the host and
+/// the app on one file. Both run as the same user — the browser that
+/// spawned us was launched by them.
 ///
 /// Order:
-///   1. `/var/lib/redd-block` (legacy shared dir from the helper era;
-///      still authoritative if it survived a v1.0.x install).
-///   2. `~/Library/Application Support/com.reddblock/...` — the Tauri
-///      `app_data_dir()` for `identifier = "com.reddblock"`.
-///   3. `~/Library/Application Support/com.redd.block/...` — earlier
-///      bundle id used by some pre-v1.0 builds; keeps native-messaging
-///      working through the migration window.
+///   1. The canonical per-user path, if it already exists.
+///   2. `<app data>/com.redd.block/...` — an earlier bundle id used by
+///      some pre-v1.0 builds; keeps native-messaging working through the
+///      migration window.
+///   3. The canonical path regardless, so file-watch picks up its first
+///      write.
 pub fn resolve_data_path() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let shared = PathBuf::from("/var/lib/redd-block/redd-block-data.json");
-        if shared.exists() {
-            return Some(shared);
-        }
-        let home = dirs::home_dir()?;
-        let app_support = home.join("Library").join("Application Support");
-        for id in ["com.reddblock", "com.redd.block"] {
-            let p = app_support.join(id).join("redd-block-data.json");
-            if p.exists() {
-                return Some(p);
-            }
-        }
-        // Final fallback — return the canonical Tauri path even if it
-        // doesn't exist yet, so file-watch can pick up its first write.
-        Some(
-            app_support
-                .join("com.reddblock")
-                .join("redd-block-data.json"),
-        )
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let shared = crate::commands::canonical_data_path_static();
-        if shared.exists() {
-            return Some(shared);
-        }
-        let appdata = std::env::var_os("APPDATA").map(PathBuf::from)?;
-        for id in ["com.reddblock", "com.redd.block"] {
-            let p = appdata.join(id).join("redd-block-data.json");
-            if p.exists() {
-                return Some(p);
-            }
-        }
-        Some(shared)
-    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         None
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let canonical = crate::commands::canonical_data_path_static();
+        if canonical.exists() {
+            return Some(canonical);
+        }
+        if let Some(base) = dirs::data_dir() {
+            let legacy = base.join("com.redd.block").join("redd-block-data.json");
+            if legacy.exists() {
+                return Some(legacy);
+            }
+        }
+        Some(canonical)
     }
 }
 

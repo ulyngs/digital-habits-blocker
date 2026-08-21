@@ -140,6 +140,34 @@ Test on a profile with v1 residue (or simulated hosts markers + legacy launchd p
 
 ---
 
+## 9b. Per-User Data Migration (shared machine)
+
+App data used to be one machine-wide file, so on a shared PC the whole
+family got one blocklist and only the account that created the file could
+write it. No automated layer covers this: it needs two real accounts on one
+machine. Do steps 1–5 on Windows, then 6 on macOS.
+
+Requires two local accounts, A and B, both of which have launched the app.
+
+- [ ] 1. **Reproduce first, on the currently released build.** As A, set a
+      blocklist. Log in as B: B sees A's list, and B's edits fail to persist.
+- [ ] 2. Upgrade to the new build and launch as A → A's list survives, and now
+      lives in `%APPDATA%\com.reddblock\redd-block-data.json`
+- [ ] 3. Log in as B → B has **a copy of the rules already being enforced on
+      them**, not an empty list. (Importing for the non-owning account is
+      deliberate: skipping would silently unblock B.)
+- [ ] 4. Edit B's list → A's is unchanged; edit A's → B's is unchanged. Both
+      accounts can now actually save.
+- [ ] 5. In each account, confirm a blocked domain is still blocked in a
+      browser, and that the native host resolved the same per-user file the app
+      writes (`native-host.log` sits next to it)
+- [ ] 6. Repeat 2–4 on macOS, including one machine that still has
+      `/var/lib/redd-block/redd-block-data.json`, to cover the v1.x import path
+- [ ] 7. `%PROGRAMDATA%` / `/var/lib/redd-block` copies are **left in place** —
+      accounts that have not upgraded yet still need to import them
+
+---
+
 ## 10. Website Blocking Compliance & Enforcer
 
 Requires `settings.enforcementEnabled` (opt-in in extension/setup dialog). Grace period defaults to 60 s (user-configurable 5–300 s); **same duration for first and repeat offenses**.

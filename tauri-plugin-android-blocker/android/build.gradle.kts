@@ -56,7 +56,7 @@ dependencies {
     // default values for it under isReturnDefaultValues, which would make every
     // round-trip silently produce empty data; this puts a real implementation
     // ahead of the stub on the unit-test classpath.
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     // Robolectric runs UnlockActivity and BlockerService against a real
     // framework implementation on the JVM — they are an Activity and an
     // AccessibilityService, so neither can be exercised by plain JUnit.

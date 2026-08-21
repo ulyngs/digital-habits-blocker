@@ -718,7 +718,7 @@ export function pickEarliestUpcomingScheduledBlock(nowMs = Date.now()) {
         if (schedule.isPaused && !schedule.pauseEndTime) continue;
 
         const floorMs = getTitleBarScheduleSearchFloorMs(schedule, nowMs);
-        let nextMs = null;
+        let nextMs;
 
         if (isNonRepeatingSchedule(schedule)) {
             nextMs = computeNextOneShotOccurrenceMs(schedule, floorMs);

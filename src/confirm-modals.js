@@ -2988,7 +2988,7 @@ export function openResumeConfirmation(blocklistId, type, blockId) {
                 const remainingMins = Math.max(1, Math.floor(remainingMs / 60000));
                 const hours = Math.floor(remainingMins / 60);
                 const mins = remainingMins % 60;
-                let dText = '';
+                let dText;
                 if (hours > 0 && mins > 0) dText = `${hours}h ${mins}m remaining`;
                 else if (hours > 0) dText = `${hours} hour${hours > 1 ? 's' : ''} remaining`;
                 else dText = `${mins} minute${mins > 1 ? 's' : ''} remaining`;

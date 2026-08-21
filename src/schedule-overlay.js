@@ -169,7 +169,6 @@ export function migrateBlocklistStartOverlaysToGlobal() {
             if (!preset?.id || knownIds.has(preset.id)) continue;
             state.appData.startOverlays.push({ ...preset });
             knownIds.add(preset.id);
-            changed = true;
         }
         delete blocklist.startOverlays;
         changed = true;

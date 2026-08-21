@@ -1180,7 +1180,7 @@ export function setupInAppUninstall() {
             return;
         }
 
-        let confirmResult = null;
+        let confirmResult;
         try {
             confirmResult = await showUninstallConfirmModal();
         } catch (e) {

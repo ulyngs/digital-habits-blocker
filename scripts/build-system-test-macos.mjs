@@ -56,7 +56,7 @@ console.log(`[system-test] config: ${configPath}`);
 console.log(`[system-test] cargo target: ${targetDir}`);
 
 let child;
-let buildStatus = 0;
+let buildStatus;
 try {
   child = spawnSync('pnpm', args, {
     cwd: repoRoot,

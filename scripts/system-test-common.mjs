@@ -65,7 +65,10 @@ export function discoverAppleDevelopmentIdentity(env = process.env) {
     });
   } catch (error) {
     const detail = error?.stderr?.toString?.().trim();
-    throw new Error(`Unable to inspect the macOS signing identities${detail ? `: ${detail}` : '.'}`);
+    throw new Error(
+      `Unable to inspect the macOS signing identities${detail ? `: ${detail}` : '.'}`,
+      { cause: error },
+    );
   }
 
   const identities = [...output.matchAll(/"([^"]*Apple Development:[^"]*)"/g)]
@@ -138,7 +141,7 @@ function parseJsonFile(filePath) {
   try {
     return JSON.parse(readFileSync(filePath, 'utf8'));
   } catch (error) {
-    throw new Error(`Cannot parse production data at ${filePath}: ${error.message}`);
+    throw new Error(`Cannot parse production data at ${filePath}: ${error.message}`, { cause: error });
   }
 }
 

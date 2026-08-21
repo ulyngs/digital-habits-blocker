@@ -303,7 +303,8 @@ export function generateRandomWords(targetChars) {
             // Found exact match! Finish here.
             const word = exactMatches[Math.floor(Math.random() * exactMatches.length)];
             words.push(word);
-            currentLength += spaceNeeded + word.length;
+            // No `currentLength` update: this branch consumes the remaining
+            // budget exactly and leaves the loop.
             break;
         } else {
             // No exact match, pick a random word that fits and leaves room for at least 1 more char 

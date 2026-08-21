@@ -84,6 +84,7 @@ async function launchChromium() {
                 'Chromium is not installed for Playwright.\n'
                 + '  Install it:      npx playwright install chromium\n'
                 + '  Or point at one: UI_SHOOT_CHROMIUM=/path/to/chrome pnpm ui:shoot',
+                { cause: err },
             );
         }
         throw err;

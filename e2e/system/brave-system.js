@@ -129,7 +129,7 @@ function runBraveAutomation(script) {
         }).trim();
     } catch (error) {
         const detail = error?.stderr?.toString?.().trim() || error.message;
-        throw new Error(`Brave Automation failed: ${detail}`);
+        throw new Error(`Brave Automation failed: ${detail}`, { cause: error });
     }
 }
 

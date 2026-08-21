@@ -43,7 +43,7 @@ function runAppleScript(script) {
         }).trim();
     } catch (error) {
         const details = String(error.stderr || error.message || error).trim();
-        throw new Error(`Safari AppleScript failed: ${details}`);
+        throw new Error(`Safari AppleScript failed: ${details}`, { cause: error });
     }
 }
 

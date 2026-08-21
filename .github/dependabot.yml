@@ -52,6 +52,16 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps(android)"
+    ignore:
+      # The Kotlin Gradle plugin is capped at 2.2.x by Tauri, not by us.
+      # `tauri`'s own `mobile/android/build.gradle.kts` (vendored in the cargo
+      # registry, so unpatchable from here) still uses the `kotlinOptions {}` /
+      # `jvmTarget` DSL, which KGP 2.3 raised from a deprecation warning to a
+      # hard script-compilation error. Any bump to >= 2.3 fails Android CI at
+      # configuration time, before a single source file is compiled. Lift this
+      # once Tauri migrates that script to the `compilerOptions` DSL.
+      - dependency-name: "org.jetbrains.kotlin:kotlin-gradle-plugin"
+        versions: [">=2.3.0"]
     groups:
       gradle-minor-patch:
         update-types:

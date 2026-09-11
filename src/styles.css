@@ -304,6 +304,23 @@ body.android {
     padding-top: 0;
 }
 
+/* WKWebView treats long-pressing ordinary app chrome as text selection. The
+   URL shown during migration is intentionally copyable; form fields and real
+   editors retain their normal editing behaviour. */
+body.ios,
+body.ios * {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+body.ios :is(input, textarea, [contenteditable]:not([contenteditable="false"]), .migration-browser-url),
+body.ios :is(input, textarea, [contenteditable]:not([contenteditable="false"]), .migration-browser-url) * {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 body.android .app-container {
     height: 100vh;
     padding-bottom: 30px;

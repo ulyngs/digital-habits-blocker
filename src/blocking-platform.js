@@ -21,6 +21,7 @@ import { updateManageSectionVisibility, closeOverrideAllModal } from './settings
 import { closeDefaultPauseModal } from './pause-default.js';
 import { CURRENT_EULA_REVISION, getAcceptedEulaRevision, hasAcceptedEula, isFirstRunOnboardingInProgress } from './onboarding.js';
 import { generateId, runPostAcceptanceStartup } from './app.js';
+import { isIOSLeftEdgeBackSwipe } from './ios-gesture.js';
 
 // Update blocked apps sent to the in-process app watcher (desktop only).
 // Computes the effective union of apps from active one-off blocks AND active schedule
@@ -1494,6 +1495,52 @@ export function attachModalScrollResetOnShow(modalEl) {
     }).observe(modalEl, { attributes: true, attributeFilter: ['class'] });
 }
 
+function bindIOSModalBackSwipe(overlay, backButton) {
+    if (!state.isIOS || !document.body?.classList.contains('ios-phone')) return;
+    if (!overlay || !backButton || overlay.dataset.iosEdgeSwipeBound === '1') return;
+
+    overlay.dataset.iosEdgeSwipeBound = '1';
+    let gestureStart = null;
+
+    overlay.addEventListener('touchstart', (event) => {
+        if (!event.touches || event.touches.length !== 1) {
+            gestureStart = null;
+            return;
+        }
+        const touch = event.touches[0];
+        gestureStart = {
+            startX: touch.clientX,
+            startY: touch.clientY,
+            touchCount: event.touches.length,
+        };
+    }, { passive: true, capture: true });
+
+    overlay.addEventListener('touchend', (event) => {
+        if (
+            !gestureStart
+            || !event.changedTouches
+            || event.changedTouches.length !== 1
+            || (event.touches && event.touches.length !== 0)
+        ) {
+            gestureStart = null;
+            return;
+        }
+
+        const touch = event.changedTouches[0];
+        const isBackSwipe = isIOSLeftEdgeBackSwipe({
+            ...gestureStart,
+            endX: touch.clientX,
+            endY: touch.clientY,
+        });
+        gestureStart = null;
+        if (isBackSwipe && !overlay.classList.contains('hidden')) backButton.click();
+    }, { passive: true, capture: true });
+
+    overlay.addEventListener('touchcancel', () => {
+        gestureStart = null;
+    }, { passive: true, capture: true });
+}
+
 export function setupHandsetModalScreens() {
     const modalIds = [
         'blocklist-modal',
@@ -1516,7 +1563,11 @@ export function setupHandsetModalScreens() {
         if (!overlay || !content || !titleSource) continue;
 
         overlay.classList.add('mobile-fullscreen-modal');
-        if (content.querySelector('.mobile-modal-header')) continue;
+        const existingHeader = content.querySelector('.mobile-modal-header');
+        if (existingHeader) {
+            bindIOSModalBackSwipe(overlay, existingHeader.querySelector('.mobile-modal-back-btn'));
+            continue;
+        }
 
         const isRoomStyleConfirmModal =
             modalId === 'start-block-confirm-modal' || modalId === 'start-schedule-confirm-modal';
@@ -1560,6 +1611,7 @@ export function setupHandsetModalScreens() {
             if (dismissButton) dismissButton.click();
             else overlay.classList.add('hidden');
         });
+        bindIOSModalBackSwipe(overlay, backButton);
 
         header.append(backButton);
         if (!isRoomStyleConfirmModal) {

@@ -79,7 +79,7 @@ contract with the in-app test scripts — never rename them.
 | v1.x migration / hosts cleanup | `src-tauri/src/commands/migration.rs` |
 | Uninstall | `src-tauri/src/commands/uninstall.rs` |
 | App registration / tray / startup | `src-tauri/src/lib.rs` |
-| Windows crash relaunch | `src-tauri/src/watchdog.rs` |
+| Legacy Windows watchdog diagnostics / uninstall | `src-tauri/src/watchdog.rs` |
 | iOS Screen Time plugin | `tauri-plugin-screentime/` |
 
 There is **no** `helper-daemon/` in the repo and **no** live IPC to a
@@ -306,8 +306,17 @@ and countdown rows render identically on Automation and extension paths.
 
 ### 5.3 Windows watchdog
 
-`watchdog.rs` registers a scheduled task to relaunch the app ~1 minute after
-crash/kill so schedules do not silently lapse.
+New installations do not create a periodic watchdog task. Defender flagged
+the script-based task registration command (issue #152), and recovery after
+crash/kill is an accepted omission. Existing tasks and wrappers are left alone
+until uninstall; `watchdog.rs` retains diagnostics and uninstall cleanup.
+
+Launch-at-login remains enabled. Store/MSIX packages declare a native
+`windows.startupTask` in `scripts/build-msix.ps1`, enabled by default after the
+first app launch and managed by Windows across package updates. Users can
+disable it in Windows Startup settings. The desktop autostart registration
+also remains in place. Closing the window still hides it and keeps enforcement
+running; terminating the app stops its in-process enforcement until relaunch.
 
 ---
 
@@ -489,7 +498,7 @@ never active. Naming: “X” → “X copy” → “X copy 2” …
    removal; may prompt once for admin/UAC
 3. Register tray, enforcer, app watcher, native host manifests
 4. macOS: start Automation watcher after EULA (`web_automation` auto-start)
-5. Windows: ensure watchdog task; reconcile launch-at-login (release builds only)
+5. Reconcile launch-at-login (release builds only); Windows leaves legacy watchdog tasks untouched
 6. Frontend: EULA gate → browser setup (Automation rows + Firefox extension)
 
 `check_helper_status()` always reports ready — the app **is** the runtime.

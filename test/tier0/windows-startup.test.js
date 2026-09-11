@@ -20,5 +20,8 @@ describe('Windows Store sign-in startup manifest', () => {
             manifest.getElementsByTagName('Application')[0].getAttribute('Executable'),
         );
         expect(extension.getAttribute('EntryPoint')).toBe('Windows.FullTrustApplication');
+        expect(extension.getAttributeNS(
+            'http://schemas.microsoft.com/appx/manifest/uap/windows10/10', 'Parameters',
+        )).toBe('--autostart');
     });
 });

@@ -102,7 +102,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm dlx playwright install --with-deps chromium
+      # Install the browser revision required by the locked test runner.
+      - run: pnpm exec playwright install --with-deps chromium
       # Boots the Vite dev server, runs runBlockingTests() in headless
       # Chromium, fails on any failed assertion or a mid-suite crash.
       - run: pnpm test:tier1

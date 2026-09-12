@@ -7903,14 +7903,17 @@ body.android .blocklist-actions {
 }
 
 /* Enter-sheet cards carry only the overflow button, so reserve one slot and
-   right-align the menu under it. The card body is no longer a tap target.
-   `body` prefix keeps this above the ios/android two-slot defaults above. */
+   right-align the menu under it. `body` prefix keeps this above the
+   ios/android two-slot defaults above. */
 body .blocklist-card.blocklist-card-menu-only{
     --blocklist-actions-slot: var(--blocklist-action-btn-size);
     --blocklist-menu-anchor-offset: 0px;
 }
 
-body .blocklist-card.blocklist-card-menu-only:hover{
+/* Phones only: the card body is not a tap target there, so no hover lift.
+   The single-column desktop sheet keeps the default .blocklist-card:hover —
+   its card body still opens the enter sheet. */
+body.mobile-phone-home .blocklist-card.blocklist-card-menu-only:hover{
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 

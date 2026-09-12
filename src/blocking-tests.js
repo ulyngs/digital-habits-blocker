@@ -18,6 +18,7 @@
  * - T51-T54, T51da: Blocklist duplication (schedules copy as pending drafts; DA uses "kopi")
  * - T55-T62: iOS allowlist effective-policy resolvers (pure helpers)
  * - T63-T65: Default pause length setting (fallback, configured value, clamping)
+ * - T169-T172: Single-column (≤718px) desktop focus-space cards open the enter sheet on tap
  */
 
 (function () {
@@ -2528,6 +2529,104 @@
     // MAIN TEST RUNNER
     // ========================================
 
+    // ========================================
+    // CATEGORY: COMPACT DESKTOP CARD TAP
+    // ========================================
+    // Desktop at ≤718px collapses to a single column and moves the enter UI
+    // into a full-screen sheet (usesEnterSchedulerSheet). The card body must
+    // still be a tap target there — only phone layouts are menu-only.
+    // Real headless Chromium runs at a wide viewport, so the ≤718px media
+    // query is forced on for the duration of the group.
+
+    function runCompactDesktopCardTapTests() {
+        console.log('\n🖱️ Category 21: Compact Desktop Focus-Space Card Tap');
+        console.log('----------------------------------------------------');
+
+        const internals = window.__REDDBLOCK_INTERNALS__;
+        if (!internals || typeof internals.render !== 'function') {
+            console.warn('   ⏭️ Compact card tap tests skipped: render not available (run in app with internals)');
+            return;
+        }
+        const body = document.body;
+        if (body.classList.contains('mobile-phone-home') || body.classList.contains('handset-device')
+            || body.classList.contains('ios') || body.classList.contains('android')) {
+            console.warn('   ⏭️ Compact card tap tests skipped: desktop-only layout path');
+            return;
+        }
+
+        const dropdown = document.getElementById('blocklist-select');
+        const cancelEnterBtn = document.getElementById('cancel-enter-scheduler-btn');
+        const modal = document.getElementById('enter-scheduler-modal');
+        if (!dropdown || !cancelEnterBtn || !modal) {
+            console.warn('   ⏭️ Compact card tap tests skipped: enter-sheet DOM not present');
+            return;
+        }
+
+        const COMPACT_CLASSES = ['desktop-compact-layout', 'enter-scheduler-sheet-layout', 'enter-scheduler-modal-open'];
+        const savedAppData = internals.appData;
+        const realSave = internals.saveData;
+        const realMatchMedia = window.matchMedia;
+        const prevSelectedId = dropdown.value;
+        const prevCompactState = COMPACT_CLASSES.map(c => body.classList.contains(c));
+        const sheetOpen = () => body.classList.contains('enter-scheduler-modal-open') && !modal.classList.contains('hidden');
+
+        try {
+            internals.saveData = function () {};
+            // Drop any real selection so the mock data starts from a clean slate.
+            cancelEnterBtn.click();
+
+            // Force the single-column breakpoint on; everything else is answered by the real matchMedia.
+            window.matchMedia = function (query) {
+                const real = realMatchMedia.call(window, query);
+                if (!/max-width:\s*718px/.test(query)) return real;
+                return {
+                    matches: true, media: query, onchange: null,
+                    addEventListener() {}, removeEventListener() {},
+                    addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+                };
+            };
+
+            // Two spaces so render() does not auto-select the sole one.
+            const spaceA = createMockBlocklist({ id: 'bl-compact-tap-a', name: 'Compact Tap A' });
+            const spaceB = createMockBlocklist({ id: 'bl-compact-tap-b', name: 'Compact Tap B' });
+            internals.appData = createMockAppData({ blocklists: [spaceA, spaceB] });
+            internals.render();
+
+            const cardA = document.querySelector(`.blocklist-card[data-id="${spaceA.id}"]`);
+            assert(!!cardA, 'T169: compact card renders');
+            assert(cardA?.classList.contains('blocklist-card-menu-only'), 'T169: ≤718px desktop renders enter-sheet (menu-only) cards');
+            assert(!cardA?.querySelector('.edit-btn'), 'T169: enter-sheet card has no inline edit button');
+            assert(!sheetOpen(), 'T169: enter sheet starts closed');
+
+            // T170: tapping the card body opens the full-screen enter sheet for that space.
+            cardA?.querySelector('.blocklist-title-text')?.click();
+            assert(sheetOpen(), 'T170: clicking the card body in single-column desktop opens the enter sheet');
+            assertEqual(dropdown.value, spaceA.id, 'T170: the clicked space becomes the selected one');
+
+            // T171: tapping the same card again closes the sheet (toggle).
+            document.querySelector(`.blocklist-card[data-id="${spaceA.id}"] .blocklist-title-text`)?.click();
+            assert(!sheetOpen(), 'T171: clicking the selected card again closes the enter sheet');
+
+            // T172: the overflow button is still an action control, not a card tap.
+            const menuBtn = document.querySelector(`.blocklist-card[data-id="${spaceB.id}"] .blocklist-menu-btn`);
+            assert(!!menuBtn, 'T172: enter-sheet card keeps its overflow menu button');
+            menuBtn?.click();
+            assert(!sheetOpen(), 'T172: clicking the overflow button does not open the enter sheet');
+            document.body.click(); // close the menu via the outside-click handler
+        } finally {
+            cancelEnterBtn.click();
+            window.matchMedia = realMatchMedia;
+            internals.appData = savedAppData;
+            internals.saveData = realSave;
+            COMPACT_CLASSES.forEach((c, i) => body.classList.toggle(c, prevCompactState[i]));
+            internals.render();
+            if (prevSelectedId) {
+                dropdown.value = prevSelectedId;
+                dropdown.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+    }
+
     function runAllTests() {
         console.clear();
         console.log('🧪 ReddBlock Blocking Tests');
@@ -2556,6 +2655,7 @@
             runChallengePrimitiveTests();
             runChallengeControllerTests();
             runDefaultPauseLengthTests();
+            runCompactDesktopCardTapTests();
         } catch (error) {
             console.error('❌ Test suite crashed:', error);
         }
@@ -2584,7 +2684,8 @@
         runEditFrictionGateTests,
         runChallengePrimitiveTests,
         runChallengeControllerTests,
-        runDefaultPauseLengthTests
+        runDefaultPauseLengthTests,
+        runCompactDesktopCardTapTests
     };
 
     console.log('🧪 ReddBlock Blocking Tests loaded. Press Cmd+Shift+T to run tests.');

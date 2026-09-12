@@ -19,7 +19,7 @@ import {
     generateId,
 } from './app.js';
 import { buildBlocklistCardMetaHtml, buildBlocklistCardDetailsHtml, blocklistCardHasExpandableSummary } from './list-presentation.js';
-import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, usesEnterSchedulerSheet, openBlocklistModal } from './confirm-modals.js';
+import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, isMobilePhoneDevice, usesEnterSchedulerSheet, openBlocklistModal } from './confirm-modals.js';
 import { APP_BLOCKING_SNOOZE_ICON_IMG_12, appBlockingWarningSnoozedUntilMs, formatAppBlockingSnoozeStartsIn, getActiveAppBlockingSnoozeBlocklistId } from './blocking-platform.js';
 
 function isQuickStartActivelyRunning(blocklist, now = Date.now()) {
@@ -1279,11 +1279,13 @@ export function renderBlocklists() {
         const id = card.dataset.id;
         const isActive = card.dataset.active === 'true';
 
-        // Everywhere on the card except action controls selects/opens enter. Enter-sheet
-        // layouts have no card-body tap target at all — the overflow menu is the only entry point.
+        // Everywhere on the card except action controls selects/opens enter. Phone
+        // layouts have no card-body tap target at all — the overflow menu is the only
+        // entry point there. The single-column desktop sheet (≤718px) is NOT menu-only:
+        // its card body opens the same full-screen enter sheet the menu's Start item does.
         card.addEventListener('click', (e) => {
             if (e.target.closest('.blocklist-meta-items-btn')) return;
-            if (usesEnterSchedulerSheet()) return;
+            if (isMobilePhoneDevice()) return;
             if (e.target.closest('.blocklist-actions') || e.target.closest('.blocklist-menu')) return;
 
             openBlocklistEnterFromCard(id);

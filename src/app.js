@@ -3045,11 +3045,8 @@ export function applySettingsLanguage() {
     setText('modal-browse-apps-caption', tSettings('modalBrowseAppsCaption'));
     const modalBrowseAppsBtn = document.getElementById('modal-browse-apps-btn');
     if (modalBrowseAppsBtn) {
-        const browseTitle = document.body.classList.contains('ios')
-            ? tSettings('modalBrowseAppsTitleIos')
-            : tSettings('browseApplicationsTitle');
-        modalBrowseAppsBtn.title = browseTitle;
-        modalBrowseAppsBtn.setAttribute('aria-label', browseTitle);
+        modalBrowseAppsBtn.title = tSettings('modalBrowseAppsCaption');
+        modalBrowseAppsBtn.setAttribute('aria-label', tSettings('modalBrowseAppsCaption'));
     }
     setText('cancel-blocklist-btn', tSettings('cancel'));
     setText('save-blocklist-btn', tSettings('save'));

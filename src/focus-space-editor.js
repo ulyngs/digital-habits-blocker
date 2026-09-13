@@ -390,6 +390,7 @@ function currentItemCounts() {
 export function updateEditorSummaries() {
     const counts = currentItemCounts();
     setSummary('what', tSettingsFmt('whatToBlockSummaryFmt', counts));
+    document.getElementById('what-empty-hint')?.classList.toggle('hidden', counts.websites + counts.apps > 0);
 
     const kind = getWhenToBlockKind();
     let whenText = formatWhenToBlockSummary(kind, state.scheduleSegments, {
@@ -522,6 +523,7 @@ export function applyFocusSpaceEditorLanguage() {
     };
     setText('blocklist-name-label', tSettings('focusSpaceName'));
     setText('editor-section-what-title', tSettings('whatToBlock'));
+    setText('what-empty-hint', tSettings('nothingAddedYet'));
     setText('editor-section-when-title', tSettings('whenToBlock'));
     setText('editor-section-stop-title', tSettings('toStopEarly'));
     setText('editor-section-advanced-title', tSettings('advancedOptions'));

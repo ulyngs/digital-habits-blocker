@@ -695,20 +695,7 @@
     </button>
     <div class="editor-section-body hidden" id="editor-section-what-body">
 <div class="form-group" id="blocklist-websites-group">
-                    <label class="label-with-info">
-                        <span id="blocklist-websites-label">Websites to block</span>
-                        <span class="info-tooltip-wrapper">
-                            <svg class="info-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <line x1="12" y1="16" x2="12" y2="12"></line>
-                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                            </svg>
-                            <span id="blocklist-websites-tooltip" class="info-tooltip">Blocking applies to entire
-                                domains. For example, typing
-                                "facebook.com" blocks all of Facebook, not just specific pages.</span>
-                        </span>
-                    </label>
+                    <p class="editor-hint" id="what-empty-hint">Nothing added yet</p>
                     <div class="tags-input-container tags-input-stacked">
                         <div id="modal-websites-tags" class="tags-container"></div>
                         <div class="input-with-button websites-input-with-import">
@@ -767,37 +754,18 @@
                         reddit.com)</span>
                 </div>
 <div class="form-group" id="blocklist-apps-group">
-                    <label class="label-with-info">
-                        <span id="blocklist-apps-label">Apps to block</span>
-                        <span class="info-tooltip-wrapper">
-                            <svg class="info-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <line x1="12" y1="16" x2="12" y2="12"></line>
-                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                            </svg>
-                            <span id="blocklist-apps-tooltip" class="info-tooltip">Enter the exact name of the
-                                application (e.g. 'Safari'). You can
-                                also use the folder button to find the app.</span>
-                        </span>
-                    </label>
-                    <div class="tags-input-container tags-input-stacked">
-                        <div id="modal-apps-tags" class="tags-container"></div>
-                        <div class="input-with-button apps-input-with-button">
-                            <input type="text" id="modal-app-input" placeholder="e.g., Safari" class="form-input"
-                                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                            <button type="button" id="modal-browse-apps-btn" class="browse-btn browse-btn-apps"
-                                title="Browse Applications">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path
-                                        d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z">
-                                    </path>
-                                </svg>
-                                <span class="browse-btn-caption" id="modal-browse-apps-caption"></span>
-                            </button>
-                        </div>
-                    </div>
+                    <div id="modal-apps-tags" class="tags-container apps-tags"></div>
+                    <input type="text" id="modal-app-input" placeholder="e.g., Safari" class="form-input hidden"
+                        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                        aria-hidden="true" tabindex="-1">
+                    <button type="button" id="modal-browse-apps-btn" class="add-app-btn" title="Add App">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <circle cx="5" cy="5" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="19" cy="5" r="2"></circle>
+                            <circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle>
+                            <circle cx="5" cy="19" r="2"></circle><circle cx="12" cy="19" r="2"></circle><circle cx="19" cy="19" r="2"></circle>
+                        </svg>
+                        <span id="modal-browse-apps-caption">Add App</span>
+                    </button>
                     <p id="blocklist-apps-allow-hint" class="allowlist-scope-hint hidden" aria-live="polite"></p>
                 </div>
     </div>

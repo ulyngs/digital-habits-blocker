@@ -10811,16 +10811,6 @@ body.handset-device #focus-space-editor .tags-input-stacked .browse-btn{
 }
 
 /* iPhone and Android: app input is hidden — picker button spans the full row. */
-body.ios-phone #focus-space-editor .tags-input-stacked .apps-input-with-button .browse-btn,
-body.android #focus-space-editor .tags-input-stacked .apps-input-with-button .browse-btn{
-    width: 100%;
-    max-width: 100%;
-    flex: 1 1 auto;
-    box-sizing: border-box;
-    justify-content: center;
-    padding: 10px 12px;
-}
-
 body.ios #focus-space-editor .tags-input-stacked .apps-picker-only .browse-btn{
     width: 100%;
 }
@@ -17337,4 +17327,46 @@ body.dark-mode .app-blocking-warning-card{
     display: flex;
     flex-direction: column;
     min-width: 0;
+}
+
+/* What to block: app chips as plain rows, then one full-width Add App button. */
+#blocklist-apps-group{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#blocklist-apps-group .apps-tags:empty{
+    display: none;
+}
+
+.add-app-btn{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 12px;
+    background: var(--primary-btn-bg);
+    color: var(--primary-btn-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.add-app-btn:hover{
+    background: var(--primary-btn-bg-hover);
+}
+
+.add-app-btn svg{
+    flex-shrink: 0;
+}
+
+#what-empty-hint{
+    margin: 0 0 2px;
 }

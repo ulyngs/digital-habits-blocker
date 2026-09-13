@@ -144,8 +144,10 @@ export const screens = [
         viewport: DESKTOP,
         clip: '#blocklist-modal .modal-content',
         prepare: async (page) => {
+            // A fresh space opens on What to block; type a website and pick nothing else.
             await page.click('#add-blocklist-btn');
-            await page.click('#editor-section-when-header');
+            await page.fill('#modal-website-input', 'reddit.com');
+            await page.keyboard.press('Enter');
         },
     },
     {
@@ -199,7 +201,8 @@ export const screens = [
         viewport: DESKTOP,
         clip: '#time-picker-container',
         prepare: async (page) => {
-            await page.click('#editor-section-when-header');
+            // Locked space with websites and an app: chips render as locked.
+            await page.click('#editor-section-what-header');
         },
     },
     {

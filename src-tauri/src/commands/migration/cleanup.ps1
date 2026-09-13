@@ -78,9 +78,9 @@ if ($postWrite -match '^# === BEGIN REDD BLOCK' -or $postWrite -match '^# ReDD B
 
 # 6. retire legacy scheduled task + daemon-specific files only.
 #    CRITICAL: do NOT recursively delete ProgramData product folders.
-#    The new app reuses shared storage for the user's blocklist data
-#    (redd-block-data.json) when shared-storage was activated — see
-#    commands::data::should_use_shared_data_path.
+#    The new app no longer writes there, but each account still imports
+#    its blocklist data (redd-block-data.json) out of shared storage on
+#    first launch — see commands::data::import_shared_data_into_per_user.
 & {
     $ErrorActionPreference = 'Continue'
     & schtasks /Delete /TN 'ReDD Block Helper' /F 2>&1 | Out-Null

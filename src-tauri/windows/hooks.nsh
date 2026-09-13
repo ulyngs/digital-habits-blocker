@@ -84,5 +84,9 @@
   ; redd-block-data.json are intentionally preserved so a future
   ; reinstall picks them back up — only the daemon-state file (now
   ; absent) and the helper-state.json are scrubbed during migration.
+  ; Since the per-user migration that file is an import source only:
+  ; each account copies
+  ; it into its own %APPDATA%\com.reddblock\ store on first launch, so
+  ; a shared PC no longer gives the whole family one blocklist.
   ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall'
 !macroend

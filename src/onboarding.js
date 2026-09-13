@@ -102,8 +102,9 @@ export function hasAcceptedEula() {
 // and the macOS Automation / Firefox extension setup overview.
 //
 // Persistence: `state.appData.settings.welcomeOnboardingShown` (boolean).
-// Wiped by `scripts/dev-reset-fda-onboarding.sh` (incl. --nuke; shared
-// storage at /var/lib/redd-block is cleared too).
+// Wiped by `scripts/dev-reset-fda-onboarding.sh` (incl. --nuke; it also
+// clears any pre-3.x /var/lib/redd-block copy, which the backend would
+// otherwise import straight back over the per-user file).
 export function hasWelcomeOnboardingBeenShown() {
     return state.appData?.settings?.welcomeOnboardingShown === true;
 }

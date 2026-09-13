@@ -73,11 +73,12 @@ killall -HUP mDNSResponder 2>/dev/null || true
 #    daemon is stopped — safe to make the removal permanent.
 #
 #    CRITICAL: do NOT `rm -rf /var/lib/redd-block` blindly. The new
-#    app reuses that directory for the user's blocklist data
-#    (redd-block-data.json) when shared-storage was activated by
-#    v1.x — see commands/data.rs::should_use_shared_data_path. We
-#    only delete the daemon-specific files and leave the data file
-#    + directory in place.
+#    app no longer writes there, but it still imports the user's
+#    blocklist data (redd-block-data.json) out of it into their own
+#    per-user store — see commands/data.rs::import_shared_data_into_per_user.
+#    Deleting it before every account on the machine has launched the
+#    new build loses their blocklists. We only delete the
+#    daemon-specific files and leave the data file + directory in place.
 rm -f /Library/LaunchDaemons/com.redd.block.helper.plist
 rm -f /Library/LaunchDaemons/org.reddfocus.redd-block-helper.plist
 rm -f /Library/PrivilegedHelperTools/com.redd.block.helper

@@ -126,11 +126,14 @@ forwards trailing args, flags included, without the separator.
 ## Architecture essentials
 
 ### Single source of truth
-Desktop website/app rules derive from one JSON file, `redd-block-data.json`
-(canonical `/var/lib/redd-block/...` on macOS,
-`%PROGRAMDATA%\Digital Habits Blocker\...` on Windows; per-user fallback until
-the shared dir is writable — path logic in `src-tauri/src/commands/data.rs`).
-The frontend writes it via
+Desktop website/app rules derive from one JSON file, `redd-block-data.json`,
+stored **per user** on every platform (`~/Library/Application Support/com.reddblock/`
+on macOS, `%APPDATA%\com.reddblock\` on Windows — path logic in
+`src-tauri/src/commands/data.rs`). It used to be machine-wide, which on a
+shared PC gave a whole family one blocklist and made writes fail for whoever
+did not create the file; those locations are now import sources only, read once
+per account. Do not reintroduce a machine-wide branch — two accounts resolving
+to one file is the bug, not the feature. The frontend writes it via
 `save_data`; every backend re-reads it. `native_host::derive_payload()` computes
 effective website rules: blocklist domains always block; when any allowlist
 source is active, policy is `allowed-union − blocked-union` (blocklist wins on

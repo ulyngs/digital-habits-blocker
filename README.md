@@ -297,14 +297,23 @@ Use `./scripts/bump-version.sh <version>` to update the app version in all files
 
 ### App Data
 
-| Platform | Canonical location (once activated) | Per-user fallback |
-|----------|-------------------------------------|-------------------|
-| macOS | `/var/lib/redd-block/redd-block-data.json` | `~/Library/Application Support/com.reddblock/redd-block-data.json` |
-| Windows | `%PROGRAMDATA%\Digital Habits Blocker\redd-block-data.json` (legacy: `%PROGRAMDATA%\Fristed\...`, `%PROGRAMDATA%\ReDD Block\...`) | `%AppData%\com.reddblock\redd-block-data.json` |
-| iOS | App sandbox (managed by Tauri) | — |
-| Android | App sandbox (managed by Tauri; native schedule mirrors managed by the Android plugin) | — |
+Every platform stores app data **per user**. Each account on a shared
+computer gets its own blocklists, schedules and settings.
+
+| Platform | Canonical location |
+|----------|--------------------|
+| macOS | `~/Library/Application Support/com.reddblock/redd-block-data.json` |
+| Windows | `%AppData%\com.reddblock\redd-block-data.json` |
+| iOS | App sandbox (managed by Tauri) |
+| Android | App sandbox (managed by Tauri; native schedule mirrors managed by the Android plugin) |
 
 Legacy v1 paths under `com.redd.block` are still read as a fallback during migration.
+
+Earlier builds kept one machine-wide file instead
+(`/var/lib/redd-block/...` on macOS, `%PROGRAMDATA%\Digital Habits Blocker\...`
+on Windows). On first launch each account copies that file into its own store
+and then diverges from it; the machine-wide copy is left in place, because the
+other accounts on the machine have not necessarily upgraded yet.
 
 Contains blocklists, schedules, active blocks, and settings.
 

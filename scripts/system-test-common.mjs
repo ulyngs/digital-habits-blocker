@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -150,20 +150,11 @@ export function productionDataPath(env = process.env) {
     return path.resolve(env.REDD_BLOCK_PRODUCTION_DATA_PATH);
   }
 
+  // Mirrors the desktop resolver, which is per-user on every platform —
+  // see commands::data::canonical_data_path_static. There is deliberately
+  // no machine-wide branch here any more: if this grows one back, the
+  // runner and the app will disagree about which file is canonical.
   const home = env.HOME || os.homedir();
-  const sharedDir = '/var/lib/redd-block';
-  // This mirrors the desktop resolver's shared-storage preference: an
-  // existing shared directory is canonical even before its data file exists.
-  const sharedData = path.join(sharedDir, 'redd-block-data.json');
-  const sharedHelper = path.join(sharedDir, 'helper-state.json');
-  let sharedWritable = false;
-  if (existsSync(sharedDir)) {
-    try {
-      accessSync(sharedDir, constants.W_OK);
-      sharedWritable = true;
-    } catch {}
-  }
-  if (existsSync(sharedData) || existsSync(sharedHelper) || sharedWritable) return sharedData;
   return path.join(home, 'Library', 'Application Support', 'com.reddblock', 'redd-block-data.json');
 }
 

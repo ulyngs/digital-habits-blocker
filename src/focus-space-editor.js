@@ -34,7 +34,7 @@ import {
     syncSchedulePanelOverlayControls,
 } from './schedule-overlay.js';
 import { deleteBlocklist, duplicateBlocklist, isBlocklistEditFrictionRequired } from './blocklists.js';
-import { getOverrideEstimatedMinutes, usesMobileWordCountForOverrideType } from './override-challenge.js';
+import { getOverrideEstimatedMinutes, normalizeOverrideCount, normalizeOverrideType } from './override-challenge.js';
 import { getSelectedBlocklistModalMode, setBlocklistModalMode } from './list-mode.js';
 import { handleTimeChange, populateBlocklistFormFields, resetBlocklistFormState, syncBlocklistEditFrictionUi } from './confirm-modals.js';
 import { syncSelectedControlState } from './render.js';
@@ -270,7 +270,6 @@ function serializeEditor() {
             type: document.getElementById('override-type')?.value || '',
             count: document.getElementById('override-count')?.value || '',
             customText: document.getElementById('custom-override-text')?.value || '',
-            maxDifficulty: !!document.getElementById('override-max-difficulty-checkbox')?.checked,
         },
         emoji: selectedEmojiValue(),
         color: selectedColorValue(),
@@ -410,14 +409,11 @@ export function updateEditorSummaries() {
 }
 
 function formatStopEarlySummary() {
-    const type = document.getElementById('override-type')?.value || 'random-words';
+    const type = normalizeOverrideType(document.getElementById('override-type')?.value);
     if (type === 'custom') return tSettings('stopEarlySummaryCustom');
-    const count = parseInt(document.getElementById('override-count')?.value, 10) || 0;
+    const count = normalizeOverrideCount(document.getElementById('override-count')?.value, 'random-words');
     const minutes = getOverrideEstimatedMinutes(type, count, '');
-    const key = usesMobileWordCountForOverrideType(type)
-        ? 'stopEarlySummaryWordsFmt'
-        : 'stopEarlySummaryCharsFmt';
-    return tSettingsFmt(key, { count: String(count), minutes: String(minutes) });
+    return tSettingsFmt('stopEarlySummaryWordsFmt', { count: String(count), minutes: String(minutes) });
 }
 
 function setSummary(key, text) {

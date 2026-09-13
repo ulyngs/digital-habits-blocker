@@ -1,6 +1,7 @@
 // Blocklist CRUD: duplication, import/export, delete-undo, list rendering.
 // Extracted verbatim from app.js.
 import { state } from './state.js';
+import { getMaxOverrideWords, migrateOverrideDifficultyToWords } from './override-challenge.js';
 import { BaseDirectory } from '@tauri-apps/api/path';
 import { ask, message, open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
@@ -387,6 +388,7 @@ export function buildBlocklistsExportPayload() {
         format: BLOCKLIST_EXPORT_FORMAT,
         formatVersion: BLOCKLIST_EXPORT_FORMAT_VERSION,
         exportedAt: new Date().toISOString(),
+        overrideCountUnit: 'words',
         blocklists: (state.appData.blocklists || []).map(serializeBlocklistForExport)
     };
 }
@@ -434,6 +436,15 @@ export function normalizeImportedSchedule(raw) {
     };
 }
 
+let importedLegacyCounts = false;
+
+function normalizeImportedDifficulty(raw) {
+    const maxWords = getMaxOverrideWords();
+    const parsed = Number.parseInt(raw?.count, 10);
+    const countsAreChars = importedLegacyCounts && Number.isFinite(parsed) && parsed > maxWords;
+    return migrateOverrideDifficultyToWords(raw, { maxWords, countsAreChars });
+}
+
 export function normalizeImportedBlocklist(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
@@ -470,7 +481,7 @@ export function normalizeImportedBlocklist(raw) {
         ),
         showItemDetails: raw.showItemDetails !== false,
         alwaysShowInSchedule: raw.alwaysShowInSchedule !== false,
-        overrideDifficulty: cloneOverrideDifficulty(raw.overrideDifficulty),
+        overrideDifficulty: normalizeImportedDifficulty(raw.overrideDifficulty),
         schedule
     };
 
@@ -479,6 +490,11 @@ export function normalizeImportedBlocklist(raw) {
 
 export function parseBlocklistsImportPayload(text) {
     const parsed = JSON.parse(text);
+    // Files written before overrideCountUnit existed came from a desktop that
+    // stored character targets (phones already stored words). Only a count
+    // above today's word maximum is unambiguously characters; anything smaller
+    // is kept as words, which errs toward a harder challenge.
+    importedLegacyCounts = !Array.isArray(parsed) && parsed?.overrideCountUnit !== 'words';
     const rawList = Array.isArray(parsed)
         ? parsed
         : Array.isArray(parsed?.blocklists)

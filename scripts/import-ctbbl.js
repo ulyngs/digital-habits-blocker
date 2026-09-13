@@ -56,8 +56,9 @@ function parseTime(str) {
 }
 
 function parseRandomTextLength(str) {
-    // CTBBL format: "300,words,show,keep,". The leading number is a character count
-    // (matches redd-block's overrideDifficulty.count semantics, which is also a char target).
+    // CTBBL format: "300,words,show,keep,". The leading number is a character
+    // count; redd-block's overrideDifficulty.count is a WORD count, so it is
+    // divided by the ~6 characters a word costs (never below 1, capped at 300).
     if (typeof str !== 'string') return null;
     const n = parseInt(str.split(',')[0], 10);
     return Number.isFinite(n) && n > 0 ? n : null;
@@ -122,7 +123,8 @@ function convert(ctbbl) {
 
         const charCount = TEST_MODE_LOW_DIFFICULTY ? 1 : parseRandomTextLength(cfg.randomTextLength);
         if (charCount !== null) {
-            blocklist.overrideDifficulty = { type: 'random-words', count: charCount };
+            const words = TEST_MODE_LOW_DIFFICULTY ? 1 : Math.min(300, Math.max(1, Math.round(charCount / 6)));
+            blocklist.overrideDifficulty = { type: 'random-words', count: words, customText: '' };
         }
 
         blocklists.push(blocklist);

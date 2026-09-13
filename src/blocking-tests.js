@@ -12,7 +12,7 @@
  * - T18-T21: Override behavior
  * - T22-T25: App blocking (manual only - requires system interaction)
  * - T26-T32: Override All feature
- * - T38c-T38e: Max difficulty (effective count)
+ * - T38c-T38e: Word counts above the platform maximum are clamped
  * - T43-T47: Self-Block Prevention
  * - T48-T50: Protected Domain Prevention
  * - T51-T54, T51da: Blocklist duplication (schedules copy switched off; DA uses "kopi")
@@ -712,13 +712,13 @@
             assertEqual(hardest.count, 100, 'T29: Highest count (100) selected');
         })();
 
-        // T30: Gibberish vs random-words at same count
+        // T30: Custom text beats random words when the typed letters tie (50 words = 250 letters)
         (function T30() {
             const blocklist1 = createMockBlocklist({
                 overrideDifficulty: { type: 'random-words', count: 50 }
             });
             const blocklist2 = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 50 }
+                overrideDifficulty: { type: 'custom', customText: 'x'.repeat(250) }
             });
 
             const now = Date.now();
@@ -731,13 +731,13 @@
             });
 
             const hardest = getHardestChallenge(appData, now);
-            assertEqual(hardest.type, 'gibberish', 'T30: Gibberish selected as harder at same count');
+            assertEqual(hardest.type, 'custom', 'T30: Custom text selected as harder at equal letter count');
         })();
 
-        // T31: Custom text challenge
+        // T31: Custom text challenge (5 words = 25 letters, shorter than the text)
         (function T31() {
             const blocklist1 = createMockBlocklist({
-                overrideDifficulty: { type: 'random-words', count: 50 }
+                overrideDifficulty: { type: 'random-words', count: 5 }
             });
             const blocklist2 = createMockBlocklist({
                 overrideDifficulty: { type: 'custom', customText: 'This is a very long custom override text that is hard to type' }
@@ -753,16 +753,16 @@
             });
 
             const hardest = getHardestChallenge(appData, now);
-            assertEqual(hardest.type, 'custom', 'T31: Custom text selected (longer than 50)');
+            assertEqual(hardest.type, 'custom', 'T31: Custom text selected (longer than 25 letters)');
         })();
 
-        // T31b: Lower-than-50 active difficulties should not lose to default baseline
+        // T31b: Active difficulties below the default should not lose to the default baseline
         (function T31b() {
             const blocklist1 = createMockBlocklist({
-                overrideDifficulty: { type: 'random-words', count: 20 }
+                overrideDifficulty: { type: 'random-words', count: 3 }
             });
             const blocklist2 = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 30 }
+                overrideDifficulty: { type: 'random-words', count: 8 }
             });
 
             const now = Date.now();
@@ -775,17 +775,17 @@
             });
 
             const hardest = getHardestChallenge(appData, now);
-            assertEqual(hardest.type, 'gibberish', 'T31b: Active 30-char gibberish selected over baseline default');
-            assertEqual(hardest.count, 30, 'T31b: Selected count reflects active block, not default 50');
+            assertEqual(hardest.type, 'random-words', 'T31b: Active 8-word space selected over baseline default');
+            assertEqual(hardest.count, 8, 'T31b: Selected count reflects active block, not default 15');
         })();
 
-        // T31c: Equal character count tie should prefer custom over gibberish/random-words
+        // T31c: Equal letter count tie should prefer custom over random-words (10 words = 50 letters)
         (function T31c() {
             const blocklist1 = createMockBlocklist({
-                overrideDifficulty: { type: 'random-words', count: 50 }
+                overrideDifficulty: { type: 'random-words', count: 10 }
             });
             const blocklist2 = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 50 }
+                overrideDifficulty: { type: 'random-words', count: 10 }
             });
             const blocklist3 = createMockBlocklist({
                 overrideDifficulty: { type: 'custom', customText: 'x'.repeat(50) }
@@ -802,7 +802,7 @@
             });
 
             const hardest = getHardestChallenge(appData, now);
-            assertEqual(hardest.type, 'custom', 'T31c: Custom wins tie at equal character count');
+            assertEqual(hardest.type, 'custom', 'T31c: Custom wins tie at equal letter count');
             assertEqual(hardest.customText.length, 50, 'T31c: Custom count participates in equality tie');
         })();
 
@@ -920,7 +920,7 @@
         // T36: Only schedule active (no one-off) — should use schedule's blocklist difficulty
         (function T36() {
             const blocklist = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 80 }
+                overrideDifficulty: { type: 'random-words', count: 80 }
             });
             const segment = createMockSegment(0, 0, 23, 59, [0, 1, 2, 3, 4, 5, 6]);
             const schedule = createMockSchedule(blocklist.id, [segment]);
@@ -930,14 +930,14 @@
                 schedules: [schedule]
             });
             const hardest = findHardestChallengeAtTime(appData, now);
-            assertEqual(hardest.type, 'gibberish', 'T36: Schedule-only → uses schedule difficulty type');
+            assertEqual(hardest.type, 'random-words', 'T36: Schedule-only → uses schedule difficulty type');
             assertEqual(hardest.count, 80, 'T36: Schedule-only → uses schedule difficulty count');
         })();
 
-        // T37: Mixed active: gibberish 50 vs custom text (long) — custom wins
+        // T37: Mixed active: 5 random words (25 letters) vs longer custom text — custom wins
         (function T37() {
             const blocklist1 = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 50 }
+                overrideDifficulty: { type: 'random-words', count: 5 }
             });
             const blocklist2 = createMockBlocklist({
                 overrideDifficulty: { type: 'custom', customText: 'I really need to focus right now and should not be browsing' }
@@ -951,7 +951,7 @@
                 ]
             });
             const hardest = findHardestChallengeAtTime(appData, now);
-            assertEqual(hardest.type, 'custom', 'T37: Custom text (longer) wins over gibberish');
+            assertEqual(hardest.type, 'custom', 'T37: Custom text (longer) wins over random words');
         })();
 
         // T38: No active blocks at all → returns default
@@ -960,13 +960,13 @@
             const appData = createMockAppData();
             const hardest = findHardestChallengeAtTime(appData, now);
             assertEqual(hardest.type, 'random-words', 'T38: No blocks → default type');
-            assertEqual(hardest.count, 50, 'T38: No blocks → default count 50');
+            assertEqual(hardest.count, 15, 'T38: No blocks → default count 15');
         })();
 
         // T38b: Inactive schedule should not affect hardest challenge selection
         (function T38b() {
             const blocklist = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 200 }
+                overrideDifficulty: { type: 'random-words', count: 200 }
             });
             const now = Date.now();
             const nowDate = new Date(now);
@@ -979,13 +979,13 @@
             });
             const hardest = findHardestChallengeAtTime(appData, now);
             assertEqual(hardest.type, 'random-words', 'T38b: Inactive schedule does not override default');
-            assertEqual(hardest.count, 50, 'T38b: Inactive schedule does not contribute challenge count');
+            assertEqual(hardest.count, 15, 'T38b: Inactive schedule does not contribute challenge count');
         })();
 
-        // T38c: Max difficulty (random-words) → effective count 7500
+        // T38c: A stored count above the desktop maximum is clamped to 300 words
         (function T38c() {
             const blocklist = createMockBlocklist({
-                overrideDifficulty: { type: 'random-words', maxDifficulty: true, countBeforeMax: 20 }
+                overrideDifficulty: { type: 'random-words', count: 999 }
             });
             const now = Date.now();
             const appData = createMockAppData({
@@ -993,32 +993,17 @@
                 activeBlocks: [createMockBlock(blocklist.id, now - 60000, now + 60000)]
             });
             const hardest = findHardestChallengeAtTime(appData, now);
-            assertEqual(hardest.type, 'random-words', 'T38c: Max difficulty random-words → type');
-            assertEqual(hardest.count, 7500, 'T38c: Max difficulty random-words → effective count 7500');
+            assertEqual(hardest.type, 'random-words', 'T38c: Over-max random-words → type');
+            assertEqual(hardest.count, 300, 'T38c: Over-max random-words → clamped to 300 words');
         })();
 
-        // T38d: Max difficulty (gibberish) → effective count 5000
-        (function T38d() {
-            const blocklist = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', maxDifficulty: true }
-            });
-            const now = Date.now();
-            const appData = createMockAppData({
-                blocklists: [blocklist],
-                activeBlocks: [createMockBlock(blocklist.id, now - 60000, now + 60000)]
-            });
-            const hardest = findHardestChallengeAtTime(appData, now);
-            assertEqual(hardest.type, 'gibberish', 'T38d: Max difficulty gibberish → type');
-            assertEqual(hardest.count, 5000, 'T38d: Max difficulty gibberish → effective count 5000');
-        })();
-
-        // T38e: Two active blocks — max difficulty (random-words) wins over fixed count 100
+        // T38e: Two active blocks — the larger word count wins
         (function T38e() {
             const blocklist1 = createMockBlocklist({
                 overrideDifficulty: { type: 'random-words', count: 100 }
             });
             const blocklist2 = createMockBlocklist({
-                overrideDifficulty: { type: 'random-words', maxDifficulty: true, countBeforeMax: 50 }
+                overrideDifficulty: { type: 'random-words', count: 250 }
             });
             const now = Date.now();
             const appData = createMockAppData({
@@ -1029,8 +1014,7 @@
                 ]
             });
             const hardest = findHardestChallengeAtTime(appData, now);
-            assertEqual(hardest.type, 'random-words', 'T38e: Max difficulty block selected');
-            assertEqual(hardest.count, 7500, 'T38e: Max difficulty (7500) wins over 100');
+            assertEqual(hardest.count, 250, 'T38e: 250 words wins over 100');
         })();
 
         // T38f: Paused one-off does not affect hardest challenge selection
@@ -1039,7 +1023,7 @@
                 overrideDifficulty: { type: 'random-words', count: 80 }
             });
             const pausedBlocklist = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 200 }
+                overrideDifficulty: { type: 'random-words', count: 200 }
             });
             const now = Date.now();
             const appData = createMockAppData({
@@ -1063,7 +1047,7 @@
                 overrideDifficulty: { type: 'random-words', count: 70 }
             });
             const pausedBlocklist = createMockBlocklist({
-                overrideDifficulty: { type: 'gibberish', count: 250 }
+                overrideDifficulty: { type: 'random-words', count: 250 }
             });
             const now = Date.now();
             const appData = createMockAppData({
@@ -1218,13 +1202,7 @@
             const blocklist = createMockBlocklist({
                 name: 'DupTest',
                 websites: ['example.com'],
-                overrideDifficulty: {
-                    type: 'gibberish',
-                    count: 40,
-                    maxDifficulty: true,
-                    countBeforeMax: 40,
-                    typeBeforeMax: 'gibberish'
-                }
+                overrideDifficulty: { type: 'random-words', count: 40 }
             });
             const mockData = duplicationTestAppData({ blocklists: [blocklist], activeBlocks: [], schedules: [] });
             withIsolatedAppData(mockData, function() {
@@ -1234,10 +1212,8 @@
                 assert(dup !== undefined, 'T51: Duplicate blocklist present');
                 assert(dup.id !== blocklist.id, 'T51: Duplicate has new id');
                 assert(dup.name === 'DupTest copy', 'T51: Name is "DupTest copy"');
-                assert(dup.overrideDifficulty && dup.overrideDifficulty.maxDifficulty === true, 'T51: maxDifficulty copied');
-                assertEqual(dup.overrideDifficulty.countBeforeMax, 40, 'T51: countBeforeMax copied');
-                assertEqual(dup.overrideDifficulty.typeBeforeMax, 'gibberish', 'T51: typeBeforeMax copied');
-                assertEqual(dup.overrideDifficulty.type, 'gibberish', 'T51: type copied');
+                assertEqual(dup.overrideDifficulty.count, 40, 'T51: word count copied');
+                assertEqual(dup.overrideDifficulty.type, 'random-words', 'T51: type copied');
                 assertEqual(mockData.activeBlocks.length, 0, 'T51: Duplicate is not in activeBlocks');
             });
         })();

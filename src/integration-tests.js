@@ -764,7 +764,7 @@
         return { passed: true };
     }
 
-    async function testC3_maxDifficultyBlocklistStartClear() {
+    async function testC3_maxWordsBlocklistStartClear() {
         const skip = await ensureHelperRunningOrSkip('C3');
         if (skip) return skip;
 
@@ -774,11 +774,11 @@
             websites: [TEST_DOMAINS.b],
             name: 'C3'
         });
-        bl.overrideDifficulty = { type: 'random-words', count: 7500, maxDifficulty: true };
+        bl.overrideDifficulty = { type: 'random-words', count: 300 };
         addActiveBlock(bl.id, { durationMs: 120000 });
         await callSaveData();
         const startResult = await callUpdateHostsFile();
-        assertOrThrow(startResult && startResult.success, 'C3: start block with max difficulty failed');
+        assertOrThrow(startResult && startResult.success, 'C3: start block with max words failed');
         await assertEnforcedDomain('C3', TEST_DOMAINS.b);
 
         const clearResult = await tauriAPI.clearBlockViaHelper(bl.id);
@@ -1280,7 +1280,7 @@
             { group: 'A', name: 'A11: Data file owns enforcement', fn: testA11_dataFileOwnsEnforcement },
             { group: 'B', name: 'B2: One-off + schedule same blocklist', fn: testB2_oneOffPlusScheduleSameBlocklist },
             { group: 'C', name: 'C2: Clear-all manual blocks', fn: testC2_clearAllManualBlocks },
-            { group: 'C', name: 'C3: Max difficulty blocklist start/clear', fn: testC3_maxDifficultyBlocklistStartClear },
+            { group: 'C', name: 'C3: Max-words blocklist start/clear', fn: testC3_maxWordsBlocklistStartClear },
             { group: 'F', name: 'F1: Set blocked apps command path', fn: testF1_setBlockedAppsCommandPath },
             { group: 'F', name: 'F2: Protected app payload path', fn: testF2_protectedAppPayloadPath },
             { group: 'G', name: 'G1: Duplicate blocklist then start/clear path', fn: testG1_duplicateThenRun },

@@ -842,42 +842,16 @@
                                 <div class="exit-difficulty-row-control settings-row-control">
                                     <select id="override-type" class="form-select override-type-select">
                                         <option id="override-option-random-words" value="random-words">Random Words</option>
-                                        <option id="override-option-gibberish" value="gibberish">Random Gibberish</option>
                                         <option id="override-option-custom" value="custom">Custom Text</option>
                                     </select>
                                 </div>
                             </div>
-                            <div class="exit-difficulty-row settings-row" id="override-count-wrapper">
-                                <div class="exit-difficulty-row-copy settings-row-copy">
-                                    <span class="exit-difficulty-row-label settings-row-label"
-                                        id="override-count-label">Words to type</span>
+                            <div class="exit-difficulty-row settings-row override-slider-row" id="override-count-wrapper">
+                                <div class="override-slider-header">
+                                    <span class="exit-difficulty-row-label settings-row-label" id="override-count-label">Words to type</span>
+                                    <span class="exit-difficulty-time-estimate" id="override-count-time-estimate">15 words · ~1 min</span>
                                 </div>
-                                <div class="exit-difficulty-row-control exit-difficulty-count-control">
-                                    <div class="override-count-stepper" id="override-count-stepper">
-                                        <button type="button" id="override-count-minus" class="override-count-step-btn"
-                                            aria-label="Decrease">−</button>
-                                        <input type="number" id="override-count" class="override-count-input form-input"
-                                            inputmode="numeric" value="50" min="5" max="6600">
-                                        <button type="button" id="override-count-plus" class="override-count-step-btn"
-                                            aria-label="Increase">+</button>
-                                    </div>
-                                    <span class="exit-difficulty-time-estimate"
-                                        id="override-count-time-estimate">~0 min</span>
-                                </div>
-                            </div>
-                            <div class="exit-difficulty-row settings-row" id="override-max-difficulty-wrap">
-                                <div class="exit-difficulty-row-copy settings-row-copy">
-                                    <span class="exit-difficulty-row-label settings-row-label"
-                                        id="override-max-difficulty-label">Max difficulty</span>
-                                    <span class="exit-difficulty-row-hint settings-row-hint"
-                                        id="override-max-difficulty-hint">500 words</span>
-                                </div>
-                                <div class="exit-difficulty-row-control">
-                                    <label class="toggle-switch" for="override-max-difficulty-checkbox">
-                                        <input type="checkbox" id="override-max-difficulty-checkbox">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </div>
+                                <input type="range" id="override-count" class="editor-slider override-words-slider" min="1" max="300" value="15" step="1" aria-labelledby="override-count-label">
                             </div>
                         </div>
                         <div id="override-preview-block" class="exit-difficulty-preview">

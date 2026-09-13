@@ -464,14 +464,19 @@ and similar UX.
 Frontend challenge UX in `src/app.js`. Clearing a block updates app data and
 relies on backends to observe the file change — no helper IPC.
 
-### 10.1 Override difficulty and max difficulty mode
+### 10.1 Override difficulty
 
 Persisted on each blocklist as `overrideDifficulty`:
 
-- `type`: `random-words` | `gibberish` | `custom`
-- `count`, `customText`, `maxDifficulty`, `countBeforeMax`, `typeBeforeMax`
+- `type`: `random-words` | `custom`
+- `count`: a number of **words** on every platform (1–300 desktop, 1–100 iOS/Android; five-letter words), chosen with the "To stop early" slider
+- `customText`: typed verbatim for `custom`
 
-Max difficulty locks random types to 7500 (words) or 5000 (gibberish) chars.
+`appData.settings.overrideCountUnit === 'words'` marks a store that has been
+migrated; before v3.9 desktop stored a character target and offered gibberish
+and a "max difficulty" flag, all folded into word counts on load by
+`migrateOverrideDifficultyToWords` (`src/override-challenge.js`). Android's
+native gate maps `count` straight onto `frictionWordCount`.
 
 ### 10.2 Blocklist duplication
 

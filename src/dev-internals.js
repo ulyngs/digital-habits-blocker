@@ -30,7 +30,7 @@ import {
 import { CURRENT_EULA_REVISION } from './onboarding.js';
 import { render, isClockTickRunning } from './render.js';
 import { duplicateBlocklist, getNextCopyName, isBlocklistEditFrictionRequired } from './blocklists.js';
-import { getMaxOverrideCharsForType } from './override-challenge.js';
+import { getMaxOverrideCountForType, getMaxOverrideWords } from './override-challenge.js';
 import {
     deriveIOSEffectiveWebsitePolicy,
     deriveIOSEffectiveAppPolicy,
@@ -60,7 +60,8 @@ window.__REDDBLOCK_INTERNALS__ = {
     isBlocklistEditFrictionRequired,
     duplicateBlocklist,
     getNextCopyName,
-    getMaxOverrideCharsForType,
+    getMaxOverrideCountForType,
+    getMaxOverrideWords,
     buildAndroidScheduleEntries,
     isAndroidAllowlistUnsupported,
     buildIOSScheduleEntries,

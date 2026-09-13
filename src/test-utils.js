@@ -58,7 +58,7 @@ function createMockBlocklist(overrides = {}) {
         apps: [],
         emoji: '🚫',
         color: '#ff6b6b',
-        overrideDifficulty: { type: 'random-words', count: 50 },
+        overrideDifficulty: { type: 'random-words', count: 15 },
         ...overrides
     };
 }
@@ -221,12 +221,13 @@ function resolveHardestChallengeFromAppData(appData, now, nowDate) {
         }
     }
 
-    if (!hardest) return { type: 'random-words', count: 50 };
-
-    // Resolve effective count for maxDifficulty
-    if (hardest.maxDifficulty === true && hardest.count === undefined) {
-        const effectiveCount = hardest.type === 'gibberish' ? 5000 : 7500;
-        return { ...hardest, count: effectiveCount };
+    if (!hardest) return { type: 'random-words', count: 15 };
+    // Single-block path never went through compareDifficulties: clamp like the app does.
+    if (hardest.type !== 'custom') {
+        const parsed = Number(hardest.count);
+        const words = Number.isFinite(parsed) && parsed > 0 ? parsed : 15;
+        const clamped = Math.min(300, Math.max(1, Math.round(words)));
+        if (hardest.count !== clamped) return { ...hardest, count: clamped };
     }
     return hardest;
 }
@@ -236,31 +237,31 @@ function getHardestChallenge(appData, now) {
 }
 
 /**
- * Compare two difficulties (mirrors compareDifficulties)
- * When maxDifficulty is true, effective count matches app.js getMaxOverrideCharsForType (keep in sync).
+ * Compare two difficulties (mirrors compareDifficulties in settings.js).
+ * Workload is typed letters: five per random word, or the custom text length.
+ * MAX_WORDS mirrors getMaxOverrideWords() on desktop (keep in sync).
  */
 function compareDifficulties(a, b) {
     if (!a) return b;
     if (!b) return a;
 
-    const MAX_CHARS_RANDOM_WORDS = 7500;  // match getMaxOverrideCharsForType
-    const MAX_CHARS_GIBBERISH = 5000;    // match getMaxOverrideCharsForType
+    const MAX_WORDS = 300;
+    const DEFAULT_WORDS = 15;
 
+    const getEffectiveWords = (difficulty) => {
+        const parsed = Number(difficulty.count);
+        const words = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WORDS;
+        return Math.min(MAX_WORDS, Math.max(1, Math.round(words)));
+    };
     const getEffectiveCount = (difficulty) => {
         if (difficulty.type === 'custom' && typeof difficulty.customText === 'string') {
             return difficulty.customText.length;
         }
-        if (difficulty.maxDifficulty === true) {
-            if (difficulty.type === 'gibberish') return MAX_CHARS_GIBBERISH;
-            if (difficulty.type === 'random-words') return MAX_CHARS_RANDOM_WORDS;
-        }
-        const parsed = Number(difficulty.count);
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : 50;
+        return getEffectiveWords(difficulty) * 5;
     };
 
     const getTypeRank = (difficulty) => {
-        if (difficulty.type === 'custom') return 3;
-        if (difficulty.type === 'gibberish') return 2;
+        if (difficulty.type === 'custom') return 2;
         if (difficulty.type === 'random-words') return 1;
         return 0;
     };
@@ -279,10 +280,10 @@ function compareDifficulties(a, b) {
         else winner = a;
     }
 
-    // Return with effective count resolved (so maxDifficulty is reflected in .count)
-    const winnerCount = getEffectiveCount(winner);
-    if (winner.count !== winnerCount) {
-        return { ...winner, count: winnerCount };
+    // Return with the clamped word count resolved (so out-of-range counts are reflected in .count)
+    if (winner.type !== 'custom') {
+        const winnerWords = getEffectiveWords(winner);
+        if (winner.count !== winnerWords) return { ...winner, count: winnerWords };
     }
     return winner;
 }

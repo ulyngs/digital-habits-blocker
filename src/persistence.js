@@ -9,6 +9,7 @@ import { updateBlockedApps } from './blocking-platform.js';
 import { normalizeLoadedEulaState } from './onboarding.js';
 import { migrateBlocklistStartOverlaysToGlobal, migrateLegacyScheduleStartOverlays } from './schedule-overlay.js';
 import { migrateLegacyRepeatType } from './when-to-block.js';
+import { DEFAULT_OVERRIDE_WORDS, getMaxOverrideWords, migrateOverrideDifficultyToWords } from './override-challenge.js';
 import { isScheduleSegmentActiveNow } from './schedule-editor.js';
 
 
@@ -68,6 +69,20 @@ export async function loadData() {
     for (const schedule of state.appData.schedules) {
         if (migrateLegacyRepeatType(schedule)) shouldSave = true;
     }
+    // overrideDifficulty.count is a word count everywhere now. Desktop stores
+    // written before this flag hold character targets; phone stores already
+    // held words. Gibberish and Max difficulty are folded in the same pass.
+    if (state.appData.settings.overrideCountUnit !== 'words') {
+        const countsAreChars = !(state.isIOS || state.isAndroid);
+        for (const bl of state.appData.blocklists) {
+            bl.overrideDifficulty = migrateOverrideDifficultyToWords(bl.overrideDifficulty, {
+                maxWords: getMaxOverrideWords(),
+                countsAreChars,
+            });
+        }
+        state.appData.settings.overrideCountUnit = 'words';
+        shouldSave = true;
+    }
     if (healFocusSpaceColors(state.appData.blocklists)) {
         shouldSave = true;
     }
@@ -123,10 +138,7 @@ export function createDefaultBlocklist() {
         websites: ['instagram.com', 'youtube.com', 'reddit.com'],
         apps: [],
         iosScreenTimeSelection: null,
-        overrideDifficulty: {
-            type: 'random-words',
-            count: (state.isIOS) ? 25 : 50
-        }
+        overrideDifficulty: { type: 'random-words', count: DEFAULT_OVERRIDE_WORDS, customText: '' }
     });
 }
 

@@ -2559,12 +2559,7 @@ body.ios:not(.ios-phone) .start-confirm-header-room h3{
         width: calc(80px * var(--ipad-s));
     }
 
-    body.ios:not(.ios-phone) .modal-overlay #blocklist-modal .override-count-input{
-        width: calc(3.25rem * var(--ipad-s));
-        min-width: calc(3.25rem * var(--ipad-s));
-        max-width: calc(3.25rem * var(--ipad-s));
-        font-size: calc(15px * var(--ipad-s));
-    }
+    
 
     body.ios:not(.ios-phone) .modal-overlay .input-with-suffix{
         gap: calc(8px * var(--ipad-s));
@@ -2700,17 +2695,9 @@ body.ios:not(.ios-phone) .start-confirm-header-room h3{
         margin-bottom: calc(4px * var(--ipad-s));
     }
 
-    body.ios:not(.ios-phone) .modal-overlay .override-count-step-btn{
-        min-width: calc(36px * var(--ipad-s));
-        font-size: calc(18px * var(--ipad-s));
-    }
+    
 
-    body.ios:not(.ios-phone) .modal-overlay .override-count-input{
-        width: calc(2.75rem * var(--ipad-s));
-        min-width: calc(2.75rem * var(--ipad-s));
-        max-width: calc(2.75rem * var(--ipad-s));
-        font-size: calc(15px * var(--ipad-s));
-    }
+    
 
     body.ios:not(.ios-phone) .modal-overlay .exit-difficulty-time-estimate{
         font-size: calc(13px * var(--ipad-s));
@@ -11472,11 +11459,6 @@ body.dark-mode .allowlist-scope-hint--empty strong{
 }
 
 /* Word count fits in 3 digits (max 500); keep the stepper compact on iOS. */
-body.ios #blocklist-modal .override-count-input {
-    width: 3.25rem;
-    min-width: 3.25rem;
-    max-width: 3.25rem;
-}
 
 #settings-modal .modal-content{
     display: flex;
@@ -13796,75 +13778,11 @@ body.dark-mode.handset-device #blocklist-modal.mobile-fullscreen-modal .modal-bu
     background-color: #ffffff;
 }
 
-.exit-difficulty-count-control{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: nowrap;
-}
-
 .exit-difficulty-time-estimate{
     font-size: 13px;
     color: var(--text-muted);
     white-space: nowrap;
     flex-shrink: 0;
-}
-
-.override-count-stepper{
-    display: inline-flex;
-    align-items: stretch;
-    border: 1px solid var(--input-border);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--input-bg);
-}
-
-.override-count-step-btn{
-    border: none;
-    background: transparent;
-    padding: 0 10px;
-    font-size: 18px;
-    line-height: 1;
-    color: var(--text-secondary);
-    cursor: pointer;
-    min-width: 36px;
-}
-
-.override-count-step-btn:hover:not(:disabled){
-    background: var(--element-hover-bg);
-    color: var(--text-primary);
-}
-
-.override-count-step-btn:disabled{
-    opacity: 0.45;
-    cursor: default;
-}
-
-.override-count-input{
-    width: 2.75rem;
-    min-width: 2.75rem;
-    max-width: 2.75rem;
-    margin: 0;
-    padding: 7px 4px;
-    border: none;
-    border-left: 1px solid var(--input-border);
-    border-right: 1px solid var(--input-border);
-    border-radius: 0;
-    text-align: center;
-    font-size: 15px;
-    box-shadow: none;
-    -moz-appearance: textfield;
-    appearance: textfield;
-}
-
-.override-count-input:focus{
-    box-shadow: none;
-}
-
-.override-count-input::-webkit-outer-spin-button,
-.override-count-input::-webkit-inner-spin-button{
-    -webkit-appearance: none;
-    margin: 0;
 }
 
 .exit-difficulty-preview{
@@ -13881,37 +13799,19 @@ body.dark-mode.handset-device #blocklist-modal.mobile-fullscreen-modal .modal-bu
 }
 
 /* Count stepper non-interactive when max difficulty is on */
-.override-count-max-mode,
-.override-count-max-mode .override-count-input{
-    pointer-events: none;
-}
-
-.override-count-max-mode .override-count-input.form-input-disabled{
-    border-left-color: var(--input-border);
-    border-right-color: var(--input-border);
-    opacity: 0.65;
-}
 
 .exit-difficulty-time-estimate.time-estimate-disabled{
     opacity: 0.65;
 }
 
-#override-max-difficulty-wrap.max-difficulty-disabled{
-    pointer-events: none;
-    opacity: 0.7;
-    cursor: default;
-}
-
 /* When blocklist has active block or schedule: grey out override panel rows */
 #override-method-row.blocklist-active-locked,
 #override-count-wrapper.blocklist-active-locked,
-#override-max-difficulty-wrap.blocklist-active-locked,
 #override-preview-block.blocklist-active-locked{
     pointer-events: none;
     opacity: 0.7;
 }
 
-#override-count-wrapper.blocklist-active-locked .override-count-input,
 #override-count-wrapper.blocklist-active-locked .exit-difficulty-time-estimate{
     cursor: default;
 }
@@ -16835,7 +16735,6 @@ body.dark-mode .app-blocking-warning-card{
     font-size: 13px;
 }
 
-
 .editor-hint{
     margin: 0;
     font-size: 13px;
@@ -17048,4 +16947,76 @@ body.dark-mode .editor-panel-action-btn--delete:hover{
 
 #enter-scheduler-modal .editor-panel-title{
     display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   To stop early: words slider
+   ═══════════════════════════════════════════════════════════════════════ */
+.override-slider-row{
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.override-slider-header{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.override-slider-header .exit-difficulty-time-estimate{
+    font-weight: 600;
+    color: var(--accent-color);
+}
+
+.editor-slider{
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    height: 6px;
+    margin: 4px 0 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--accent-color) 0%,
+        var(--accent-color) var(--slider-pct, 0%),
+        var(--redd-border) var(--slider-pct, 0%),
+        var(--redd-border) 100%
+    );
+    outline: none;
+    cursor: pointer;
+}
+
+.editor-slider:disabled{
+    opacity: 0.5;
+    cursor: default;
+}
+
+.editor-slider::-webkit-slider-thumb{
+    appearance: none;
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid var(--accent-color);
+    box-shadow: 0 1px 3px rgba(30, 45, 62, 0.18);
+    cursor: pointer;
+}
+
+.editor-slider::-moz-range-thumb{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid var(--accent-color);
+    box-shadow: 0 1px 3px rgba(30, 45, 62, 0.18);
+    cursor: pointer;
+}
+
+.editor-slider:focus-visible{
+    outline: 2px solid var(--accent-color);
+    outline-offset: 4px;
 }

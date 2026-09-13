@@ -94,7 +94,7 @@ import {
     syncScheduleOverlayCustomiseEditorState, syncScheduleOverlayCustomiseTitle,
     toggleSchedulePanelOverlayDropdown,
 } from './schedule-overlay.js';
-import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, deselectBlocklist, handleBlocklistSelect, openBlocklistModal, openPauseModal, proceedWithPause, refreshSelectedBlocklistUi, setOverrideCountMaxMode, setStartConfirmPrimaryLabel, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal } from './confirm-modals.js';
+import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, deselectBlocklist, handleBlocklistSelect, openBlocklistModal, openPauseModal, proceedWithPause, refreshSelectedBlocklistUi, setStartConfirmPrimaryLabel, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal } from './confirm-modals.js';
 import { renderBlocklists, autoSelectSoleBlocklist, closeAllBlocklistMenus, truncateBlocklistName, setupBlocklistsImportExportButtons, duplicateBlocklist, getNextCopyName, deleteBlocklist, isBlocklistEditFrictionRequired, pendingDelete, saveBlocklistOrderFromDOM, setUndoToastMessage } from './blocklists.js';
 import {
     getSelectedBlocklistModalMode,
@@ -120,7 +120,7 @@ import { setupTheme, setupUiZoomShortcuts, scheduleUiZoomResponsiveLayout, sched
 import { checkForAppUpdate, getLatestVersionPlatformKey, isVersionHigher, resolveMicrosoftStorePackage, updateBannerWhatsNewButtonHtml } from './update-banner.js';
 import { updateDownloadInProgress } from './update-banner.js';
 import { getChallengeController } from './challenge-controller.js';
-import { getWordList5, getIOSRandomWordsCharCount, generateRandomWordsByCount, generateRandomWords, generateGibberish, normalizeOverrideCount, normalizeCustomOverrideText, getTypingCharsPerMinuteForType, getMaxOverrideCharsForType, getOverrideGeneratedCharCount, getDifficultyTypingCharCount, getOverridePreviewText, getOverrideEstimatedMinutes, formatOverrideMaxDifficultyHint, usesMobileWordCountForOverrideType, isMobileOverrideChallengePlatform, formatIOSGibberishChallenge, MIN_OVERRIDE_CHARS, DEFAULT_OVERRIDE_COUNT, TARGET_MAX_OVERRIDE_MINUTES, MAX_IOS_OVERRIDE_WORD_COUNT, OVERRIDE_PREVIEW_TRUNCATE_AT } from './override-challenge.js';
+import { getMaxOverrideCountForType, getOverrideEstimatedMinutes, getTypingCharsPerMinuteForType, normalizeCustomOverrideText, normalizeOverrideCount, normalizeOverrideType } from './override-challenge.js';
 import { escapeHtml, cleanUrlForDisplay, parseRgbFromColorString, rgbToHex, rgbToHsl, hslToRgb, getRelativeLuminance, getEnteringChipColor, getContrastTextColor } from './utils.js';
 import { SETTINGS_TRANSLATIONS, getSettingsLanguage, weekdayAbbrevMon0List, weekdayLetterMon0List, tSettings, tSettingsFmt, LANGUAGE_FLAG_SVG, LANGUAGE_NATIVE_LABELS, languageNativeLabel, SUPPORTED_LANGUAGE_CODES } from './i18n.js';
 /** Windows Settings → Apps → Installed apps (Apps & features). */
@@ -1280,46 +1280,8 @@ function setupModalListeners() {
         const overrideCountInput = document.getElementById('override-count');
         applyOverrideTypeUi(type);
 
-        // Clamp to the new type-specific max when switching types.
         overrideCountInput.value = normalizeOverrideCount(overrideCountInput.value, type);
         state.lastOverrideTypeValue = overrideTypeSelect.value;
-
-        const maxDifficultyCb = document.getElementById('override-max-difficulty-checkbox');
-        if (maxDifficultyCb && maxDifficultyCb.checked && type !== 'custom') {
-            const maxCount = getMaxOverrideCharsForType(type);
-            overrideCountInput.value = String(maxCount);
-            overrideCountInput.max = String(maxCount);
-            state.lastOverrideCountValue = overrideCountInput.value;
-            setOverrideCountMaxMode(true);
-        }
-    });
-    document.getElementById('override-max-difficulty-checkbox').addEventListener('change', (e) => {
-        const checked = e.target.checked;
-        const overrideTypeSelect = document.getElementById('override-type');
-        const overrideCountInput = document.getElementById('override-count');
-        if (checked) {
-            state.lastOverrideTypeValueBeforeMaxDifficulty = overrideTypeSelect.value;
-            state.lastOverrideCountValueBeforeMaxDifficulty = overrideCountInput.value.trim() || state.lastOverrideCountValueBeforeMaxDifficulty;
-            const type = overrideTypeSelect.value;
-            applyOverrideTypeUi(type);
-            const maxCount = getMaxOverrideCharsForType(type);
-            overrideCountInput.value = String(maxCount);
-            overrideCountInput.max = String(maxCount);
-            state.lastOverrideCountValue = overrideCountInput.value;
-            setOverrideCountMaxMode(true);
-            updateOverridePreview(); // preview must reflect max count (set just above)
-        } else {
-            const typeToRestore = state.lastOverrideTypeValueBeforeMaxDifficulty;
-            overrideTypeSelect.value = typeToRestore;
-            applyOverrideTypeUi(typeToRestore);
-            const maxChars = getMaxOverrideCharsForType(typeToRestore);
-            overrideCountInput.max = String(maxChars);
-            overrideCountInput.value = normalizeOverrideCount(String(state.lastOverrideCountValueBeforeMaxDifficulty), typeToRestore);
-            state.lastOverrideCountValue = overrideCountInput.value;
-            state.lastOverrideCountValueBeforeMaxDifficulty = overrideCountInput.value;
-            setOverrideCountMaxMode(false);
-            updateOverridePreview(); // preview must reflect restored count (set just above)
-        }
     });
     document.getElementById('custom-override-text').addEventListener('input', (e) => {
         const customTextArea = e.target;
@@ -1332,7 +1294,7 @@ function setupModalListeners() {
             customTextArea.classList.remove('input-error');
             document.getElementById('custom-override-text-error')?.classList.add('hidden');
             const warningEl = document.getElementById('override-count-warning');
-            const maxChars = getMaxOverrideCharsForType('custom');
+            const maxChars = getMaxOverrideCountForType('custom');
             if (previous.length >= maxChars) {
                 const charsPerMinute = getTypingCharsPerMinuteForType('custom');
                 const estimatedMinutes = Math.ceil(maxChars / charsPerMinute);
@@ -1345,7 +1307,7 @@ function setupModalListeners() {
         });
 
         const warningEl = document.getElementById('override-count-warning');
-        const maxChars = getMaxOverrideCharsForType('custom');
+        const maxChars = getMaxOverrideCountForType('custom');
         const charsPerMinute = getTypingCharsPerMinuteForType('custom');
         const estimatedMinutes = Math.ceil(maxChars / charsPerMinute);
         e.target.maxLength = maxChars;
@@ -1365,12 +1327,7 @@ function setupModalListeners() {
         updateOverridePreview();
     });
 
-    // Override count blur on enter
-    document.getElementById('override-count').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.target.blur();
-        }
-    });
+    // Words slider
     document.getElementById('override-count').addEventListener('input', (e) => {
         const overrideCountInput = e.target;
         const previous = state.lastOverrideCountValue;
@@ -1379,54 +1336,12 @@ function setupModalListeners() {
             pushModalUndo('override-count', () => {
                 overrideCountInput.value = previous;
                 state.lastOverrideCountValue = previous;
+                updateOverridePreview();
             });
         }
-
-        const warningEl = document.getElementById('override-count-warning');
-        const overrideType = document.getElementById('override-type')?.value || 'random-words';
-        const maxChars = getMaxOverrideCharsForType(overrideType);
-        const unitLabel = usesMobileWordCountForOverrideType(overrideType) ? 'words' : 'characters';
-        e.target.max = String(maxChars);
-        const rawValue = e.target.value.trim();
-        if (rawValue === '') {
-            warningEl.classList.add('hidden');
-            warningEl.textContent = '';
-            state.lastOverrideCountValue = e.target.value;
-            updateOverridePreview();
-            return;
-        }
-
-        const parsed = parseInt(rawValue, 10);
-        if (Number.isFinite(parsed) && parsed > maxChars) {
-            const estimatedMinutes = getOverrideEstimatedMinutes(overrideType, maxChars, '');
-            e.target.value = maxChars;
-            warningEl.textContent = `Max is ${maxChars} ${unitLabel} so it's still possible to override in case of emergency (takes you ~${estimatedMinutes} minutes to type).`;
-            warningEl.classList.remove('hidden');
-        } else {
-            warningEl.classList.add('hidden');
-            warningEl.textContent = '';
-        }
-        state.lastOverrideCountValue = e.target.value;
+        state.lastOverrideCountValue = current;
         updateOverridePreview();
     });
-    document.getElementById('override-count').addEventListener('blur', (e) => {
-        const overrideType = document.getElementById('override-type')?.value || 'random-words';
-        e.target.value = normalizeOverrideCount(e.target.value, overrideType);
-        updateOverridePreview();
-    });
-
-    const adjustOverrideCount = (delta) => {
-        const overrideCountInput = document.getElementById('override-count');
-        const maxDifficultyCb = document.getElementById('override-max-difficulty-checkbox');
-        if (!overrideCountInput || maxDifficultyCb?.checked) return;
-        const overrideType = document.getElementById('override-type')?.value || 'random-words';
-        const parsed = Number.parseInt(overrideCountInput.value, 10);
-        const current = Number.isFinite(parsed) ? parsed : DEFAULT_OVERRIDE_COUNT;
-        overrideCountInput.value = normalizeOverrideCount(String(current + delta), overrideType);
-        overrideCountInput.dispatchEvent(new Event('input', { bubbles: true }));
-    };
-    document.getElementById('override-count-minus')?.addEventListener('click', () => adjustOverrideCount(-1));
-    document.getElementById('override-count-plus')?.addEventListener('click', () => adjustOverrideCount(1));
 
     document.querySelectorAll('.color-swatch').forEach(swatch => {
         swatch.addEventListener('click', () => {
@@ -1628,10 +1543,7 @@ function setupModalListeners() {
 
         const mode = getSelectedBlocklistModalMode();
         const overrideCountInput = document.getElementById('override-count');
-        const maxDifficultyChecked = document.getElementById('override-max-difficulty-checkbox').checked;
-        const overrideCount = maxDifficultyChecked
-            ? getMaxOverrideCharsForType(overrideType)
-            : normalizeOverrideCount(overrideCountInput.value, overrideType);
+        const overrideCount = normalizeOverrideCount(overrideCountInput.value, 'random-words');
         overrideCountInput.value = overrideCount;
         const selectedSwatch = document.querySelector('.color-swatch.selected');
         const color = selectedSwatch ? selectedSwatch.dataset.color : null;
@@ -1647,18 +1559,10 @@ function setupModalListeners() {
         const alwaysShowInSchedule = existingBlocklistForSave?.alwaysShowInSchedule !== false;
 
         const overrideDifficultyPayload = {
-            type: overrideType,
+            type: normalizeOverrideType(overrideType),
             count: overrideCount,
-            maxDifficulty: maxDifficultyChecked,
             customText: customText
         };
-        if (maxDifficultyChecked) {
-            overrideDifficultyPayload.countBeforeMax = normalizeOverrideCount(
-                String(state.lastOverrideCountValueBeforeMaxDifficulty),
-                state.lastOverrideTypeValueBeforeMaxDifficulty
-            );
-            overrideDifficultyPayload.typeBeforeMax = state.lastOverrideTypeValueBeforeMaxDifficulty;
-        }
 
         // Save is the authoritative enforcement boundary. The picker and undo
         // can leave a candidate that was valid while paused or between schedule
@@ -2364,35 +2268,18 @@ export function setupLanguagePicker() {
 }
 
 /** Confirmation modals — describe typing challenge count + time estimate */
-export function formatConfirmModalOverrideTypingLine({ type, count, estimatedMinutes, resumeShortGibberish = false, customText = '' }) {
+export function formatConfirmModalOverrideTypingLine({ type, count, estimatedMinutes, customText = '' }) {
     const minutes = estimatedMinutes;
     const lang = getSettingsLanguage();
-    const charUnitDa = 'tegn';
-    const charUnitEn = count === 1 ? 'character' : 'characters';
-    const charUnitZh = '字符';
-    const charUnit = lang === 'zh-CN' ? charUnitZh : (lang === 'da' ? charUnitDa : charUnitEn);
-    const wordUnitDa = count === 1 ? 'ord' : 'ord';
     const wordUnitEn = count === 1 ? 'word' : 'words';
-    const wordUnitZh = '词';
-    const wordUnit = lang === 'zh-CN' ? wordUnitZh : (lang === 'da' ? wordUnitDa : wordUnitEn);
+    const wordUnit = lang === 'zh-CN' ? '词' : (lang === 'da' ? 'ord' : wordUnitEn);
 
-    if (type === 'custom') {
+    if (normalizeOverrideType(type) === 'custom') {
         return tSettingsFmt('confirmOverrideCustomPhraseFmt', {
             customText: escapeHtml(typeof customText === 'string' ? customText : '')
         });
     }
-    if (type === 'gibberish') {
-        if (usesMobileWordCountForOverrideType(type)) {
-            return tSettingsFmt('confirmOverrideGibberishWordsFmt', { count, wordUnit, minutes });
-        }
-        if (resumeShortGibberish) {
-            return tSettingsFmt('confirmOverrideGibberishShortFmt', { count, minutes });
-        }
-        return tSettingsFmt('confirmOverrideGibberishLettersFmt', { count, charUnit, minutes });
-    }
-    return usesMobileWordCountForOverrideType(type)
-        ? tSettingsFmt('confirmOverrideRandomWordsIosFmt', { count, wordUnit, minutes })
-        : tSettingsFmt('confirmOverrideRandomWordsFmt', { count, charUnit, minutes });
+    return tSettingsFmt('confirmOverrideRandomWordsIosFmt', { count, wordUnit, minutes });
 }
 
 /** Static copy on the migration / extension-setup overlay — call when language changes. */
@@ -2975,12 +2862,9 @@ export function applySettingsLanguage() {
     updateBlocklistModalModeLabels(getSelectedBlocklistModalMode());
     setText('override-method-label', tSettings('overrideMethod'));
     setText('override-option-random-words', tSettings('overrideRandomWords'));
-    setText('override-option-gibberish', tSettings('overrideGibberish'));
     setText('override-option-custom', tSettings('overrideCustomText'));
-    setText('override-max-difficulty-label', tSettings('overrideMaxDifficulty'));
     setText('override-preview-label', tSettings('overridePreviewLooksLike'));
-    const overrideType = document.getElementById('override-type')?.value || 'random-words';
-    syncOverrideCountUi(overrideType);
+    syncOverrideCountUi();
     updateOverridePreview();
     setText('blocklist-emoji-label', tSettings('emoji'));
     setText('blocklist-color-label', tSettings('color'));

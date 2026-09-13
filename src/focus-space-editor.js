@@ -33,7 +33,7 @@ import {
     rememberLastScheduleStartOverlayId,
     syncSchedulePanelOverlayControls,
 } from './schedule-overlay.js';
-import { isBlocklistEditFrictionRequired } from './blocklists.js';
+import { deleteBlocklist, duplicateBlocklist, isBlocklistEditFrictionRequired } from './blocklists.js';
 import { getOverrideEstimatedMinutes, usesMobileWordCountForOverrideType } from './override-challenge.js';
 import { getSelectedBlocklistModalMode, setBlocklistModalMode } from './list-mode.js';
 import { handleTimeChange, populateBlocklistFormFields, resetBlocklistFormState, syncBlocklistEditFrictionUi } from './confirm-modals.js';
@@ -426,30 +426,15 @@ function setSummary(key, text) {
 }
 
 /**
- * Panel footer: Discard / Save changes while dirty, otherwise the Start / Stop
- * button for the current kind. The create modal has its own Cancel / Save.
+ * Panel footer: Discard / Save changes while there are unsaved edits. Starting
+ * and stopping live on the card switch, and the create modal has its own
+ * Cancel / Save.
  */
 export function syncEditorFooter() {
     const pendingBar = document.getElementById('editor-pending-bar');
-    const actions = document.getElementById('block-action-buttons');
-    const startBlockBtn = document.getElementById('start-block-btn');
-    const startScheduleBtn = document.getElementById('start-schedule-btn');
-    if (!pendingBar || !actions) return;
-
-    if (isEditorInCreateModal() || !state.editingBlocklistId) {
-        pendingBar.classList.add('hidden');
-        actions.classList.toggle('hidden', !state.editingBlocklistId);
-        startBlockBtn?.classList.add('hidden');
-        startScheduleBtn?.classList.add('hidden');
-        return;
-    }
-
-    const dirty = isEditorDirty();
+    if (!pendingBar) return;
+    const dirty = !isEditorInCreateModal() && !!state.editingBlocklistId && isEditorDirty();
     pendingBar.classList.toggle('hidden', !dirty);
-    actions.classList.toggle('hidden', dirty);
-    const manual = getWhenToBlockKind() === 'manual';
-    startBlockBtn?.classList.toggle('hidden', !manual);
-    startScheduleBtn?.classList.toggle('hidden', manual);
 }
 
 /** Coalesced "something in the form changed" — summaries and footer. */
@@ -502,6 +487,14 @@ export function setupFocusSpaceEditor({ onSave } = {}) {
         e.stopPropagation();
         discardFocusSpaceEditor();
     });
+    document.getElementById('editor-duplicate-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.editingBlocklistId && !isEditorInCreateModal()) duplicateBlocklist(state.editingBlocklistId);
+    });
+    document.getElementById('editor-delete-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.editingBlocklistId && !isEditorInCreateModal()) void deleteBlocklist(state.editingBlocklistId);
+    });
     document.getElementById('editor-save-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         void onSave?.();
@@ -536,6 +529,13 @@ export function applyFocusSpaceEditorLanguage() {
     setText('until-forever', tSettings('untilWhenIStop'));
     setText('until-date', tSettings('untilDate'));
     setText('editor-pending-label', tSettings('pendingChangesLabel'));
+    ['editor-duplicate-btn', 'editor-delete-btn'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const label = tSettings(i === 0 ? 'blocklistCardDuplicate' : 'blocklistCardDelete');
+        el.title = label;
+        el.setAttribute('aria-label', label);
+    });
     setText('editor-discard-btn', tSettings('pendingChangesDiscard'));
     setText('editor-save-btn', tSettings('pendingChangesSave'));
     document.getElementById('when-kind-toggle')?.setAttribute('aria-label', tSettings('whenToBlock'));

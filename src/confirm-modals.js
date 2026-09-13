@@ -122,105 +122,6 @@ export function renderStartConfirmBlockingDetails(blocklist, listEl, showAllBtn,
     }
 }
 
-export function buildScheduleConfirmSegmentHtml(seg) {
-    const fullDayLabels = weekdayAbbrevMon0List();
-    const useCompactDayLabels = shouldUseCompactMobileScheduleDayLabels();
-    const dayLabels = useCompactDayLabels ? weekdayLetterMon0List() : fullDayLabels;
-    const startTime = `${String(seg.startHour).padStart(2, '0')}:${String(seg.startMinute).padStart(2, '0')}`;
-    const endTime = `${String(seg.endHour).padStart(2, '0')}:${String(seg.endMinute).padStart(2, '0')}`;
-    const segmentDays = Array.isArray(seg.days) ? seg.days : [];
-    const dayToggles = dayLabels.map((label, dayIndex) =>
-        `<span class="segment-day-toggle${segmentDays.includes(dayIndex) ? ' active' : ''}" aria-label="${fullDayLabels[dayIndex]}"${useCompactDayLabels ? ' aria-hidden="true"' : ''}>${label}</span>`,
-    ).join('');
-
-    return `
-        <div class="start-confirm-time-slot">
-            <div class="start-confirm-time-slot-row">
-                <span class="start-confirm-time-range">${startTime} → ${endTime}</span>
-                <div class="start-confirm-segment-days segment-days${useCompactDayLabels ? ' compact-day-labels' : ''}">${dayToggles}</div>
-            </div>
-        </div>
-    `;
-}
-
-export function renderScheduleConfirmSegments(segmentsEl, segments) {
-    if (!segmentsEl) return;
-    segmentsEl.innerHTML = segments.map((seg) =>
-        buildScheduleConfirmSegmentHtml(seg),
-    ).join('');
-}
-
-export function formatScheduleConfirmRepeatText() {
-    if (state.scheduleRepeatType === 'forever') {
-        return tSettings('startConfirmRepeatForever');
-    }
-    if (state.scheduleRepeatType === 'date' && state.scheduleRepeatDate) {
-        return tSettingsFmt('startConfirmRepeatUntilFmt', {
-            date: state.scheduleRepeatDate.toLocaleDateString(tSettings('locale')),
-        });
-    }
-    return tSettings('startConfirmRepeatNone');
-}
-
-/** Flexible / Committed — mirrors schedule-editor without importing it (cycle-safe). */
-export function formatScheduleConfirmStrictnessText() {
-    const schedule = state.selectedBlocklistId && state.appData?.schedules
-        ? state.appData.schedules.find((s) => s.blocklistId === state.selectedBlocklistId)
-        : null;
-    const flexible = schedule
-        ? !!schedule.allowEditsBetweenBlocks
-        : !!state.draftAllowEditsBetweenBlocks;
-    return tSettings(flexible ? 'allowEditsFlexibleLabel' : 'allowEditsStrictLabel');
-}
-
-export function formatStartBlockDurationCopy(isAlwaysOn, blockStart, blockEnd) {
-    if (isAlwaysOn) {
-        return `<strong>${escapeHtml(tSettings('alwaysUntilOff'))}</strong>`;
-    }
-
-    const durationMs = blockEnd.getTime() - blockStart.getTime();
-    const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
-    const hours = Math.floor(durationMinutes / 60);
-    const mins = durationMinutes % 60;
-    let durationLabel;
-    if (hours > 0 && mins > 0) durationLabel = `${hours}h ${mins}m`;
-    else if (hours > 0) durationLabel = `${hours} hour${hours > 1 ? 's' : ''}`;
-    else durationLabel = `${mins} minute${mins > 1 ? 's' : ''}`;
-
-    const ends = blockEnd.toLocaleTimeString(tSettings('locale'), { hour: 'numeric', minute: '2-digit' });
-    return tSettingsFmt('startConfirmDurationLineFmt', {
-        duration: `<strong>${escapeHtml(durationLabel)}</strong>`,
-        ends: escapeHtml(ends),
-    });
-}
-
-export function formatStartBlockSubtitle(blocklist, isAlwaysOn, blockStart, blockEnd) {
-    const isAllow = isBlocklistAllowlistMode(blocklist);
-    if (isAlwaysOn) {
-        return tSettings(isAllow ? 'startBlockSubtitleAllowAlways' : 'startBlockSubtitleAlways');
-    }
-    const durationMs = blockEnd.getTime() - blockStart.getTime();
-    const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
-    const hours = Math.floor(durationMinutes / 60);
-    const mins = durationMinutes % 60;
-    let durationLabel;
-    if (hours > 0 && mins > 0) durationLabel = `${hours}h ${mins}m`;
-    else if (hours > 0) durationLabel = `${hours} hour${hours > 1 ? 's' : ''}`;
-    else durationLabel = `${mins} minute${mins > 1 ? 's' : ''}`;
-    return tSettingsFmt(
-        isAllow ? 'startBlockSubtitleAllowFmt' : 'startBlockSubtitleFmt',
-        { duration: durationLabel },
-    );
-}
-
-export function formatStartScheduleSubtitle(blocklist) {
-    return tSettings(
-        isBlocklistAllowlistMode(blocklist)
-            ? 'startScheduleSubtitleAllow'
-            : 'startScheduleSubtitle',
-    );
-}
-
 export function setStartConfirmRoomChip(blocklist, {
     chipId = 'start-confirm-room-chip',
     emojiId = 'start-confirm-room-chip-emoji',
@@ -239,18 +140,6 @@ export function setStartConfirmRoomChip(blocklist, {
     chip.style.color = '';
     chip.style.borderColor = '';
 }
-
-export const SCHEDULE_CONFIRM_ROOM_CHIP_IDS = {
-    chipId: 'schedule-confirm-room-chip',
-    emojiId: 'schedule-confirm-room-chip-emoji',
-    nameId: 'schedule-confirm-room-chip-name',
-};
-
-export const SCHEDULER_ROOM_CHIP_IDS = {
-    chipId: 'scheduler-room-chip',
-    emojiId: 'scheduler-room-chip-emoji',
-    nameId: 'scheduler-room-chip-name',
-};
 
 export const OVERRIDE_CONFIRM_ROOM_CHIP_IDS = {
     chipId: 'override-confirm-room-chip',
@@ -361,34 +250,12 @@ export function applyRoomChipTint(chip, accentColor) {
     chip.style.color = getEnteringChipColor(accentColor);
 }
 
-export function setSchedulerRoomChip(blocklist) {
-    setStartConfirmRoomChip(blocklist, SCHEDULER_ROOM_CHIP_IDS);
-    if (blocklist?.color) {
-        applyRoomChipTint(document.getElementById('scheduler-room-chip'), blocklist.color);
-    }
-}
-
 export function setStartConfirmOverrideDescription(options, textElId = 'start-confirm-override-text') {
     const overrideTextEl = document.getElementById(textElId);
     if (!overrideTextEl) return;
 
     const line = formatConfirmModalOverrideTypingLine(options);
     overrideTextEl.innerHTML = `${line} ${escapeHtml(tSettings('confirmOverrideIntentionSuffix'))}`;
-}
-
-export function getStartScheduleConfirmTitle(blocklist) {
-    if (!blocklist) return tSettings('startThisSchedule');
-    return tSettingsFmt('startScheduleTitleFmt', { name: blocklist.name });
-}
-
-export function getStartBlockConfirmTitle(blocklist) {
-    if (!blocklist) return tSettings('startThisBlock');
-    return tSettingsFmt('startBlockTitleFmt', { name: blocklist.name });
-}
-
-export function getResumeBlockConfirmTitle(blocklist) {
-    if (!blocklist) return tSettings('resumeThisBlock');
-    return tSettingsFmt('resumeBlockTitleFmt', { name: blocklist.name });
 }
 
 // Open override modal for stopping a schedule. Schedules now stop wholesale, identically
@@ -1148,168 +1015,35 @@ export function deselectBlocklist() {
     handleBlocklistSelect({ target: blocklistSelect });
 }
 
-// Show start block confirmation modal
-export function startBlock() {
-    if (!state.selectedBlocklistId) return;
-
-    const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-    if (!blocklist) return;
-
-    // Check if this is a "Stop Block" action (button is in stop mode)
-    const startBlockBtn = document.getElementById('start-block-btn');
-    if (startBlockBtn && startBlockBtn.dataset.activeBlockId) {
-        // Verify the activeBlockId belongs to the currently selected blocklist
-        const activeBlock = state.appData.activeBlocks.find(b =>
-            b.id === startBlockBtn.dataset.activeBlockId &&
-            b.blocklistId === state.selectedBlocklistId
-        );
-
-        if (activeBlock) {
-            // Open override dialog instead of starting a new block
-            openOverrideModal(startBlockBtn.dataset.activeBlockId);
-            return;
-        } else {
-            // ActiveBlockId doesn't match selected blocklist - clear it and continue
-            delete startBlockBtn.dataset.activeBlockId;
-            startBlockBtn.classList.remove('stop-block');
-        }
-    }
-
-    // Manual spaces run from now until they are stopped.
-    const blockStart = new Date();
-    const blockEnd = new Date(ALWAYS_ON_END_TIME);
-
-    setStartConfirmRoomChip(blocklist);
-
-    const titleEl = document.getElementById('start-block-confirm-title');
-    if (titleEl) titleEl.textContent = tSettings('startThisBlock');
-
-    const subtitleEl = document.getElementById('start-confirm-subtitle');
-    if (subtitleEl) {
-        subtitleEl.innerHTML = formatStartBlockSubtitle(blocklist, true, blockStart, blockEnd);
-    }
-
-    setConfirmModalBlockingLabel(blocklist, 'start-confirm-blocking-label');
-
-    const durationEl = document.getElementById('start-confirm-duration');
-    if (durationEl) {
-        durationEl.innerHTML = formatStartBlockDurationCopy(true, blockStart, blockEnd);
-    }
-
-    renderStartConfirmBlockingDetails(
-        blocklist,
-        document.getElementById('start-confirm-blocking-list'),
-        document.getElementById('start-confirm-show-all-blocking'),
-        document.getElementById('start-confirm-blocking-row'),
-    );
-
-    // Build override difficulty text with time estimate
-    const difficulty = blocklist.overrideDifficulty || { type: 'random-words', count: 50 };
-    const displayCount = difficulty.type === 'custom'
-        ? (difficulty.customText?.length || 0)
-        : normalizeOverrideCount(difficulty.count, difficulty.type);
-    const estimatedMinutes = getOverrideEstimatedMinutes(
-        difficulty.type,
-        displayCount,
-        difficulty.customText || ''
-    );
-    const startType =
-        difficulty.type === 'custom' && difficulty.customText
-            ? 'custom'
-            : difficulty.type === 'gibberish'
-              ? 'gibberish'
-              : 'random-words';
-
-    setStartConfirmOverrideDescription({
-        type: startType,
-        count: displayCount,
-        estimatedMinutes,
-        customText: difficulty.customText || ''
-    });
-
-    // Show modal
-    document.getElementById('start-block-confirm-modal').classList.remove('hidden');
-}
-
-// Close start block confirmation modal
-export function closeStartBlockConfirmModal() {
-    document.getElementById('start-block-confirm-modal').classList.add('hidden');
-    // Reset resume state and restore default text
-    if (resumeData) {
-        resumeData = null;
-        document.getElementById('start-block-confirm-title').textContent = tSettings('startThisBlock');
-        setStartConfirmPrimaryLabel('proceed-start-confirm-btn', tSettings('startBlock'));
-    }
-}
-
-// Actually start a block (called after confirmation)
-export async function proceedWithBlock() {
-    // If this is a resume action, delegate to proceedWithResume
-    if (resumeData) {
-        await proceedWithResume();
-        return;
-    }
-
-    closeStartBlockConfirmModal();
-
-    await runProceedWithBlock();
-}
-
-async function runProceedWithBlock() {
-    const startBtn = document.getElementById('start-block-btn');
-
-    if (!state.selectedBlocklistId) return;
-
-    // Manual spaces have no timer: they run until stopped.
-    const blockStart = new Date();
-    const blockEnd = new Date(ALWAYS_ON_END_TIME);
-
-    // Disable button while processing
-    startBtn.disabled = true;
-    startBtn.textContent = 'Starting...';
-
-    const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-    if (!blocklist) {
-        startBtn.disabled = false;
-        startBtn.innerHTML = getStartBlockButtonHTML();
-        return;
-    }
+/**
+ * Turn a Manual space on: create its always-on block and enforce it. No
+ * confirmation step — the effort barrier is on the way out, not in. Returns
+ * true on success; failures alert and leave the data untouched.
+ */
+export async function startManualBlock(blocklistId) {
+    const blocklist = state.appData.blocklists.find(bl => bl.id === blocklistId);
+    if (!blocklist) return false;
     if (isAndroidAllowlistUnsupported(blocklist)) {
-        startBtn.disabled = false;
-        startBtn.innerHTML = getStartBlockButtonHTML();
         alert(tSettings('androidAllowlistUnsupported'));
-        return;
+        return false;
     }
-    if (!ensureIOSBlocklistSelectionReady(blocklist, 'starting this block')) {
-        startBtn.disabled = false;
-        startBtn.innerHTML = getStartBlockButtonHTML();
-        return;
-    }
-    if (!await ensureIOSAllowlistStartable(blocklist)) {
-        startBtn.disabled = false;
-        startBtn.innerHTML = getStartBlockButtonHTML();
-        return;
-    }
+    if (!ensureIOSBlocklistSelectionReady(blocklist, 'starting this block')) return false;
+    if (!await ensureIOSAllowlistStartable(blocklist)) return false;
 
     const block = {
         id: generateId(),
-        blocklistId: state.selectedBlocklistId,
-        startTime: blockStart.getTime(),
-        endTime: blockEnd.getTime()
+        blocklistId,
+        startTime: Date.now(),
+        endTime: ALWAYS_ON_END_TIME,
+        isAlwaysOn: true,
     };
-
-    // Mark always-on blocks with a flag for display purposes
-    block.isAlwaysOn = true;
 
     let result;
 
     if (state.isIOS) {
-        // iOS: Use Screen Time API via plugin
         if (!state.screentimeAuthorized) {
             const authResult = await requestScreentimeAuth();
             if (!authResult.granted) {
-                startBtn.disabled = false;
-                startBtn.innerHTML = getStartBlockButtonHTML();
                 if (authResult.status === 'denied') {
                     alert('Screen Time authorization was denied. Please go to Settings > Screen Time > Digital Habits: Blocker and enable access.');
                 } else if (authResult.error) {
@@ -1318,13 +1052,11 @@ async function runProceedWithBlock() {
                     alert('Screen Time authorization is required to block websites. Please try again.');
                 }
                 updateOnboardingVisibility();
-                return;
+                return false;
             }
             updateOnboardingVisibility();
         }
-
         try {
-            // Apply union of all active blocks + active schedule segments (not just this blocklist).
             state.appData.activeBlocks.push(block);
             state.activatedBlockIds.add(block.id);
             const updateResult = await updateHostsFile();
@@ -1334,26 +1066,6 @@ async function runProceedWithBlock() {
                 result = { success: false, error: updateResult.error || 'Failed to update blocking' };
             } else {
                 result = { success: true };
-                // Register one-off DeviceActivity so block ends at endTime when app is closed
-                // Register one-off DeviceActivity so block ends at endTime when app is closed (Option B: store this block's payload to remove)
-                if (!block.isAlwaysOn && block.endTime < ALWAYS_ON_END_TIME) {
-                    try {
-                        const iosPayload = getBlocklistIOSPayload(blocklist);
-                        await tauriAPI.screentimeSetBlockEndState({
-                            blockId: block.id,
-                            domains: Array.from(blocklist?.websites || []),
-                            appTokenData: iosPayload.appTokenData,
-                            categoryTokenData: iosPayload.categoryTokenData,
-                            mode: isAllowlistBlocklist(blocklist) ? 'allowlist' : null
-                        });
-                        const res = await tauriAPI.screentimeRegisterOneOffActivity('redd-block-end-' + block.id, block.endTime);
-                        if (res && res.success === false) {
-                            console.error('[iOS] One-off DeviceActivity registration failed:', res.error || 'Unknown error');
-                        }
-                    } catch (e) {
-                        console.warn('[iOS] One-off block-end registration failed:', e);
-                    }
-                }
             }
         } catch (err) {
             state.appData.activeBlocks = state.appData.activeBlocks.filter(b => b.id !== block.id);
@@ -1361,15 +1073,14 @@ async function runProceedWithBlock() {
             result = { success: false, error: err.toString() };
         }
     } else if (state.isAndroid) {
-        // Android: push locally, sync (creates the MANUAL Schedule entity
-        // in Kotlin), then explicitly start the session — set_schedules
-        // alone doesn't activate a MANUAL schedule, see syncSchedulesToHelper.
+        // Android: push locally, sync (creates the MANUAL Schedule entity in
+        // Kotlin), then explicitly start the session — set_schedules alone
+        // doesn't activate a MANUAL schedule, see syncSchedulesToHelper.
         try {
             state.appData.activeBlocks.push(block);
             await saveData();
             await syncSchedulesToHelper();
-            const endTimestampMs = (block.isAlwaysOn || block.endTime >= ALWAYS_ON_END_TIME) ? null : block.endTime;
-            const startResult = await tauriAPI.androidStartManualBlock(block.id, endTimestampMs);
+            const startResult = await tauriAPI.androidStartManualBlock(block.id, null);
             if (!startResult.success) {
                 state.appData.activeBlocks = state.appData.activeBlocks.filter(b => b.id !== block.id);
                 await saveData();
@@ -1384,23 +1095,21 @@ async function runProceedWithBlock() {
         }
     } else {
         // Desktop: persist the block locally first so save_data and the
-        // native-messaging host see it immediately (state.helperAvailable only
-        // gates legacy helper-daemon wiring, not v2 extension blocking).
+        // native-messaging host see it immediately.
         state.appData.activeBlocks.push(block);
         state.activatedBlockIds.add(block.id);
-
         if (state.helperAvailable) {
             const status = await tauriAPI.checkHelperStatus();
             if (!status.running || !status.version_ok) {
                 state.helperAvailable = false;
             }
         }
-        // v2: the app process IS the helper. startBlockViaHelper is a
-        // no-op shim; extension blocking follows from save_data below.
+        // v2: the app process IS the helper. startBlockViaHelper is a no-op
+        // shim; extension blocking follows from save_data below.
         result = await tauriAPI.startBlockViaHelper({
             domains: blocklist.websites || [],
-            endTime: blockEnd.getTime(),
-            blocklistId: state.selectedBlocklistId
+            endTime: block.endTime,
+            blocklistId,
         });
     }
 
@@ -1409,11 +1118,6 @@ async function runProceedWithBlock() {
             state.appData.activeBlocks = state.appData.activeBlocks.filter(b => b.id !== block.id);
             state.activatedBlockIds.delete(block.id);
         }
-        // Re-enable button
-        startBtn.disabled = false;
-        startBtn.innerHTML = getStartBlockButtonHTML();
-
-        // Only show error if user didn't cancel
         if (!result.cancelled) {
             if (isHelperConnectionError(result.error)) {
                 state.helperAvailable = false;
@@ -1422,162 +1126,16 @@ async function runProceedWithBlock() {
                 alert('Could not start block: ' + (result.error || 'Unknown error'));
             }
         }
-        return;
+        return false;
     }
 
-    // Save data and reset UI
     await saveData();
-
-    // Update blocked apps (handles both active blocks and schedules)
     await updateBlockedApps();
-
-    // Render UI to update blocklist cards (show ACTIVE badge)
     render();
-
-    // Restore button HTML structure first (textContent = 'Starting...' wiped it)
-    const startBtn2 = document.getElementById('start-block-btn');
-    startBtn2.innerHTML = getStartBlockButtonHTML();
-    startBtn2.disabled = false;
-
     refreshSelectedBlocklistUi();
+    return true;
 }
 
-// Helper function for start block button HTML (includes .btn-label and .btn-blocklist-meta wrapper)
-export function getStartBlockButtonHTML() {
-    return `
-        ${START_FOCUS_SPACE_PLAY_ICON}
-        ${STOP_ACTION_SQUARE_ICON}
-        <span class="btn-label">${escapeHtml(tSettings('startBlockButton'))}</span>
-        <span class="btn-blocklist-meta">
-            <span class="btn-blocklist-lead" aria-hidden="true"></span>
-            <span class="btn-emoji" aria-hidden="true"></span>
-            <span class="btn-name"></span>
-        </span>
-    `;
-}
-
-// Render an action label like "Stop Schedule:" / "Start blokering:" as two
-// inner spans so narrow viewports can hide the trailing context (and the
-// .btn-emoji + .btn-name beside it) and just show "Stop" / "Start". Splits
-// at the first space so it works for any locale that follows verb-then-noun.
-export function getActionLabelHTML(fullText) {
-    const safe = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    let text = String(fullText ?? '').trimEnd();
-    // Colon before blocklist meta is added in CSS when meta is visible (see .btn-label-context::after).
-    if (text.endsWith(':')) text = text.slice(0, -1);
-    const spaceIdx = text.indexOf(' ');
-    if (spaceIdx <= 0) return safe(text);
-    const action = text.slice(0, spaceIdx);
-    const context = text.slice(spaceIdx);
-    return `<span class="btn-label-action">${safe(action)}</span><span class="btn-label-context">${safe(context)}</span>`;
-}
-
-export function setBtnActionLabel(el, fullText, { simple = false } = {}) {
-    if (!el) return;
-    if (simple) {
-        el.textContent = String(fullText ?? '').trimEnd();
-        return;
-    }
-    el.innerHTML = getActionLabelHTML(fullText);
-}
-
-// The visible colon is added in CSS on .btn-label-context for stop-block only.
-export function syncStartBtnBlocklistMetaLead(btn) {
-    if (!btn) return;
-    const lead = btn.querySelector('.btn-blocklist-lead');
-    if (!lead) return;
-    lead.textContent = '';
-}
-
-export function measureStopBtnExpandedWidth(btn) {
-    if (!btn) return 0;
-    const clone = btn.cloneNode(true);
-    clone.classList.remove('hidden', 'stop-meta-collapsed');
-    clone.style.position = 'absolute';
-    clone.style.visibility = 'hidden';
-    clone.style.pointerEvents = 'none';
-    clone.style.width = 'auto';
-    clone.style.maxWidth = 'none';
-    clone.style.minWidth = '0';
-    clone.style.left = '-99999px';
-    clone.style.top = '0';
-    document.body.appendChild(clone);
-    const width = clone.getBoundingClientRect().width;
-    clone.remove();
-    return width;
-}
-
-export function syncStopBtnLabelFit(btn) {
-    if (!btn) return;
-    btn.classList.remove('stop-meta-collapsed');
-    syncStartBtnBlocklistMetaLead(btn);
-
-    const isActionBtn = btn.id === 'start-block-btn' || btn.id === 'start-schedule-btn';
-    if (!isActionBtn || btn.classList.contains('hidden') || btn.clientWidth <= 0) return;
-
-    const isStop = btn.classList.contains('stop-block') || btn.classList.contains('stop-schedule');
-    if (!isStop) return;
-
-    if (state.isIOS || state.isAndroid) {
-        btn.classList.add('stop-meta-collapsed');
-        return;
-    }
-
-    const buttonRow = btn.parentElement;
-    const rowStyle = buttonRow ? window.getComputedStyle(buttonRow) : null;
-    const rowGap = rowStyle ? (parseFloat(rowStyle.columnGap || rowStyle.gap) || 0) : 0;
-    const visibleButtons = buttonRow
-        ? Array.from(buttonRow.children).filter(el => el instanceof HTMLElement && !el.classList.contains('hidden') && el.getClientRects().length > 0)
-        : [btn];
-    const otherButtonsWidth = visibleButtons
-        .filter(el => el !== btn)
-        .reduce((total, el) => total + el.getBoundingClientRect().width, 0);
-    const availableBtnWidth = buttonRow
-        ? buttonRow.clientWidth - otherButtonsWidth - (Math.max(0, visibleButtons.length - 1) * rowGap)
-        : btn.clientWidth;
-    const expandedBtnWidth = measureStopBtnExpandedWidth(btn);
-    const fitSlackPx = state.isIOS ? IOS_STOP_BTN_META_COLLAPSE_SLACK_PX : 1;
-    const shouldCollapseForWidth = expandedBtnWidth > 0
-        && expandedBtnWidth > availableBtnWidth - fitSlackPx;
-
-    if (shouldCollapseForWidth || btn.scrollWidth > btn.clientWidth + 1) {
-        btn.classList.add('stop-meta-collapsed');
-    }
-}
-
-export function syncAllStopBtnLabelFits() {
-    ['start-block-btn', 'start-schedule-btn'].forEach((id) => {
-        const btn = document.getElementById(id);
-        if (btn) syncStopBtnLabelFit(btn);
-    });
-}
-
-// Update emoji and name on stop buttons only — enter/start labels stand alone.
-export function setStartBtnBlocklistInfo(btn, blocklist) {
-    if (!btn) return;
-    const btnEmoji = btn.querySelector('.btn-emoji');
-    const btnName = btn.querySelector('.btn-name');
-    const isStop = btn.classList.contains('stop-block') || btn.classList.contains('stop-schedule');
-    if (!isStop) {
-        if (btnEmoji) btnEmoji.textContent = '';
-        if (btnName) btnName.textContent = '';
-        btn.classList.remove('stop-meta-collapsed');
-        return;
-    }
-    if (btnEmoji) btnEmoji.textContent = blocklist ? (blocklist.emoji || '🚫') : '';
-    if (btnName) btnName.textContent = blocklist ? blocklist.name : '';
-    syncStopBtnLabelFit(btn);
-}
-
-
-// Update hosts file based on active blocks
-// silent = true means don't prompt for password (used for cleanup)
-
-
-// Blocklist modal: --blocklist-tint colours the website/app tag chips;
-// --blocklist-tag-text is black or white for readable labels (from the
-// picker / swatch handlers). The input well stays the normal input bg.
-// Pass null on close to clear the custom properties.
 export function applyModalBlocklistTint(hexColor) {
     const modal = document.getElementById('focus-space-editor');
     if (!modal) return;
@@ -1992,204 +1550,18 @@ export function initializeOverrideModalChallenge(difficulty, progressColor = nul
 
 // ── Pause/Resume Block ──
 
-/** Which timer or schedule row the pause button should act on for the current mode. */
-export function getPauseTargetForSelectedBlocklist(now = Date.now()) {
-    if (!state.selectedBlocklistId) return null;
-    const blocklistId = state.selectedBlocklistId;
-
-    if (getWhenToBlockKind() !== 'manual') {
-        const schedule = state.appData.schedules?.find(s => s.blocklistId === blocklistId);
-        if (!schedule?.segments?.length) return null;
-        return { type: 'schedule', schedule, blocklistId };
-    }
-
-    const block = state.appData.activeBlocks.find(b =>
-        b.blocklistId === blocklistId && b.startTime <= now && b.endTime > now
-    );
-    if (!block) return null;
-    return { type: 'block', block, blockId: block.id, blocklistId };
-}
-
-export function syncPauseButtonForSelectedBlocklist(now = Date.now()) {
-    const pauseBtn = document.getElementById('pause-block-btn');
-    if (!pauseBtn) return;
-
-    const target = getPauseTargetForSelectedBlocklist(now);
-    if (!target) {
-        pauseBtn.classList.add('hidden');
-        return;
-    }
-
-    pauseBtn.classList.remove('hidden');
-    const isPaused = target.type === 'block'
-        ? !!target.block.isPaused
-        : isSchedulePausedNow(target.schedule, now);
-    updatePauseButtonAppearance(isPaused);
-}
-
-export function handlePauseBlockButtonClick() {
-    const target = getPauseTargetForSelectedBlocklist();
-    if (!target) return;
-
-    if (target.type === 'block') {
-        if (target.block.isPaused) {
-            openResumeConfirmation(target.blocklistId, 'block', target.blockId);
-        } else {
-            state.pauseScheduleData = null;
-            openPauseModal(target.blockId);
-        }
-        return;
-    }
-
-    if (isSchedulePausedNow(target.schedule)) {
-        openResumeConfirmation(target.blocklistId, 'schedule', null);
-        return;
-    }
-
-    state.pauseScheduleData = {
-        blocklistId: target.blocklistId,
-        isActiveNow: isScheduleSegmentActiveNow(target.schedule),
-        frictionless: canEditScheduleBetweenBlocks(target.schedule),
-    };
-    openPauseModal(null);
-}
-
-// Update the pause button's icon and text based on whether the block/schedule is paused
-export function updatePauseButtonAppearance(isPaused) {
-    const pauseBtn = document.getElementById('pause-block-btn');
-    if (!pauseBtn) return;
-
-    const svg = pauseBtn.querySelector('svg');
-    const span = pauseBtn.querySelector('span');
-
-    if (isPaused) {
-        // Show play icon and "Resume" text
-        if (svg) {
-            svg.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>';
-        }
-        if (span) span.textContent = 'Resume';
-        pauseBtn.classList.add('resume-mode');
-    } else {
-        // Show pause icon and "Pause" text
-        if (svg) {
-            svg.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>';
-        }
-        if (span) span.textContent = 'Pause';
-        pauseBtn.classList.remove('resume-mode');
-    }
-}
-
-// Open the resume confirmation dialog (reuses start-block-confirm modal)
-let resumeData = null; // { blocklistId, type: 'block'|'schedule', blockId }
-
-export function openResumeConfirmation(blocklistId, type, blockId) {
-    const blocklist = state.appData.blocklists.find(bl => bl.id === blocklistId);
-    if (!blocklist) return;
-
-    resumeData = { blocklistId, type, blockId };
-
-    setStartConfirmRoomChip(blocklist);
-
-    document.getElementById('start-block-confirm-title').textContent = getResumeBlockConfirmTitle(blocklist);
-
-    const subtitleEl = document.getElementById('start-confirm-subtitle');
-    if (subtitleEl) subtitleEl.innerHTML = tSettings('resumeBlockSubtitle');
-
-    setConfirmModalBlockingLabel(blocklist, 'start-confirm-blocking-label');
-
-    const durationEl = document.getElementById('start-confirm-duration');
-    if (type === 'block') {
-        const block = state.appData.activeBlocks.find(b => b.id === blockId);
-        if (block && durationEl) {
-            const remainingMs = block.endTime - Date.now();
-            if (isBlockAlwaysOn(block)) {
-                durationEl.innerHTML = `<strong>${escapeHtml(tSettings('alwaysUntilOff'))}</strong>`;
-            } else {
-                const remainingMins = Math.max(1, Math.floor(remainingMs / 60000));
-                const hours = Math.floor(remainingMins / 60);
-                const mins = remainingMins % 60;
-                let dText;
-                if (hours > 0 && mins > 0) dText = `${hours}h ${mins}m remaining`;
-                else if (hours > 0) dText = `${hours} hour${hours > 1 ? 's' : ''} remaining`;
-                else dText = `${mins} minute${mins > 1 ? 's' : ''} remaining`;
-                durationEl.innerHTML = `<strong>${escapeHtml(dText)}</strong>`;
-            }
-        }
-    } else if (durationEl) {
-        durationEl.innerHTML = `<strong>${escapeHtml(tSettings('scheduleResumingSegment'))}</strong>`;
-    }
-
-    renderStartConfirmBlockingDetails(
-        blocklist,
-        document.getElementById('start-confirm-blocking-list'),
-        document.getElementById('start-confirm-show-all-blocking'),
-        document.getElementById('start-confirm-blocking-row'),
-    );
-
-    // Override info
-    const difficulty = blocklist.overrideDifficulty || { type: 'random-words', count: 50 };
-    const displayCount = difficulty.type === 'custom'
-        ? (difficulty.customText?.length || 0)
-        : normalizeOverrideCount(difficulty.count, difficulty.type);
-    const estimatedMinutes = getOverrideEstimatedMinutes(
-        difficulty.type,
-        displayCount,
-        difficulty.customText || ''
-    );
-    const resumeType =
-        difficulty.type === 'custom' && difficulty.customText
-            ? 'custom'
-            : difficulty.type === 'gibberish'
-              ? 'gibberish'
-              : 'random-words';
-
-    setStartConfirmOverrideDescription({
-        type: resumeType,
-        count: displayCount,
-        estimatedMinutes,
-        resumeShortGibberish: resumeType === 'gibberish',
-        customText: difficulty.customText || ''
-    });
-
-    setStartConfirmPrimaryLabel('proceed-start-confirm-btn', tSettings('resumeBlock'));
-
-    // Show modal
-    document.getElementById('start-block-confirm-modal').classList.remove('hidden');
-}
-
-// Actually resume a paused block/schedule
-export async function proceedWithResume() {
-    if (!resumeData) return;
-
-    // Save locally before closeStartBlockConfirmModal clears resumeData
-    const { type, blockId, blocklistId } = resumeData;
-
-    closeStartBlockConfirmModal();
-
-    if (type === 'block') {
-        const block = state.appData.activeBlocks.find(b => b.id === blockId);
-        if (block) {
-            delete block.isPaused;
-            delete block.pauseEndTime;
-        }
-    } else if (type === 'schedule') {
-        const schedule = state.appData.schedules?.find(s => s.blocklistId === blocklistId);
-        if (schedule) {
-            delete schedule.isPaused;
-            delete schedule.pauseEndTime;
-        }
-    }
-
-    resumeData = null;
-
+/** Turn a paused Manual space back on. No challenge: this falls toward blocking. */
+export async function resumePausedBlock(block) {
+    if (!block) return;
+    delete block.isPaused;
+    delete block.pauseEndTime;
     await saveData();
-    console.log('[pause-resume] Proceeding with resume sync', { type, blockId, blocklistId });
     await syncActiveBlocksToHelper();
     await syncSchedulesToHelper();
     await updateHostsFile();
     await updateBlockedApps();
     render();
-    syncPauseButtonForSelectedBlocklist();
+    refreshSelectedBlocklistUi();
 }
 
 /** Turn a paused Daily / Weekly space back on. No challenge: this falls toward blocking. */
@@ -2600,7 +1972,6 @@ export async function proceedWithPause() {
     const keepSelectedId = state.selectedBlocklistId;
     render();
     refreshSelectedBlocklistUi(keepSelectedId);
-    syncPauseButtonForSelectedBlocklist();
     // refreshSelectedBlocklistUi above re-synced the editor's lock state for
     // pausedBlocklistId without discarding in-flight edits.
     closePauseModal();

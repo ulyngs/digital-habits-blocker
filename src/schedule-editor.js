@@ -7,12 +7,9 @@ import { saveData } from './persistence.js';
 import { commitDelete, dismissUndoToast, pendingDelete, showUndoToast, undoDelete } from './blocklists.js';
 import { handleTimeChange } from './confirm-modals.js';
 import { pad, parseEndTimeBoundedInt, scrollPopoverOptionIntoView } from './time-inputs.js';
-import { syncSchedulePanelOverlayControls } from './schedule-overlay.js';
 import {
-    saveFocusSpaceEditor,
     shouldUseCompactMobileScheduleDayLabels,
 } from './app.js';
-import { openScheduleOverrideModal, resumePausedSchedule, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, syncStopBtnLabelFit } from './confirm-modals.js';
 
 export const TIME_SEPARATOR_ARROW_HTML = '<span class="time-separator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>';
 
@@ -298,43 +295,6 @@ export function areSegmentsEqual(a, b) {
         a.endHour === b.endHour &&
         a.endMinute === b.endMinute &&
         JSON.stringify(aDays) === JSON.stringify(bDays);
-}
-
-/**
- * Footer button for Daily / Weekly spaces. A schedule that exists and is not
- * paused shows Stop; otherwise Start (which saves the form, or resumes a
- * paused schedule). The pending-changes bar is owned by focus-space-editor.
- */
-export function updateScheduleButtonState() {
-    const startScheduleBtn = document.getElementById('start-schedule-btn');
-    if (!startScheduleBtn) return;
-
-    const schedule = getSelectedSchedule();
-    const paused = isSchedulePausedNow(schedule, Date.now());
-    const blocklist = state.editingBlocklistId
-        ? state.appData.blocklists.find(bl => bl.id === state.editingBlocklistId)
-        : null;
-    const btnLabel = startScheduleBtn.querySelector('.btn-label');
-
-    if (schedule && !paused) {
-        startScheduleBtn.classList.add('stop-schedule');
-        setBtnActionLabel(btnLabel, tSettings('stopScheduleButton'));
-        setStartBtnBlocklistInfo(startScheduleBtn, blocklist);
-        startScheduleBtn.dataset.activeScheduleId = schedule.id || schedule.blocklistId;
-        setStartBlockBtnLeadingIcon(startScheduleBtn, 'stop');
-    } else {
-        startScheduleBtn.classList.remove('stop-schedule');
-        setBtnActionLabel(btnLabel, tSettings('startScheduleButton'));
-        setStartBtnBlocklistInfo(startScheduleBtn, blocklist);
-        delete startScheduleBtn.dataset.activeScheduleId;
-        setStartBlockBtnLeadingIcon(startScheduleBtn, 'enter');
-    }
-    startScheduleBtn.classList.remove('edit-schedule');
-    startScheduleBtn.disabled = !state.editingBlocklistId;
-
-    syncAllowEditsBetweenBlocksToggle();
-    syncSchedulePanelOverlayControls();
-    syncStopBtnLabelFit(startScheduleBtn);
 }
 
 // Add a new time segment
@@ -1079,24 +1039,4 @@ export function showScheduleTimePopover(field, type, isStart, segmentIndex) {
             }
         });
     }, 10);
-}
-
-/**
- * Footer Start / Stop for Daily and Weekly spaces.
- *  - schedule exists and runs  → Stop (override challenge, then paused until turned on again)
- *  - schedule exists, paused   → turn it back on (no challenge: falls toward blocking)
- *  - no schedule yet           → Save the form, which creates and activates it
- */
-export async function startSchedule() {
-    if (!state.editingBlocklistId) return;
-    const schedule = getSelectedSchedule();
-    if (schedule) {
-        if (isSchedulePausedNow(schedule, Date.now())) {
-            await resumePausedSchedule(schedule);
-        } else {
-            openScheduleOverrideModal(schedule);
-        }
-        return;
-    }
-    await saveFocusSpaceEditor();
 }

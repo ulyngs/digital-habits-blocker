@@ -114,6 +114,21 @@ export const screens = [
         clip: '.week-calendar-section',
     },
 
+    // ---- Focus-space cards: switch on / off / paused --------------------------
+    {
+        name: 'cards-desktop',
+        fixture: fixtures.cardStates,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#blocklists-container',
+    },
+    {
+        name: 'cards-iphone',
+        fixture: fixtures.cardStates,
+        platform: 'iphone',
+        viewport: IPHONE,
+    },
+
     // ---- The focus-space editor -------------------------------------------
     // One form for create (modal) and edit (panel; sheet on phones). The sole
     // space in the fixture is auto-selected, so the panel shows its editor.

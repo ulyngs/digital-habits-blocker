@@ -15,7 +15,7 @@ import { render } from './render.js';
 import { renderBlocklists } from './blocklists.js';
 import { canEditScheduleBetweenBlocks, isScheduleSegmentActiveNow } from './schedule-editor.js';
 import { applyScheduleStartOverlayPresentation, getScheduleStartOverlayForWarningApps, playAppBlockingLetsGoVoice } from './schedule-overlay.js';
-import { closeBlocklistModal, closeOverrideModal, closePauseModal, closeStartBlockConfirmModal, initializeOverrideModalChallenge, openPauseModal, populateOverrideConfirmModalContent } from './confirm-modals.js';
+import { closeBlocklistModal, closeOverrideModal, closePauseModal, initializeOverrideModalChallenge, openPauseModal, populateOverrideConfirmModalContent } from './confirm-modals.js';
 import { isModalVisible } from './modal-manager.js';
 import { updateManageSectionVisibility, closeOverrideAllModal } from './settings.js';
 import { closeDefaultPauseModal } from './pause-default.js';
@@ -1109,7 +1109,6 @@ export const ANDROID_MODAL_CLOSE_FNS = {
     'override-modal': closeOverrideModal,
     'pause-modal': closePauseModal,
     'pause-default-modal': closeDefaultPauseModal,
-    'start-block-confirm-modal': closeStartBlockConfirmModal,
     'override-all-modal': closeOverrideAllModal,
 };
 
@@ -1498,8 +1497,6 @@ export function setupHandsetModalScreens() {
         'blocklist-modal',
         'override-modal',
         'pause-modal',
-        'start-block-confirm-modal',
-        'start-schedule-confirm-modal',
         'settings-modal',
         'override-all-modal',
         'pause-default-modal',

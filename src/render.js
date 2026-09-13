@@ -7,10 +7,10 @@ import { tSettings, weekdayAbbrevMon0List } from './i18n.js';
 import { isBlockAlwaysOn } from './blocklist-utils.js';
 import { isNonRepeatingSchedule, isSchedulePausedNow, pickEarliestUpcomingScheduledBlock, resolveOneShotOccurrences, syncActiveBlocksToHelper, syncSchedulesToHelper, formatTitleBarScheduleStartWhen } from './schedule-engine.js';
 import { saveData, updateHostsFile } from './persistence.js';
-import { isScheduleSegmentActiveNow, updateScheduleButtonState } from './schedule-editor.js';
+import { isScheduleSegmentActiveNow } from './schedule-editor.js';
 import { autoSelectSoleBlocklist, renderBlocklists } from './blocklists.js';
 import { updateBlockedApps, updateOnboardingVisibility, updateWindowHeight } from './blocking-platform.js';
-import { handleBlocklistSelect, isMobilePhoneDevice, openOverrideModal, openPauseModal, openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, syncSchedulerChromeVisibility, syncStopBtnLabelFit, refreshCalendarPreviews, handleTimeChange } from './confirm-modals.js';
+import { handleBlocklistSelect, isMobilePhoneDevice, openOverrideModal, openPauseModal, openScheduleOverrideModal, syncSchedulerChromeVisibility, refreshCalendarPreviews, handleTimeChange } from './confirm-modals.js';
 import { getWhenToBlockKind, syncEditorFooter } from './focus-space-editor.js';
 import { scheduleSelectionPromptLayout } from './theme.js';
 import { updateCleanHostsBtnState, updateOverrideAllButtonVisibility } from './settings.js';
@@ -68,44 +68,7 @@ export function render() {
 }
 
 export function syncSelectedControlState() {
-    if (!state.selectedBlocklistId) {
-        syncEditorFooter();
-        updateOverrideAllButtonVisibility();
-        updateCleanHostsBtnState();
-        return;
-    }
     syncEditorFooter();
-    if (getWhenToBlockKind() !== 'manual') {
-        updateScheduleButtonState();
-        updateOverrideAllButtonVisibility();
-        updateCleanHostsBtnState();
-        return;
-    }
-    const startBlockBtn = document.getElementById('start-block-btn');
-    if (!startBlockBtn) {
-        updateOverrideAllButtonVisibility();
-        updateCleanHostsBtnState();
-        return;
-    }
-    const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-    const now = Date.now();
-    const activeBlock = state.appData.activeBlocks.find(b => b.blocklistId === state.selectedBlocklistId && b.startTime <= now && b.endTime > now);
-    const btnLabel = startBlockBtn.querySelector('.btn-label');
-    delete startBlockBtn.dataset.activeBlockId;
-    startBlockBtn.classList.remove('stop-block');
-    if (activeBlock) {
-        startBlockBtn.classList.add('stop-block');
-        setBtnActionLabel(btnLabel, tSettings('stopBlock'));
-        setStartBtnBlocklistInfo(startBlockBtn, blocklist);
-        startBlockBtn.dataset.activeBlockId = activeBlock.id;
-        setStartBlockBtnLeadingIcon(startBlockBtn, 'stop');
-    } else {
-        setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
-        setStartBtnBlocklistInfo(startBlockBtn, blocklist);
-        setStartBlockBtnLeadingIcon(startBlockBtn, 'enter');
-    }
-    startBlockBtn.disabled = !state.selectedBlocklistId;
-    syncStopBtnLabelFit(startBlockBtn);
     updateOverrideAllButtonVisibility();
     updateCleanHostsBtnState();
 }

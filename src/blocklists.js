@@ -9,7 +9,8 @@ import { tSettings, tSettingsFmt } from './i18n.js';
 import { cloneIOSScreenTimeSelection, getBlocklistIOSScreenTimeSelection, getBlocklistRegularApps, isBlockAlwaysOn, isScreenTimeSummaryEntry, normalizeBlocklist } from './blocklist-utils.js';
 import { isOneOffBlockEnforced, isSchedulePausedNow } from './schedule-engine.js';
 import { saveData, updateHostsFile } from './persistence.js';
-import { handleNowBlockingPause, handleNowBlockingStop, render, renderNowBlockingRow, renderScheduleVisibilityChips } from './render.js';
+import { render, renderNowBlockingRow, renderScheduleVisibilityChips } from './render.js';
+import { isFocusSpaceOn, setFocusSpaceEnabled } from './focus-space-switch.js';
 import { canEditScheduleBetweenBlocks, commitSegmentDelete, isScheduleSegmentActiveNow } from './schedule-editor.js';
 import {
     BLOCKLIST_CARD_COMPACT_SCHEDULE_UPCOMING_CHARS,
@@ -19,7 +20,7 @@ import {
     generateId,
 } from './app.js';
 import { buildBlocklistCardMetaHtml, buildBlocklistCardDetailsHtml, blocklistCardHasExpandableSummary } from './list-presentation.js';
-import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, usesEnterSchedulerSheet, openBlocklistModal } from './confirm-modals.js';
+import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, openBlocklistModal } from './confirm-modals.js';
 import { APP_BLOCKING_SNOOZE_ICON_IMG_12, appBlockingWarningSnoozedUntilMs, formatAppBlockingSnoozeStartsIn, getActiveAppBlockingSnoozeBlocklistId } from './blocking-platform.js';
 
 function getVisibleBlocklists() {
@@ -48,44 +49,6 @@ function setBlocklistCardExpanded(card, id, expanded) {
 
 function toggleBlocklistCardExpanded(card, id) {
     setBlocklistCardExpanded(card, id, !expandedBlocklistCardIds.has(id));
-}
-
-const BLOCKLIST_START_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="m9 18 6-6-6-6"/>
-                      </svg>`;
-
-const BLOCKLIST_PAUSE_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <rect x="6" y="4" width="4" height="16"/>
-                        <rect x="14" y="4" width="4" height="16"/>
-                      </svg>`;
-
-const BLOCKLIST_STOP_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <rect x="3" y="3" width="18" height="18" rx="2"/>
-                      </svg>`;
-
-/**
- * Pause/Stop targets for a card's overflow menu, or null when nothing is enforcing.
- * A running one-off block wins over a running schedule segment (same precedence as the
- * BLOCKING NOW chips). `canPause` is false while the target is already paused.
- */
-function getBlocklistRunControls(blocklistId, now = Date.now()) {
-    const oneOff = (state.appData.activeBlocks || []).find(
-        b => b.blocklistId === blocklistId && b.startTime <= now && b.endTime > now,
-    );
-    if (oneOff) {
-        return { entry: { kind: 'block', id: oneOff.id, blocklistId }, canPause: !oneOff.isPaused };
-    }
-    const nowDate = new Date(now);
-    const schedule = (state.appData.schedules || []).find(
-        s => s.blocklistId === blocklistId && isScheduleSegmentActiveNow(s, nowDate),
-    );
-    if (schedule) {
-        return {
-            entry: { kind: 'schedule', id: schedule.id || blocklistId, blocklistId, schedule },
-            canPause: !isSchedulePausedNow(schedule, now),
-        };
-    }
-    return null;
 }
 
 function openBlocklistEnterFromCard(blocklistId) {
@@ -141,6 +104,11 @@ function buildBlocklistStatusSegment(text, { showDot = false, iconHtml = '', tex
     if (iconHtml) parts.push(iconHtml);
     parts.push(`<span class="${textClass}">${escapeHtml(trimmed)}</span>`);
     return `<span class="blocklist-name-status-segment">${parts.join('')}</span>`;
+}
+
+/** "Paused 12m" for a timed pause; "Off" when the switch turned the space off open-ended. */
+function formatPausedBadgeText(pauseEndTime, now) {
+    return pauseEndTime ? formatPauseRemainingShort(pauseEndTime, now) : tSettings('blocklistOffBadge');
 }
 
 function buildPausedStatusSegment(text, { typeIcon, textClass, dualBadgeContext }) {
@@ -731,11 +699,12 @@ export async function deleteBlocklist(id) {
         block => block.blocklistId === id && block.startTime <= now && block.endTime > now
     );
     // Deliberately NOT isBlocklistEditFrictionRequired: deleting is refused for
-    // any schedule with segments, with no allowEditsBetweenBlocks exemption.
-    // Routing it through the edit gate would make a between-segments flexible
-    // schedule deletable, which is a loosening no one asked for.
+    // any schedule that is switched on, with no allowEditsBetweenBlocks
+    // exemption. Routing it through the edit gate would make a between-segments
+    // flexible schedule deletable, which is a loosening no one asked for. A
+    // schedule the switch turned off (paused) is just data and can go.
     const hasActiveSchedule = state.appData.schedules?.some(
-        s => s.blocklistId === id && s.segments && s.segments.length > 0
+        s => s.blocklistId === id && s.segments && s.segments.length > 0 && !isSchedulePausedNow(s, now)
     );
 
     if (hasActiveBlock) {
@@ -754,12 +723,14 @@ export async function deleteBlocklist(id) {
     }
     commitSegmentDelete();
 
-    // Store the blocklist and any active blocks for potential undo
+    // Store the blocklist, its blocks and its (switched-off) schedules for undo
     const activeBlocksToRemove = state.appData.activeBlocks.filter(b => b.blocklistId === id);
+    const schedulesToRemove = (state.appData.schedules || []).filter(s => s.blocklistId === id);
 
     // Remove from data (soft delete)
     state.appData.blocklists = state.appData.blocklists.filter(bl => bl.id !== id);
     state.appData.activeBlocks = state.appData.activeBlocks.filter(b => b.blocklistId !== id);
+    state.appData.schedules = (state.appData.schedules || []).filter(s => s.blocklistId !== id);
     expandedBlocklistCardIds.delete(id);
     void saveData();
 
@@ -784,6 +755,7 @@ export async function deleteBlocklist(id) {
     pendingDelete = {
         blocklist,
         activeBlocks: activeBlocksToRemove,
+        schedules: schedulesToRemove,
     };
 }
 
@@ -805,6 +777,9 @@ export function undoDelete() {
     state.appData.blocklists.push(pendingDelete.blocklist);
     pendingDelete.activeBlocks.forEach(block => {
         state.appData.activeBlocks.push(block);
+    });
+    (pendingDelete.schedules || []).forEach(schedule => {
+        state.appData.schedules.push(schedule);
     });
     void saveData();
 
@@ -878,7 +853,7 @@ export function renderBlocklists() {
         if (isActive && activeBlock) {
             if (activeBlock.isPaused) {
                 oneOffBadge = buildPausedStatusSegment(
-                    formatPauseRemainingShort(activeBlock.pauseEndTime, now),
+                    formatPausedBadgeText(activeBlock.pauseEndTime, now),
                     {
                         typeIcon: BLOCKLIST_STATUS_ICON_HOURGLASS,
                         textClass: 'blocklist-status-text active-badge',
@@ -911,7 +886,7 @@ export function renderBlocklists() {
             let scheduleTimeText = '';
             if (schedule && schedule.segments) {
                 if (isSchedulePausedNow(schedule, now)) {
-                    scheduleTimeText = formatPauseRemainingShort(schedule.pauseEndTime, now);
+                    scheduleTimeText = formatPausedBadgeText(schedule.pauseEndTime, now);
                 } else {
                     // Check if any segment is currently active
                     const nowDate = new Date();
@@ -1045,68 +1020,12 @@ export function renderBlocklists() {
             ? `<span class="blocklist-entering-chip" style="background-color: ${enteringChipColor}">${tSettings('blocklistEnteringChip')}</span>`
             : '';
 
-        const usesEnterSheetCards = usesEnterSchedulerSheet();
-
-        // Enter-sheet layouts drop the trailing chevron button and the card-body tap target;
-        // everything actionable lives in the overflow menu, led by Pause / Stop while the
-        // focus space is actually enforcing (one-off block first, else the running schedule)
-        // and by Start when it's idle.
-        const runControls = usesEnterSheetCards ? getBlocklistRunControls(bl.id, now) : null;
-        const startItemHtml = usesEnterSheetCards && !runControls
-            ? `<button class="blocklist-menu-item start-blocklist-item" title="${tSettings('blocklistCardStart')}" aria-label="${tSettings('blocklistCardStart')}">
-                      ${BLOCKLIST_START_ICON_SVG}
-                      ${tSettings('blocklistCardStart')}
-                    </button>`
-            : '';
-        const pauseItemHtml = runControls?.canPause
-            ? `<button class="blocklist-menu-item pause-blocklist-item" title="${tSettings('nowBlockingMenuPause')}" aria-label="${tSettings('nowBlockingMenuPause')}">
-                      ${BLOCKLIST_PAUSE_ICON_SVG}
-                      ${tSettings('nowBlockingMenuPause')}
-                    </button>`
-            : '';
-        const runControlsHtml = runControls
-            ? `${pauseItemHtml}
-                    <button class="blocklist-menu-item stop-blocklist-item" title="${tSettings('nowBlockingMenuStop')}" aria-label="${tSettings('nowBlockingMenuStop')}">
-                      ${BLOCKLIST_STOP_ICON_SVG}
-                      ${tSettings('nowBlockingMenuStop')}
-                    </button>`
-            : '';
-        const menuHtml = `
-                <div class="blocklist-menu-wrapper">
-                  <button class="blocklist-action-btn blocklist-menu-btn" title="${tSettings('blocklistCardMenuTitle')}" aria-label="${tSettings('blocklistCardMenuTitle')}">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <circle cx="12" cy="5" r="1"></circle>
-                      <circle cx="12" cy="12" r="1"></circle>
-                      <circle cx="12" cy="19" r="1"></circle>
-                    </svg>
-                  </button>
-                  <div class="blocklist-menu hidden">
-                    ${startItemHtml}
-                    ${runControlsHtml}
-                    <button class="blocklist-menu-item duplicate-blocklist-item" title="${tSettings('blocklistCardDuplicate')}" aria-label="${tSettings('blocklistCardDuplicate')}">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="15" x2="15" y1="12" y2="18"/>
-                        <line x1="12" x2="18" y1="15" y2="15"/>
-                        <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
-                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
-                      </svg>
-                      ${tSettings('blocklistCardDuplicate')}
-                    </button>
-                    <button class="blocklist-menu-item delete-blocklist-item" title="${tSettings('blocklistCardDelete')}" aria-label="${tSettings('blocklistCardDelete')}">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18"></path>
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                      </svg>
-                      ${tSettings('blocklistCardDelete')}
-                    </button>
-                  </div>
-                </div>`;
-
-        const menuOnlyClass = usesEnterSheetCards ? ' blocklist-card-menu-only' : '';
+        const switchOn = isFocusSpaceOn(bl.id, now);
+        const switchLabel = tSettingsFmt(switchOn ? 'switchTurnOffFmt' : 'switchTurnOnFmt', { name: bl.name });
+        const switchHtml = `<button type="button" class="blocklist-switch${switchOn ? ' on' : ''}" role="switch" aria-checked="${switchOn ? 'true' : 'false'}" title="${escapeHtml(switchLabel)}" aria-label="${escapeHtml(switchLabel)}" data-id="${bl.id}"><span class="blocklist-switch-knob" aria-hidden="true"></span></button>`;
 
         return `
-      <div class="blocklist-card${activeClass}${selectedClass}${expandedClass}${menuOnlyClass}" data-id="${bl.id}" data-active="${isActive}" ${selectedStyle}>
+      <div class="blocklist-card${activeClass}${selectedClass}${expandedClass}" data-id="${bl.id}" data-active="${isActive}" ${selectedStyle}>
         ${enteringChip}
         <div class="blocklist-stripe" style="background: ${borderColor}"></div>
         <div class="blocklist-card-body">
@@ -1118,7 +1037,7 @@ export function renderBlocklists() {
                 ${badgesHtml}
               </div>
               <div class="blocklist-actions">
-                ${menuHtml}
+                ${switchHtml}
               </div>
             </div>
             <div class="blocklist-meta">${metaHtml}</div>
@@ -1134,34 +1053,29 @@ export function renderBlocklists() {
         const id = card.dataset.id;
         const isActive = card.dataset.active === 'true';
 
-        // Everywhere on the card except action controls selects the space, which
+        // Everywhere on the card except the switch selects the space, which
         // shows its editor: inline on desktop, as a full-screen sheet on phones and
         // single-column desktop windows.
         card.addEventListener('click', (e) => {
             if (e.target.closest('.blocklist-meta-items-btn')) return;
-            if (e.target.closest('.blocklist-actions') || e.target.closest('.blocklist-menu')) return;
-
-            openBlocklistEnterFromCard(id);
-        });
-
-        card.querySelector('.start-blocklist-item')?.addEventListener('click', (e) => {
-            e.stopPropagation();
+            if (e.target.closest('.blocklist-actions')) return;
             closeAllBlocklistMenus();
             openBlocklistEnterFromCard(id);
         });
 
-        card.querySelector('.pause-blocklist-item')?.addEventListener('click', (e) => {
+        // The switch: on is immediate, off goes through the override challenge.
+        card.querySelector('.blocklist-switch')?.addEventListener('click', (e) => {
             e.stopPropagation();
             closeAllBlocklistMenus();
-            const controls = getBlocklistRunControls(id);
-            if (controls) handleNowBlockingPause(controls.entry);
+            void setFocusSpaceEnabled(id, !isFocusSpaceOn(id));
         });
 
-        card.querySelector('.stop-blocklist-item')?.addEventListener('click', (e) => {
+        // Desktop: Duplicate / Delete live on right-click.
+        card.addEventListener('contextmenu', (e) => {
+            if (document.body.classList.contains('handset-device')) return;
+            e.preventDefault();
             e.stopPropagation();
-            closeAllBlocklistMenus();
-            const controls = getBlocklistRunControls(id);
-            if (controls) handleNowBlockingStop(controls.entry);
+            openBlocklistContextMenu(id, e.clientX, e.clientY);
         });
 
         const summaryBtn = card.querySelector('.blocklist-meta-items-btn');
@@ -1174,34 +1088,10 @@ export function renderBlocklists() {
             });
         }
 
-        const menuBtn = card.querySelector('.blocklist-menu-btn');
-        const menu = card.querySelector('.blocklist-menu');
-        const menuWrapper = menuBtn?.closest('.blocklist-menu-wrapper');
-
-        menuBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!menu || !menuWrapper) return;
-            const wasHidden = menu.classList.contains('hidden');
-            closeAllBlocklistMenus();
-            if (wasHidden) positionBlocklistMenu(menuBtn, menu, menuWrapper);
-        });
-
-        card.querySelector('.duplicate-blocklist-item')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeAllBlocklistMenus();
-            duplicateBlocklist(id);
-        });
-
-        card.querySelector('.delete-blocklist-item')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeAllBlocklistMenus();
-            deleteBlocklist(id);
-        });
-
         // Drag and drop using mouse events on document
         card.addEventListener('mousedown', (e) => {
             // Don't start drag if clicking on buttons
-            if (e.target.closest('.blocklist-menu-btn') || e.target.closest('.blocklist-menu')) return;
+            if (e.target.closest('.blocklist-switch') || e.target.closest('.blocklist-menu')) return;
             if (e.target.closest('.blocklist-meta-items-btn')) return;
             if (e.target.closest('.blocklist-actions')) return;
             if (e.button !== 0) return; // Only left click
@@ -1269,83 +1159,64 @@ export function autoSelectSoleBlocklist({ force = false } = {}) {
     handleBlocklistSelect({ target: dropdown });
 }
 
-const BLOCKLIST_MENU_Z_INDEX = 1000;
 
-function restoreBlocklistMenu(menu) {
-    menu.classList.add('hidden');
-    menu.classList.remove('blocklist-menu-portaled');
-    menu.style.position = '';
-    menu.style.left = '';
-    menu.style.top = '';
-    menu.style.right = '';
-    menu.style.transform = '';
-    menu.style.zIndex = '';
-
-    const wrapper = menu._blocklistMenuWrapper;
-    if (wrapper && menu.parentElement !== wrapper) {
-        wrapper.appendChild(menu);
-    }
-    delete menu._blocklistMenuWrapper;
-    delete menu._blocklistMenuScrollParent;
+/** One shared right-click menu (Duplicate / Delete) for desktop cards. */
+function getBlocklistContextMenu() {
+    let menu = document.getElementById('blocklist-context-menu');
+    if (menu) return menu;
+    menu = document.createElement('div');
+    menu.id = 'blocklist-context-menu';
+    menu.className = 'blocklist-menu blocklist-context-menu hidden';
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML = `
+        <button type="button" class="blocklist-menu-item duplicate-blocklist-item" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+          </svg>
+          <span class="context-duplicate-label"></span>
+        </button>
+        <button type="button" class="blocklist-menu-item delete-blocklist-item" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M3 6h18"></path>
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+          </svg>
+          <span class="context-delete-label"></span>
+        </button>`;
+    menu.querySelector('.duplicate-blocklist-item').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = menu.dataset.blocklistId;
+        closeAllBlocklistMenus();
+        if (id) duplicateBlocklist(id);
+    });
+    menu.querySelector('.delete-blocklist-item').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = menu.dataset.blocklistId;
+        closeAllBlocklistMenus();
+        if (id) void deleteBlocklist(id);
+    });
+    document.body.appendChild(menu);
+    return menu;
 }
 
-function getBlocklistMenuScrollParent() {
-    if (
-        document.body.classList.contains('mobile-phone-home')
-        || document.body.classList.contains('desktop-compact-layout')
-        || document.body.classList.contains('enter-scheduler-sheet-layout')
-    ) {
-        return document.querySelector('.main-content');
-    }
-    return document.getElementById('blocklists-container');
-}
-
-function positionBlocklistMenu(menuBtn, menu, wrapper) {
-    if (menu.parentElement !== document.body) {
-        document.body.appendChild(menu);
-    }
-
-    menu._blocklistMenuWrapper = wrapper;
-    menu.classList.add('blocklist-menu-portaled');
+export function openBlocklistContextMenu(blocklistId, clientX, clientY) {
+    const menu = getBlocklistContextMenu();
+    menu.dataset.blocklistId = blocklistId;
+    menu.querySelector('.context-duplicate-label').textContent = tSettings('blocklistCardDuplicate');
+    menu.querySelector('.context-delete-label').textContent = tSettings('blocklistCardDelete');
     menu.classList.remove('hidden');
 
     const padding = 8;
-    const menuRect = menu.getBoundingClientRect();
-    const anchorRect = wrapper.getBoundingClientRect();
-    const card = menuBtn.closest('.blocklist-card');
-    // 0 is a valid offset (single-action cards anchor the menu to the button's right edge),
-    // so fall back only when the custom property is missing/unparseable.
-    const rawAnchorOffset = card
-        ? parseFloat(getComputedStyle(card).getPropertyValue('--blocklist-menu-anchor-offset'))
-        : NaN;
-    const menuAnchorOffset = Number.isFinite(rawAnchorOffset) ? rawAnchorOffset : 30;
-
-    let left = anchorRect.right - menuAnchorOffset - menuRect.width;
-    let top = anchorRect.top + (anchorRect.height / 2) - (menuRect.height / 2);
-
-    left = Math.max(padding, Math.min(left, window.innerWidth - menuRect.width - padding));
-    top = Math.max(padding, Math.min(top, window.innerHeight - menuRect.height - padding));
-
-    menu.style.position = 'fixed';
+    const rect = menu.getBoundingClientRect();
+    const left = Math.max(padding, Math.min(clientX, window.innerWidth - rect.width - padding));
+    const top = Math.max(padding, Math.min(clientY, window.innerHeight - rect.height - padding));
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
-    menu.style.right = 'auto';
-    menu.style.transform = 'none';
-    menu.style.zIndex = String(BLOCKLIST_MENU_Z_INDEX);
-
-    const scrollParent = getBlocklistMenuScrollParent();
-    if (scrollParent) {
-        menu._blocklistMenuScrollParent = scrollParent;
-        scrollParent.addEventListener('scroll', closeAllBlocklistMenus, { once: true });
-    }
 }
 
 export function closeAllBlocklistMenus() {
-    document.querySelectorAll('.blocklist-menu').forEach(menu => {
-        if (!menu.classList.contains('hidden') || menu.classList.contains('blocklist-menu-portaled')) {
-            restoreBlocklistMenu(menu);
-        }
-    });
+    document.getElementById('blocklist-context-menu')?.classList.add('hidden');
 }
 
 // Save blocklist order based on DOM position

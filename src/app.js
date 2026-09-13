@@ -83,7 +83,6 @@ import {
     handleUndoToastClick, pendingSegmentDelete,
     rebuildScheduleSegments,
     setupAllowEditsBetweenBlocksToggle,
-    startSchedule, updateScheduleButtonState,
 } from './schedule-editor.js';
 import {
     SCHEDULE_OVERLAY_DEFAULT_PRESET_VALUE, applyScheduleStartOverlayPresentation,
@@ -95,7 +94,7 @@ import {
     syncScheduleOverlayCustomiseEditorState, syncScheduleOverlayCustomiseTitle,
     toggleSchedulePanelOverlayDropdown,
 } from './schedule-overlay.js';
-import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, closeStartBlockConfirmModal, deselectBlocklist, handleBlocklistSelect, handlePauseBlockButtonClick, openBlocklistModal, openPauseModal, openResumeConfirmation, proceedWithBlock, proceedWithPause, refreshSelectedBlocklistUi, renderScheduleConfirmSegments, setBtnActionLabel, setOverrideCountMaxMode, setStartBlockBtnLeadingIcon, setStartConfirmPrimaryLabel, startBlock, syncAllStopBtnLabelFits, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal } from './confirm-modals.js';
+import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, deselectBlocklist, handleBlocklistSelect, openBlocklistModal, openPauseModal, proceedWithPause, refreshSelectedBlocklistUi, setOverrideCountMaxMode, setStartConfirmPrimaryLabel, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal } from './confirm-modals.js';
 import { renderBlocklists, autoSelectSoleBlocklist, closeAllBlocklistMenus, truncateBlocklistName, setupBlocklistsImportExportButtons, duplicateBlocklist, getNextCopyName, deleteBlocklist, isBlocklistEditFrictionRequired, pendingDelete, saveBlocklistOrderFromDOM, setUndoToastMessage } from './blocklists.js';
 import {
     getSelectedBlocklistModalMode,
@@ -684,9 +683,6 @@ function setupEventListeners() {
     // Blocklist selector
     document.getElementById('blocklist-select').addEventListener('change', handleBlocklistSelect);
 
-    // Start block button
-    document.getElementById('start-block-btn').addEventListener('click', startBlock);
-
     // Add blocklist / allow-only buttons (mode chosen by entry point, not in-dialog)
     document.getElementById('add-blocklist-btn').addEventListener('click', () => openBlocklistModal());
     document.getElementById('allow-only-blocklist-btn')?.addEventListener('click', () => {
@@ -708,22 +704,12 @@ function setupEventListeners() {
         handleUndoToastClick();
     });
 
-    // Start block confirmation modal buttons
-    document.getElementById('cancel-start-confirm-btn')?.addEventListener('click', closeStartBlockConfirmModal);
-    document.getElementById('proceed-start-confirm-btn')?.addEventListener('click', proceedWithBlock);
-    document.getElementById('start-block-confirm-modal')?.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal-overlay')) {
-            closeStartBlockConfirmModal();
-        }
-    });
-
     setupScheduleOverlayCustomiseModal();
 
     // Focus-space editor: create modal + edit panel share one form.
     setupFocusSpaceEditor({ onSave: saveFocusSpaceEditor });
     document.getElementById('add-segment-btn')?.addEventListener('click', addScheduleSegment);
     setupAllowEditsBetweenBlocksToggle();
-    document.getElementById('start-schedule-btn')?.addEventListener('click', startSchedule);
 
     document.getElementById('schedule-panel-overlay-dropdown-btn')?.addEventListener('click', toggleSchedulePanelOverlayDropdown);
     document.getElementById('schedule-panel-overlay-dropdown-menu')?.addEventListener('click', handleSchedulePanelOverlayOptionClick);
@@ -1926,9 +1912,6 @@ function setupOverrideModalListeners() {
     });
 
     // Pause block button
-    document.getElementById('pause-block-btn')?.addEventListener('click', () => {
-        handlePauseBlockButtonClick();
-    });
 
     document.getElementById('cancel-enter-scheduler-btn')?.addEventListener('click', deselectBlocklist);
 
@@ -1968,12 +1951,6 @@ function setupOverrideModalListeners() {
     }
     window.addEventListener('resize', () => syncPauseDurationRowLayout());
 
-    const blockActionButtons = document.getElementById('block-action-buttons');
-    if (blockActionButtons && typeof ResizeObserver !== 'undefined') {
-        const stopButtonFitRo = new ResizeObserver(() => syncAllStopBtnLabelFits());
-        stopButtonFitRo.observe(blockActionButtons);
-    }
-    window.addEventListener('resize', () => syncAllStopBtnLabelFits());
     window.addEventListener('resize', () => syncMobileScheduleDayLabelsViewportMode());
     window.visualViewport?.addEventListener('resize', syncMobileScheduleDayLabelsViewportMode);
     window.addEventListener('orientationchange', () => syncMobileScheduleDayLabelsViewportMode());
@@ -2226,10 +2203,6 @@ export function syncMobileScheduleDayLabelsViewportMode() {
         rebuildScheduleSegments();
     }
 
-    const scheduleConfirmModal = document.getElementById('start-schedule-confirm-modal');
-    if (scheduleConfirmModal && !scheduleConfirmModal.classList.contains('hidden')) {
-        renderScheduleConfirmSegments(document.getElementById('schedule-confirm-segments'), state.scheduleSegments);
-    }
 }
 
 
@@ -2974,22 +2947,6 @@ export function applySettingsLanguage() {
     setText('strictness-option-flexible-title', tSettings('allowEditsFlexibleLabel'));
     setText('strictness-option-flexible-desc', tSettings('allowEditsFlexibleDesc'));
     setText('schedule-panel-overlay-label', tSettings('scheduleActiveOverlayLabel'));
-    setBtnActionLabel(document.getElementById('start-block-btn-label'), tSettings('startBlockButton'), { simple: true });
-    const startBlockBtn = document.getElementById('start-block-btn');
-    if (startBlockBtn) {
-        setStartBlockBtnLeadingIcon(
-            startBlockBtn,
-            startBlockBtn.classList.contains('stop-block') ? 'stop' : 'enter',
-        );
-    }
-    setBtnActionLabel(document.getElementById('start-schedule-btn-label'), tSettings('startScheduleButton'));
-    const startScheduleBtn = document.getElementById('start-schedule-btn');
-    if (startScheduleBtn) {
-        setStartBlockBtnLeadingIcon(
-            startScheduleBtn,
-            startScheduleBtn.classList.contains('stop-schedule') ? 'stop' : 'enter',
-        );
-    }
     setText('footer-made-with', tSettings('madeWith'));
     setText('footer-by', tSettings('by'));
     const footerOrgLink = document.getElementById('footer-org-link');
@@ -3066,33 +3023,11 @@ export function applySettingsLanguage() {
     setText('pause-restarts-at-label', tSettings('restartsAt'));
     setText('cancel-pause-btn', tSettings('cancel'));
     setStartConfirmPrimaryLabel('confirm-pause-btn', tSettings('pauseBlock'));
-    setText('start-block-confirm-title', tSettings('startThisBlock'));
-    setText('start-confirm-blocking-label', tSettings('startConfirmBlockingLabel'));
-    setText('start-confirm-duration-label', tSettings('startConfirmDurationLabel'));
-    setText('start-confirm-show-all-blocking', tSettings('showAll'));
     setText('confirm-override-header', tSettings('startBlockHoldHeader'));
-    setText('cancel-start-confirm-btn', tSettings('cancel'));
-    setStartConfirmPrimaryLabel('proceed-start-confirm-btn', tSettings('startBlock'));
-    setText('start-schedule-confirm-title', tSettings('startThisSchedule'));
-    setText('schedule-confirm-blocking-label', tSettings('startConfirmBlockingLabel'));
-    setText('schedule-confirm-show-all-blocking', tSettings('showAll'));
-    setText('schedule-confirm-times-label', tSettings('startConfirmTimesLabel'));
-    setText('schedule-confirm-repeat-label', tSettings('startConfirmRepeatsLabel'));
-    setText('schedule-confirm-strictness-label', tSettings('scheduleStrictnessLabel'));
-    setText('schedule-confirm-overlay-label', tSettings('scheduleConfirmOverlayLabel'));
-    const confirmOverlayCustomiseBtn = document.getElementById('schedule-confirm-overlay-customise-btn');
-    if (confirmOverlayCustomiseBtn) {
-        confirmOverlayCustomiseBtn.title = tSettings('scheduleOverlayCustomiseBtn');
-        confirmOverlayCustomiseBtn.setAttribute('aria-label', tSettings('scheduleOverlayCustomiseBtn'));
-    }
     const panelOverlayCustomiseBtn = document.getElementById('schedule-panel-overlay-customise-btn');
     if (panelOverlayCustomiseBtn) {
         panelOverlayCustomiseBtn.title = tSettings('scheduleOverlayCustomiseBtn');
         panelOverlayCustomiseBtn.setAttribute('aria-label', tSettings('scheduleOverlayCustomiseBtn'));
-    }
-    const overlayDescEl = document.getElementById('schedule-confirm-overlay-desc');
-    if (overlayDescEl && !overlayDescEl.textContent) {
-        overlayDescEl.textContent = tSettings('scheduleConfirmOverlayDefaultDesc');
     }
     syncScheduleOverlayCustomiseTitle();
     setText('schedule-overlay-select-label', tSettings('scheduleOverlaySelectLabel'));
@@ -3141,9 +3076,6 @@ export function applySettingsLanguage() {
     setText('schedule-overlay-reset-button-btn', tSettings('scheduleOverlaySectionReset'));
     setText('schedule-overlay-reset-image-btn', tSettings('scheduleOverlaySectionReset'));
     setText('schedule-overlay-reset-voice-btn', tSettings('scheduleOverlaySectionReset'));
-    setText('schedule-confirm-override-header', tSettings('startScheduleHoldHeader'));
-    setText('cancel-schedule-confirm-btn', tSettings('cancel'));
-    setStartConfirmPrimaryLabel('proceed-schedule-confirm-btn', tSettings('startSchedule'));
     setText('undo-toast-btn-label', tSettings('undo'));
     if (pendingDelete?.blocklist) {
         setUndoToastMessage(
@@ -3302,7 +3234,6 @@ export function applySettingsLanguage() {
     renderAppBlockingClosedownBanner();
     renderBlocklists();
     if (document.getElementById('blocklist-select')) renderBlocklistSelector();
-    if (typeof updateScheduleButtonState === 'function') updateScheduleButtonState();
     if (typeof syncSelectedControlState === 'function') syncSelectedControlState();
     if (typeof updateWeekCalendar === 'function') updateWeekCalendar();
     if (typeof rebuildScheduleSegments === 'function') rebuildScheduleSegments();

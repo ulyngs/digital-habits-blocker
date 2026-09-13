@@ -545,6 +545,9 @@ export const SETTINGS_TRANSLATIONS = {
         addingTheseSegments: 'Adding these time segments:',
         // Blocklist modal
         // Focus-space editor
+        switchTurnOffFmt: 'Turn off {name}',
+        switchTurnOnFmt: 'Turn on {name}',
+        blocklistOffBadge: 'Off',
         newFocusSpaceBlock: 'New focus space (block)',
         newFocusSpaceAllow: 'New focus space (allow)',
         editFocusSpace: 'Edit focus space',
@@ -1433,6 +1436,9 @@ export const SETTINGS_TRANSLATIONS = {
         addingTheseSegments: 'Tilføjer disse tidssegmenter:',
         // Blocklist modal
         // Focus-space editor
+        switchTurnOffFmt: 'Slå {name} fra',
+        switchTurnOnFmt: 'Slå {name} til',
+        blocklistOffBadge: 'Fra',
         newFocusSpaceBlock: 'Nyt fokusrum (bloker)',
         newFocusSpaceAllow: 'Nyt fokusrum (tillad kun)',
         editFocusSpace: 'Rediger fokusrum',
@@ -2293,6 +2299,9 @@ export const SETTINGS_TRANSLATIONS = {
         saveChangesTitleFmt: '保存对 {name} 的更改？',
         addingTheseSegments: '将添加这些时间段：',
         // Focus-space editor
+        switchTurnOffFmt: '关闭 {name}',
+        switchTurnOnFmt: '开启 {name}',
+        blocklistOffBadge: '已关闭',
         newFocusSpaceBlock: '新建专注空间（屏蔽）',
         newFocusSpaceAllow: '新建专注空间（仅允许）',
         editFocusSpace: '编辑专注空间',

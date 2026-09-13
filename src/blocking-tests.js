@@ -18,7 +18,8 @@
  * - T51-T54, T51da: Blocklist duplication (schedules copy switched off; DA uses "kopi")
  * - T55-T62: iOS allowlist effective-policy resolvers (pure helpers)
  * - T63-T65: Default pause length setting (fallback, configured value, clamping)
- * - T169-T172: Single-column (≤718px) desktop focus-space cards open the enter sheet on tap
+ * - T169-T172: Single-column (≤718px) desktop focus-space cards open the enter sheet on tap; the switch does not
+ * - T173-T177: Card switch state (isFocusSpaceOn) for manual blocks and schedules
  */
 
 (function () {
@@ -2586,16 +2587,18 @@
                 };
             };
 
-            // Two spaces so render() does not auto-select the sole one.
+            // Two spaces so render() does not auto-select the sole one. B is running
+            // so its switch is on and flipping it opens the stop challenge.
             const spaceA = createMockBlocklist({ id: 'bl-compact-tap-a', name: 'Compact Tap A' });
             const spaceB = createMockBlocklist({ id: 'bl-compact-tap-b', name: 'Compact Tap B' });
-            internals.appData = createMockAppData({ blocklists: [spaceA, spaceB] });
+            const blockB = createMockBlock(spaceB.id, Date.now() - 60000, Date.now() + 3600000);
+            internals.appData = createMockAppData({ blocklists: [spaceA, spaceB], activeBlocks: [blockB] });
             internals.render();
 
             const cardA = document.querySelector(`.blocklist-card[data-id="${spaceA.id}"]`);
             assert(!!cardA, 'T169: compact card renders');
-            assert(cardA?.classList.contains('blocklist-card-menu-only'), 'T169: ≤718px desktop renders enter-sheet (menu-only) cards');
-            assert(!cardA?.querySelector('.edit-btn'), 'T169: enter-sheet card has no inline edit button');
+            assert(!cardA?.querySelector('.edit-btn') && !cardA?.querySelector('.blocklist-menu-btn'), 'T169: card has no edit button and no overflow menu');
+            assert(!!cardA?.querySelector('.blocklist-switch'), 'T169: card has a switch');
             assert(!sheetOpen(), 'T169: enter sheet starts closed');
 
             // T170: tapping the card body opens the full-screen enter sheet for that space.
@@ -2607,12 +2610,15 @@
             document.querySelector(`.blocklist-card[data-id="${spaceA.id}"] .blocklist-title-text`)?.click();
             assert(!sheetOpen(), 'T171: clicking the selected card again closes the enter sheet');
 
-            // T172: the overflow button is still an action control, not a card tap.
-            const menuBtn = document.querySelector(`.blocklist-card[data-id="${spaceB.id}"] .blocklist-menu-btn`);
-            assert(!!menuBtn, 'T172: enter-sheet card keeps its overflow menu button');
-            menuBtn?.click();
-            assert(!sheetOpen(), 'T172: clicking the overflow button does not open the enter sheet');
-            document.body.click(); // close the menu via the outside-click handler
+            // T172: the switch is an action control, not a card tap. B is running, so
+            // flipping it off opens the stop challenge rather than the sheet.
+            const switchB = document.querySelector(`.blocklist-card[data-id="${spaceB.id}"] .blocklist-switch`);
+            assert(!!switchB, 'T172: card keeps its switch');
+            assertEqual(switchB?.getAttribute('aria-checked'), 'true', 'T172: running space renders its switch on');
+            switchB?.click();
+            assert(!sheetOpen(), 'T172: clicking the switch does not open the enter sheet');
+            assert(!document.getElementById('override-modal')?.classList.contains('hidden'), 'T172: switching a running space off opens the stop challenge');
+            document.getElementById('cancel-override-btn')?.click();
         } finally {
             cancelEnterBtn.click();
             window.matchMedia = realMatchMedia;
@@ -2624,6 +2630,45 @@
                 dropdown.value = prevSelectedId;
                 dropdown.dispatchEvent(new Event('change', { bubbles: true }));
             }
+        }
+    }
+
+    // ========================================
+    // CATEGORY: CARD SWITCH STATE (T173-T177)
+    // ========================================
+    function runFocusSpaceSwitchTests() {
+        console.log('\n🔀 Card switch state');
+        const internals = window.__REDDBLOCK_INTERNALS__;
+        const savedAppData = internals.appData;
+        const now = Date.now();
+        try {
+            const manual = createMockBlocklist({ id: 'bl-sw-manual', name: 'Manual' });
+            const pausedManual = createMockBlocklist({ id: 'bl-sw-manual-paused', name: 'Manual paused' });
+            const sched = createMockBlocklist({ id: 'bl-sw-sched', name: 'Scheduled' });
+            const schedOff = createMockBlocklist({ id: 'bl-sw-sched-off', name: 'Scheduled off' });
+            const schedTimed = createMockBlocklist({ id: 'bl-sw-sched-timed', name: 'Scheduled timed' });
+            const idle = createMockBlocklist({ id: 'bl-sw-idle', name: 'Idle' });
+            const seg = createMockSegment(0, 0, 23, 59, [0, 1, 2, 3, 4, 5, 6]);
+            internals.appData = createMockAppData({
+                blocklists: [manual, pausedManual, sched, schedOff, schedTimed, idle],
+                activeBlocks: [
+                    createMockBlock(manual.id, now - 60000, now + 3600000),
+                    Object.assign(createMockBlock(pausedManual.id, now - 60000, now + 3600000), { isPaused: true, pauseEndTime: now + 600000 }),
+                ],
+                schedules: [
+                    createMockSchedule(sched.id, [seg]),
+                    createMockSchedule(schedOff.id, [seg], { isPaused: true }),
+                    createMockSchedule(schedTimed.id, [seg], { isPaused: true, pauseEndTime: now + 600000 }),
+                ],
+            });
+            assert(internals.isFocusSpaceOn(manual.id, now) === true, 'T173: running manual block → switch on');
+            assert(internals.isFocusSpaceOn(pausedManual.id, now) === false, 'T174: paused manual block → switch off');
+            assert(internals.isFocusSpaceOn(sched.id, now) === true, 'T175: live schedule → switch on');
+            assert(internals.isFocusSpaceOn(schedOff.id, now) === false, 'T176: open-ended paused schedule → switch off');
+            assert(internals.isFocusSpaceOn(schedTimed.id, now) === false, 'T176b: timed-paused schedule → switch off');
+            assert(internals.isFocusSpaceOn(idle.id, now) === false, 'T177: no block, no schedule → switch off');
+        } finally {
+            internals.appData = savedAppData;
         }
     }
 
@@ -2656,6 +2701,7 @@
             runChallengeControllerTests();
             runDefaultPauseLengthTests();
             runCompactDesktopCardTapTests();
+            runFocusSpaceSwitchTests();
         } catch (error) {
             console.error('❌ Test suite crashed:', error);
         }

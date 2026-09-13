@@ -2155,49 +2155,19 @@ body.ios:not(.ios-phone) .main-content .when-times .schedule-end-display input.t
         min-width: 52px;
     }
 
-    body.ios:not(.ios-phone) .main-content .start-block-btn,
-body.ios:not(.ios-phone) .main-content .start-schedule-btn{
-        padding: 16px 18px;
-        border-radius: 12px;
-        font-size: 18px;
-        gap: 10px;
-    }
+    
 
-    body.ios:not(.ios-phone) .main-content .start-block-btn.stop-block,
-body.ios:not(.ios-phone) .main-content .start-block-btn.stop-schedule{
-        padding: 16px 20px;
-    }
-
-    body.ios:not(.ios-phone) .main-content .start-block-btn > .start-block-btn-leading,
-    body.ios:not(.ios-phone) .main-content .start-block-btn > svg,
-body.ios:not(.ios-phone) .main-content .start-schedule-btn > svg{
-        flex: 0 0 20px;
-        width: 20px;
-        height: 20px;
-        min-width: 20px;
-        min-height: 20px;
-        max-width: 20px;
-        max-height: 20px;
-    }
-
-    body.ios:not(.ios-phone) .main-content .start-block-btn > .start-block-btn-app-icon,
-    body.ios:not(.ios-phone) .main-content .start-block-btn > svg.start-block-btn-app-icon{
-        flex: 0 0 30px;
-        width: 30px;
-        height: 30px;
-        min-width: 30px;
-        min-height: 30px;
-        max-width: 30px;
-        max-height: 30px;
-    }
+    
 
     
 
     
 
-    body.ios:not(.ios-phone) .main-content .block-action-buttons{
-        gap: 10px;
-    }
+    
+
+    
+
+    
 
     body.ios:not(.ios-phone) .main-content .schedule-segments{
         gap: 12px;
@@ -2378,14 +2348,9 @@ body.ios:not(.ios-phone) .main-content .schedule-pending-save{
         --blocklist-menu-anchor-offset: var(--blocklist-action-btn-size);
     }
 
-    body.ios:not(.ios-phone) .main-content .blocklist-action-btn{
-        border-radius: calc(10px * var(--ipad-s));
-    }
+    
 
-    body.ios:not(.ios-phone) .main-content .blocklist-action-btn svg{
-        width: 24px;
-        height: 24px;
-    }
+    
 
     body.ios:not(.ios-phone) .main-content .week-calendar-section{
         margin-top: 16px;
@@ -2501,9 +2466,7 @@ body.ios:not(.ios-phone) .main-content .always-on-chip svg{
         --settings-control-width: calc(140px * var(--ipad-s));
     }
 
-    body.ios:not(.ios-phone) .modal-content.start-confirm-modal,
-body.ios:not(.ios-phone) #start-block-confirm-modal .modal-content,
-body.ios:not(.ios-phone) #start-schedule-confirm-modal .modal-content{
+    body.ios:not(.ios-phone) .modal-content.start-confirm-modal{
         max-width: calc(500px * var(--ipad-s));
     }
 
@@ -2847,10 +2810,7 @@ body.ios:not(.ios-phone) .start-confirm-header-room h3{
         padding-top: calc(12px * var(--ipad-s));
     }
 
-    body.ios:not(.ios-phone) .modal-overlay .edit-schedule-notice{
-        margin-bottom: calc(14px * var(--ipad-s));
-        font-size: calc(15px * var(--ipad-s));
-    }
+    
 
     body.ios:not(.ios-phone) .modal-overlay .schedule-summary-header{
         font-size: calc(15px * var(--ipad-s));
@@ -5106,178 +5066,16 @@ body.dark-mode .tag.locked{
 
 /* Start Block Button — primary teal CTA, matching the canonical brand
    ("Get started now" on reddfocus.org). */
-.start-block-btn{
-    width: 100%;
-    padding: 14px;
-    border: none;
-    border-radius: 10px;
-    background: var(--button-bg);
-    color: var(--primary-btn-text);
-    font-size: 17px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: all 0.2s ease;
-}
-
-.start-block-btn:hover:not(:disabled){
-    background: var(--button-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.start-block-btn:disabled{
-    background: var(--button-disabled-bg);
-    cursor: not-allowed;
-}
-
-.start-block-btn .btn-name{
-    font-weight: inherit;
-    text-align: start;
-    flex: 0 1 auto;
-    min-width: 0;
-}
 
 /* Emoji + blocklist name share one flex item so wrapping the label doesn’t
    strand space between emoji and title. */
-.start-block-btn .btn-blocklist-meta{
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 6px;
-    flex: 0 1 auto;
-    flex-grow: 0;
-    min-width: 0;
-    width: fit-content;
-    max-width: 100%;
-}
-
-.start-block-btn .btn-blocklist-lead{
-    display: none;
-}
-
-.start-block-btn .btn-emoji{
-    flex: 0 0 auto;
-    text-align: center;
-}
-
-.start-block-btn .btn-label{
-    flex: 0 1 auto;
-    min-width: 0;
-    text-align: start;
-}
 
 /* Keep the action icon at a stable size when label + blocklist name wrap. */
-.start-block-btn > .start-block-btn-leading{
-    flex: 0 0 18px;
-    width: 18px;
-    height: 18px;
-    min-width: 18px;
-    min-height: 18px;
-    max-width: 18px;
-    max-height: 18px;
-    align-self: center;
-}
-
-.start-block-btn > .start-block-btn-app-icon,
-.start-block-btn > svg.start-block-btn-app-icon{
-    flex: 0 0 26px;
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    min-height: 26px;
-    max-width: 26px;
-    max-height: 26px;
-    object-fit: contain;
-}
-
-.start-block-btn > svg.start-block-btn-leading:not(.start-block-btn-app-icon),
-.start-block-btn > svg{
-    flex: 0 0 18px;
-    width: 18px;
-    height: 18px;
-    min-width: 18px;
-    min-height: 18px;
-    max-width: 18px;
-    max-height: 18px;
-    align-self: center;
-}
 
 /* Stop Block / Stop Schedule — ghost. Pause carries the visual weight in
    the action row; stop is available but steps back. */
-.start-block-btn.stop-block,
-.start-block-btn.stop-schedule{
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid transparent;
-    width: auto;
-    max-width: 100%;
-    min-width: 0;
-    justify-content: center;
-    padding: 14px 18px;
-    text-align: start;
-    white-space: nowrap;
-}
-
-.start-block-btn.stop-block:hover:not(:disabled),
-.start-block-btn.stop-schedule:hover:not(:disabled){
-    background: var(--element-hover-bg);
-    color: var(--text-primary);
-    transform: none;
-    box-shadow: none;
-}
-
-body.dark-mode .start-block-btn.stop-block,
-body.dark-mode .start-block-btn.stop-schedule{
-    background: transparent;
-    color: var(--text-secondary);
-    border-color: transparent;
-}
-
-body.dark-mode .start-block-btn.stop-block:hover:not(:disabled),
-body.dark-mode .start-block-btn.stop-schedule:hover:not(:disabled){
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-primary);
-}
 
 /* Block action buttons wrapper (pause + stop side by side) */
-.block-action-buttons{
-    display: flex;
-    gap: 8px;
-    width: 100%;
-}
-
-.block-action-buttons .start-block-btn{
-    flex: 1;
-}
-
-.block-action-buttons .start-block-btn.stop-block,
-.block-action-buttons .start-block-btn.stop-schedule{
-    flex: 0 1 auto;
-}
-
-.start-block-btn:not(.stop-block) .btn-blocklist-meta,
-.start-schedule-btn:not(.stop-schedule) .btn-blocklist-meta{
-    display: none;
-}
-
-.block-action-buttons .start-block-btn.stop-block:not(.stop-meta-collapsed) .btn-label-context::after{
-    content: ':';
-}
-
-.start-block-btn.stop-meta-collapsed .btn-blocklist-meta,
-.start-schedule-btn.stop-meta-collapsed .btn-blocklist-meta{
-    display: none;
-}
-
-.block-action-buttons .start-block-btn,
-.block-action-buttons .start-schedule-btn{
-    white-space: nowrap;
-    min-width: 0;
-}
 
 /* Pause Block Button — filled secondary. Pause is the gentler, undoable action
    and carries visual weight beside the ghost Stop Block / Stop Schedule. The
@@ -6507,9 +6305,6 @@ body.android .day-toggle {
 }
 
 /* Start Schedule Button */
-.start-schedule-btn.hidden{
-    display: none;
-}
 
 /* Locked segment (part of active schedule) — controls disabled via JS; keep app-bg. */
 
@@ -7122,24 +6917,6 @@ body.mobile-phone-home .blocklist-actions{
     transform: translateY(-50%);
 }
 
-body.mobile-phone-home .blocklist-menu-btn{
-    -webkit-tap-highlight-color: transparent;
-}
-
-body.mobile-phone-home .blocklist-menu-btn svg{
-    width: 22px;
-    height: 22px;
-}
-
-@media (hover: none), (pointer: coarse) {
-    body.mobile-phone-home .blocklist-menu-btn:hover,
-    body.mobile-phone-home .blocklist-menu-btn:active,
-    body.mobile-phone-home .blocklist-menu-btn:focus-visible{
-        background: var(--element-hover-bg);
-        color: var(--text-secondary);
-    }
-}
-
 .blocklist-card-details.hidden{
     display: none;
 }
@@ -7223,56 +7000,10 @@ body.android .blocklist-actions {
 /* Enter-sheet cards carry only the overflow button, so reserve one slot and
    right-align the menu under it. `body` prefix keeps this above the
    ios/android two-slot defaults above. */
-body .blocklist-card.blocklist-card-menu-only{
-    --blocklist-actions-slot: var(--blocklist-action-btn-size);
-    --blocklist-menu-anchor-offset: 0px;
-}
 
 /* Phones only: the card body is not a tap target there, so no hover lift.
    The single-column desktop sheet keeps the default .blocklist-card:hover —
    its card body still opens the enter sheet. */
-body.mobile-phone-home .blocklist-card.blocklist-card-menu-only:hover{
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.blocklist-action-btn{
-    width: var(--blocklist-action-btn-size);
-    height: var(--blocklist-action-btn-size);
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-}
-
-.blocklist-action-btn svg{
-    width: 19px;
-    height: 19px;
-}
-
-body.ios .blocklist-action-btn svg,
-body.android .blocklist-action-btn svg {
-    width: 22px;
-    height: 22px;
-}
-
-.blocklist-action-btn:hover{
-    background: var(--element-hover-bg);
-    color: var(--text-secondary);
-}
-
-.blocklist-action-btn.delete:hover{
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-}
-
-.blocklist-menu-wrapper{
-    position: relative;
-}
 
 .blocklist-menu{
     position: absolute;
@@ -11019,8 +10750,6 @@ body.handset-device #settings-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #override-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #override-all-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #pause-modal.mobile-fullscreen-modal .modal-content,
-body.handset-device #start-block-confirm-modal.mobile-fullscreen-modal .modal-content,
-body.handset-device #start-schedule-confirm-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #enter-scheduler-modal.mobile-fullscreen-modal .modal-content{
     display: flex;
     flex-direction: column;
@@ -11530,15 +11259,12 @@ body.mobile-phone-home #enter-scheduler-modal .segment-days{
 
 /* Mobile phones: weekday pills use natural width everywhere (like desktop), never stretch to fill. */
 body.mobile-phone-home .segment-days,
-body.mobile-phone-home .segment-days.compact-day-labels,
-body.mobile-phone-home .start-confirm-segment-days,
-body.mobile-phone-home .start-confirm-segment-days.compact-day-labels{
+body.mobile-phone-home .segment-days.compact-day-labels{
     width: auto;
     max-width: 100%;
 }
 
-body.mobile-phone-home .segment-days.compact-day-labels .segment-day-toggle,
-body.mobile-phone-home .start-confirm-segment-days.compact-day-labels .segment-day-toggle{
+body.mobile-phone-home .segment-days.compact-day-labels .segment-day-toggle{
     flex: 0 0 auto;
     width: auto;
 }
@@ -11547,11 +11273,6 @@ body.mobile-phone-home .segment-row > .segment-days-group,
 body.mobile-phone-home .when-times .segment-row > .segment-days-group{
     width: 100%;
     max-width: 100%;
-}
-
-body.mobile-phone-home #start-schedule-confirm-modal .start-confirm-segment-days{
-    width: auto;
-    justify-content: flex-start;
 }
 
 body.handset-device .mobile-fullscreen-modal .mobile-modal-header{
@@ -11957,33 +11678,6 @@ body:not(.handset-device) .start-confirm-modal{
 }
 
 /* Desktop popup: scroll body when content exceeds viewport (matches blocklist modal). */
-body:not(.handset-device) #start-schedule-confirm-modal .modal-content,
-body:not(.handset-device) #start-block-confirm-modal .modal-content{
-    display: flex;
-    flex-direction: column;
-    max-height: 95vh;
-    overflow: hidden;
-}
-
-body:not(.handset-device) #start-schedule-confirm-modal .mobile-modal-scroll-body,
-body:not(.handset-device) #start-block-confirm-modal .mobile-modal-scroll-body{
-    flex: 1;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    margin-right: -28px;
-    padding-right: 28px;
-    box-sizing: border-box;
-}
-
-body:not(.handset-device) #start-schedule-confirm-modal .start-confirm-actions,
-body:not(.handset-device) #start-block-confirm-modal .start-confirm-actions{
-    flex-shrink: 0;
-    margin-top: 0;
-    padding-top: 12px;
-}
 
 .start-confirm-modal{
     padding: 28px;
@@ -12193,64 +11887,9 @@ body:not(.handset-device) #start-block-confirm-modal .start-confirm-actions{
     white-space: nowrap;
 }
 
-.start-confirm-segment-days{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-}
-
-.start-confirm-segment-days .segment-day-toggle{
-    pointer-events: none;
-    cursor: default;
-    min-width: 34px;
-    height: 28px;
-    padding: 0 6px;
-    font-size: 13px;
-    border-radius: 6px;
-}
-
 /* iOS has a broader `.segment-day-toggle` upsize rule for the editable
    schedule builder. In the read-only schedule-start confirmation, place the
    weekday pills underneath the time so they never collide on narrower screens. */
-body.ios #start-schedule-confirm-modal .start-confirm-time-slot-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-}
-
-body.ios #start-schedule-confirm-modal .start-confirm-segment-days {
-    width: 100%;
-    justify-content: flex-start;
-    gap: 2px;
-}
-
-body.ios #start-schedule-confirm-modal .start-confirm-segment-days .segment-day-toggle {
-    min-width: 22px;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    font-size: 10px;
-}
-
-.start-confirm-segment-days.compact-day-labels .segment-day-toggle {
-    min-width: 28px;
-    padding: 0 4px;
-}
-
-body.ios .start-confirm-segment-days .segment-day-toggle {
-    min-width: 34px;
-    height: 28px;
-    padding: 0 6px;
-    font-size: 13px;
-}
-
-body.ios .start-confirm-segment-days.compact-day-labels .segment-day-toggle {
-    min-width: 28px;
-    padding: 0 4px;
-}
 
 .start-confirm-overlay-row .start-confirm-row-label {
     padding-top: 11px;
@@ -12341,31 +11980,6 @@ body.ios .start-confirm-segment-days.compact-day-labels .segment-day-toggle {
     color: var(--redd-navy);
 }
 
-body.handset-device #start-block-confirm-modal .mobile-modal-header,
-body.handset-device #start-schedule-confirm-modal .mobile-modal-header{
-    align-items: center;
-}
-
-body.handset-device #start-block-confirm-modal .mobile-modal-back-btn,
-body.handset-device #start-schedule-confirm-modal .mobile-modal-back-btn{
-    align-self: flex-start;
-    margin-top: 2px;
-}
-
-body.handset-device #start-block-confirm-modal .start-confirm-header-room,
-body.handset-device #start-schedule-confirm-modal .start-confirm-header-room{
-    margin-bottom: 0;
-    min-width: 0;
-    flex: 1 1 auto;
-    gap: 8px 10px;
-}
-
-body.handset-device #start-block-confirm-modal .start-confirm-header-room h3,
-body.handset-device #start-schedule-confirm-modal .start-confirm-header-room h3{
-    font-size: 1.45rem;
-    color: var(--text-primary);
-}
-
 .start-confirm-room-chip{
     display: inline-flex;
     align-items: center;
@@ -12433,29 +12047,6 @@ body.handset-device #start-schedule-confirm-modal .start-confirm-header-room h3{
     font-weight: 600;
 }
 
-#start-block-confirm-modal .start-confirm-warning.override-info-box,
-#start-schedule-confirm-modal .start-confirm-warning.override-info-box{
-    background: var(--redd-teal-soft);
-    border: 1px solid var(--redd-teal-soft-border);
-}
-
-#start-block-confirm-modal .start-confirm-warning .override-info-header,
-#start-schedule-confirm-modal .start-confirm-warning .override-info-header{
-    color: var(--redd-navy);
-}
-
-#start-block-confirm-modal .start-confirm-warning-icon,
-#start-block-confirm-modal .start-confirm-warning .override-info-header svg,
-#start-schedule-confirm-modal .start-confirm-warning-icon,
-#start-schedule-confirm-modal .start-confirm-warning .override-info-header svg{
-    color: var(--redd-teal);
-}
-
-#start-block-confirm-modal .start-confirm-warning.override-info-box p,
-#start-schedule-confirm-modal .start-confirm-warning.override-info-box p{
-    color: var(--text-muted);
-}
-
 .start-confirm-warning .override-info-header{
     align-items: flex-start;
 }
@@ -12499,26 +12090,6 @@ svg.start-confirm-primary-icon{
 img.start-confirm-primary-icon,
 svg.start-confirm-primary-icon{
     display: block;
-}
-
-.start-confirm-modal.schedule-confirm-edit-layout .start-confirm-subtitle,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-status-row,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-blocking-row,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-blocking-divider,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-times-divider,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-repeat-row,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-repeat-divider,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-strictness-row,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-strictness-divider,
-.start-confirm-modal.schedule-confirm-edit-layout #schedule-confirm-overlay-row{
-    display: none;
-}
-
-.edit-schedule-notice{
-    margin-bottom: 10px;
-    font-size: 14px;
-    line-height: 1.45;
-    color: var(--text-secondary);
 }
 
 body.dark-mode .start-confirm-modal h3,
@@ -17264,10 +16835,6 @@ body.dark-mode .app-blocking-warning-card{
     font-size: 13px;
 }
 
-/* The sheet's own header already says "Edit focus space". */
-#enter-scheduler-modal .editor-panel-header{
-    display: none;
-}
 
 .editor-hint{
     margin: 0;
@@ -17369,4 +16936,116 @@ body.dark-mode .app-blocking-warning-card{
 
 #what-empty-hint{
     margin: 0 0 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Card switch (start / stop), right-click menu, editor header actions
+   ═══════════════════════════════════════════════════════════════════════ */
+.blocklist-actions{
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.blocklist-switch{
+    position: relative;
+    width: 52px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-muted) 38%, var(--container-bg));
+    cursor: pointer;
+    transition: background 0.18s ease;
+    flex-shrink: 0;
+}
+
+.blocklist-switch:hover{
+    background: color-mix(in srgb, var(--text-muted) 50%, var(--container-bg));
+}
+
+.blocklist-switch.on{
+    background: var(--accent-color);
+}
+
+.blocklist-switch.on:hover{
+    background: var(--accent-hover);
+}
+
+.blocklist-switch:focus-visible{
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.blocklist-switch-knob{
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.18s ease;
+}
+
+.blocklist-switch.on .blocklist-switch-knob{
+    transform: translateX(22px);
+}
+
+.blocklist-context-menu{
+    position: fixed;
+    z-index: 1000;
+}
+
+.blocklist-context-menu.hidden{
+    display: none;
+}
+
+.editor-panel-actions{
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.editor-panel-action-btn{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.editor-panel-action-btn:hover{
+    background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+    color: var(--text-primary);
+}
+
+.editor-panel-action-btn--delete:hover{
+    color: hsl(0, 70%, 50%);
+    background: hsl(0, 80%, 96%);
+}
+
+body.dark-mode .editor-panel-action-btn--delete:hover{
+    background: rgba(255, 80, 80, 0.14);
+}
+
+/* In the phone / narrow sheet the sheet header already carries the title:
+   keep only the Duplicate / Delete actions, right-aligned. */
+#enter-scheduler-modal .editor-panel-header{
+    display: flex;
+    justify-content: flex-end;
+}
+
+#enter-scheduler-modal .editor-panel-title{
+    display: none;
 }

@@ -1091,15 +1091,15 @@
             await callSaveData();
             callRender();
             selectIntegrationBlocklist('I3', bl);
-            // A running Manual space shows the editor with a Stop footer button.
+            // A running Manual space: its card switch is on and the editor is locked.
+            const switchEl = () => document.querySelector(`.blocklist-card[data-id="${bl.id}"] .blocklist-switch`);
             await waitForIntegrationCondition(
-                () => isVisible('time-picker-container')
-                    && document.getElementById('start-block-btn')?.dataset.activeBlockId === block.id,
+                () => isVisible('time-picker-container') && switchEl()?.getAttribute('aria-checked') === 'true',
                 'I3 active block selection',
             );
             assertOrThrow(isVisible('active-blocklist-warning'), 'I3: running space must show the locked-settings banner');
 
-            document.getElementById('start-block-btn')?.click();
+            switchEl()?.click();
             await waitForIntegrationCondition(() => isVisible('override-modal'), 'I3 stop modal');
             document.getElementById('cancel-override-btn')?.click();
             await waitForIntegrationCondition(() => !isVisible('override-modal'), 'I3 stop modal cancel');

@@ -70,4 +70,25 @@ export const manualRunning = {
     settings: {},
 };
 
-export const fixtures = { crowdedWeek, singleSchedule, manualRunning };
+/** Every switch state at once: manual on, manual paused, schedule on, schedule off, idle. */
+export const cardStates = {
+    blocklists: [
+        { id: 'bl-on', name: 'Manual on', emoji: '🎯', color: '#B8D1DE', websites: ['a.invalid'], apps: [] },
+        { id: 'bl-paused', name: 'Manual paused', emoji: '💪', color: '#B3D2C8', websites: ['b.invalid'], apps: [] },
+        { id: 'bl-sched', name: 'Scheduled', emoji: '📚', color: '#BCD9B6', websites: ['c.invalid'], apps: [] },
+        { id: 'bl-sched-off', name: 'Scheduled off', emoji: '📱', color: '#EBDCB6', websites: ['d.invalid'], apps: [] },
+        { id: 'bl-idle', name: 'Idle', emoji: '🌳', color: '#EECAAD', websites: ['e.invalid'], apps: [] },
+    ],
+    activeBlocks: [
+        { id: 'b-on', blocklistId: 'bl-on', startTime: Date.now() - 60_000, endTime: 253402300799999, isAlwaysOn: true },
+        { id: 'b-paused', blocklistId: 'bl-paused', startTime: Date.now() - 60_000, endTime: 253402300799999, isAlwaysOn: true, isPaused: true, pauseEndTime: Date.now() + 25 * 60_000 },
+    ],
+    schedules: [
+        { id: 's-on', blocklistId: 'bl-sched', repeatType: 'forever', segments: [seg(9, 0, 17, 0, [MON, TUE, WED, THU, FRI])] },
+        { id: 's-off', blocklistId: 'bl-sched-off', repeatType: 'forever', isPaused: true, segments: [seg(20, 0, 22, 0, [SAT, SUN])] },
+    ],
+    startOverlays: [],
+    settings: {},
+};
+
+export const fixtures = { crowdedWeek, singleSchedule, manualRunning, cardStates };

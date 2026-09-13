@@ -7,7 +7,7 @@ import { resolveMicrosoftStorePackage, isVersionHigher, getLatestVersionPlatform
 import { updateOverrideAllButtonVisibility, refreshUninstallButtonState } from './settings.js';
 import { stopHelperUiRefreshLoop } from './modal-manager.js';
 import { saveData } from './persistence.js';
-import { getLiveTimePickerContainer, syncAllStopBtnLabelFits, syncPauseDurationRowLayout, syncEnterSchedulerSheetLayout } from './confirm-modals.js';
+import { getLiveTimePickerContainer, syncPauseDurationRowLayout, syncEnterSchedulerSheetLayout } from './confirm-modals.js';
 import { wireEnforcementToggle, wireBlockingMethodSettings, resetSettingsEnforcementSection } from './enforcement.js';
 import { applyEnforcementDescCopy } from './onboarding.js';
 import {
@@ -309,7 +309,6 @@ export function syncUiZoomResponsiveLayout() {
 
     syncSchedulerModeTabLabelMode();
     syncMobileScheduleDayLabelsViewportMode();
-    syncAllStopBtnLabelFits();
     syncEnterSchedulerSheetLayout();
     scheduleSelectionPromptLayout();
     const pauseModal = document.getElementById('pause-modal');

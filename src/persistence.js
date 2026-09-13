@@ -2,7 +2,7 @@
 // website sync. Extracted verbatim from app.js.
 import { state } from './state.js';
 import { tauriAPI } from './tauri-api.js';
-import { normalizeBlocklist, isProtectedDomain, collectActiveIOSManualBlockPayload, healFocusSpaceColors } from './blocklist-utils.js';
+import { normalizeBlocklist, isProtectedDomain, collectActiveIOSManualBlockPayload, healFocusSpaceColors, migrateLegacyQuickStartBlocklists } from './blocklist-utils.js';
 import { isSchedulePausedNow, syncActiveBlocksToHelper, syncSchedulesToHelper, buildPersistedAppData } from './schedule-engine.js';
 import { generateId } from './app.js';
 import { updateBlockedApps } from './blocking-platform.js';
@@ -51,15 +51,8 @@ export async function loadData() {
     if (normalizeLoadedEulaState()) {
         shouldSave = true;
     }
-    let healedQuickStartFlag = false;
-    state.appData.blocklists = (state.appData.blocklists || []).map((bl) => {
-        const normalized = normalizeBlocklist(bl);
-        if (normalized.isQuickStart === true && bl.isQuickStart !== true) {
-            healedQuickStartFlag = true;
-        }
-        return normalized;
-    });
-    if (healedQuickStartFlag) {
+    state.appData.blocklists = (state.appData.blocklists || []).map((bl) => normalizeBlocklist(bl));
+    if (migrateLegacyQuickStartBlocklists(state.appData)) {
         shouldSave = true;
     }
     if (healFocusSpaceColors(state.appData.blocklists)) {

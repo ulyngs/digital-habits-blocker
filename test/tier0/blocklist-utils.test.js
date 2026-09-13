@@ -2,15 +2,13 @@ import { describe, expect, test } from 'vitest';
 import {
     ALWAYS_ON_END_TIME,
     FOCUS_SPACE_COLOR_PALETTE,
-    QUICK_START_EMOJI,
     healFocusSpaceColors,
     hasUsableIOSScreenTimeSelection,
     isBlockAlwaysOn,
     isProtectedApp,
     isProtectedDomain,
-    isQuickStartBlocklist,
     mergeIOSScreenTimeSelectionAdditive,
-    normalizeBlocklist,
+    migrateLegacyQuickStartBlocklists,
     normalizeIOSScreenTimeSelection,
     parseLegacyScreenTimeSummary,
     resolveIOSScreenTimeSelectionForSave,
@@ -159,27 +157,68 @@ describe('iOS Screen Time selection normalization', () => {
     });
 });
 
-describe('quick start blocklists', () => {
-    test('an explicit false flag wins over the id prefix', () => {
-        // This is what "Save as focus space" produces: the id keeps its
-        // `qs-` prefix but the space is now permanent.
-        expect(isQuickStartBlocklist({ id: 'qs-1', isQuickStart: false })).toBe(false);
-        expect(isQuickStartBlocklist({ id: 'qs-1' })).toBe(true);
-        expect(isQuickStartBlocklist({ id: 'abc', isQuickStart: true })).toBe(true);
-        expect(isQuickStartBlocklist({ id: 'abc' })).toBe(false);
-        expect(isQuickStartBlocklist(null)).toBe(false);
+describe('legacy quick start blocklists', () => {
+    // Quick start was removed in v3.9. Saved data from earlier versions can
+    // still hold its hidden `isQuickStart` spaces (or `qs-` ids from saves
+    // that dropped the flag). The failure must fall towards blocking: a
+    // quick start that is enforcing right now becomes an ordinary focus space
+    // so its block keeps running; the rest were never meant to be visible and
+    // are dropped along with any stale blocks that point at them.
+    const now = 1_000_000;
+
+    test('drops quick starts that are not enforcing right now', () => {
+        const appData = {
+            blocklists: [
+                { id: 'qs-1', isQuickStart: true, apps: [] },
+                { id: 'qs-2', apps: [] },
+                { id: 'keep', apps: [] },
+            ],
+            activeBlocks: [
+                { blocklistId: 'qs-1', startTime: 0, endTime: now - 1 },
+                { blocklistId: 'keep', startTime: 0, endTime: now + 1 },
+            ],
+            schedules: [{ blocklistId: 'qs-2', segments: [] }],
+        };
+        expect(migrateLegacyQuickStartBlocklists(appData, now)).toBe(true);
+        expect(appData.blocklists.map((bl) => bl.id)).toEqual(['keep']);
+        expect(appData.activeBlocks.map((b) => b.blocklistId)).toEqual(['keep']);
+        expect(appData.schedules).toEqual([]);
     });
 
-    test('normalizing heals a quick start that lost its flag', () => {
-        const normalized = normalizeBlocklist({ id: 'qs-9', apps: [] });
-        expect(normalized.isQuickStart).toBe(true);
-        expect(normalized.emoji).toBe(QUICK_START_EMOJI);
+    test('promotes a running quick start into an ordinary focus space', () => {
+        const appData = {
+            blocklists: [{ id: 'qs-1', isQuickStart: true, alwaysShowInSchedule: false, apps: [] }],
+            activeBlocks: [{ blocklistId: 'qs-1', startTime: 0, endTime: now + 1 }],
+            schedules: [],
+        };
+        expect(migrateLegacyQuickStartBlocklists(appData, now)).toBe(true);
+        expect(appData.blocklists).toHaveLength(1);
+        expect('isQuickStart' in appData.blocklists[0]).toBe(false);
+        expect(appData.blocklists[0].alwaysShowInSchedule).toBe(true);
+        expect(appData.activeBlocks).toHaveLength(1);
     });
 
-    test('normalizing leaves a saved focus space alone', () => {
-        const normalized = normalizeBlocklist({ id: 'qs-9', isQuickStart: false, emoji: '📚', apps: [] });
-        expect(normalized.isQuickStart).toBe(false);
-        expect(normalized.emoji).toBe('📚');
+    test('a quick start already saved as a focus space is kept, flag stripped', () => {
+        const appData = {
+            blocklists: [{ id: 'qs-1', isQuickStart: false, emoji: '📚', apps: [] }],
+            activeBlocks: [],
+            schedules: [],
+        };
+        expect(migrateLegacyQuickStartBlocklists(appData, now)).toBe(true);
+        expect(appData.blocklists).toHaveLength(1);
+        expect('isQuickStart' in appData.blocklists[0]).toBe(false);
+        expect(appData.blocklists[0].emoji).toBe('📚');
+    });
+
+    test('is a no-op on data with no quick starts', () => {
+        const appData = {
+            blocklists: [{ id: 'abc', apps: [] }],
+            activeBlocks: [{ blocklistId: 'abc', startTime: 0, endTime: now + 1 }],
+            schedules: [],
+        };
+        expect(migrateLegacyQuickStartBlocklists(appData, now)).toBe(false);
+        expect(appData.blocklists).toHaveLength(1);
+        expect(appData.activeBlocks).toHaveLength(1);
     });
 });
 
@@ -208,10 +247,7 @@ describe('focus space colours', () => {
         expect(healFocusSpaceColors(lists)).toBe(false);
     });
 
-    test('quick starts are excluded from colour healing', () => {
-        const lists = [{ id: 'qs-1' }];
-        expect(healFocusSpaceColors(lists)).toBe(false);
-        expect(lists[0].color).toBeUndefined();
+    test('empty or missing input is a no-op', () => {
         expect(healFocusSpaceColors([])).toBe(false);
         expect(healFocusSpaceColors(null)).toBe(false);
     });

@@ -278,10 +278,10 @@ export const FOCUS_SPACE_COLOR_PALETTE = [
 
 /**
  * If saved colors collapsed to one shared value (or are missing), reassign
- * non–Quick start spaces in palette order so the list reads as distinct again.
+ * spaces in palette order so the list reads as distinct again.
  */
 export function healFocusSpaceColors(blocklists) {
-    const lists = (blocklists || []).filter((bl) => !isQuickStartBlocklist(bl));
+    const lists = blocklists || [];
     if (lists.length === 0) return false;
 
     const present = lists
@@ -309,29 +309,66 @@ export function healFocusSpaceColors(blocklists) {
     return changed;
 }
 
-/** Ephemeral Quick start spaces (id prefix `qs-` heals older saves that dropped the flag). */
-export function isQuickStartBlocklist(blocklist) {
-    if (!blocklist) return false;
-    // Explicit false wins (after "Save as focus space").
-    if (blocklist.isQuickStart === false) return false;
-    if (blocklist.isQuickStart === true) return true;
-    return String(blocklist.id || '').startsWith('qs-');
+/**
+ * One-time cleanup of "Quick start" spaces left behind by versions before 3.9.
+ *
+ * Quick start created a hidden `isQuickStart` blocklist (older saves dropped
+ * the flag but kept the `qs-` id prefix) for a one-off block. The feature is
+ * gone, so the failure has to fall towards blocking: a quick start that is
+ * enforcing right now is promoted to an ordinary, visible focus space so its
+ * block keeps running; the rest were never meant to be visible and are dropped
+ * together with any stale blocks/schedules that point at them. A quick start
+ * the user already promoted ("Save as focus space", `isQuickStart: false`)
+ * only loses the obsolete flag.
+ *
+ * Returns true when appData was changed and should be saved.
+ */
+export function migrateLegacyQuickStartBlocklists(appData, now = Date.now()) {
+    if (!appData || !Array.isArray(appData.blocklists)) return false;
+    const isLegacyQuickStart = (bl) => bl
+        && bl.isQuickStart !== false
+        && (bl.isQuickStart === true || String(bl.id || '').startsWith('qs-'));
+    const enforcingIds = new Set(
+        (appData.activeBlocks || [])
+            .filter((b) => b.startTime <= now && b.endTime > now)
+            .map((b) => b.blocklistId),
+    );
+    let changed = false;
+    const dropped = new Set();
+    appData.blocklists = appData.blocklists.filter((bl) => {
+        if (!bl || typeof bl !== 'object') return true;
+        if (isLegacyQuickStart(bl)) {
+            if (!enforcingIds.has(bl.id)) {
+                dropped.add(bl.id);
+                changed = true;
+                return false;
+            }
+            delete bl.isQuickStart;
+            if (bl.alwaysShowInSchedule === false) bl.alwaysShowInSchedule = true;
+            changed = true;
+            return true;
+        }
+        if ('isQuickStart' in bl) {
+            delete bl.isQuickStart;
+            changed = true;
+        }
+        return true;
+    });
+    if (dropped.size > 0) {
+        if (Array.isArray(appData.activeBlocks)) {
+            appData.activeBlocks = appData.activeBlocks.filter((b) => !dropped.has(b.blocklistId));
+        }
+        if (Array.isArray(appData.schedules)) {
+            appData.schedules = appData.schedules.filter((s) => !dropped.has(s.blocklistId));
+        }
+    }
+    return changed;
 }
-
-/** Color-emoji presentation (VS16) so the bolt stays yellow, not a black text glyph. */
-export const QUICK_START_EMOJI = '⚡️';
 
 export function normalizeBlocklist(blocklist) {
     const normalizedBlocklist = { ...blocklist };
     normalizedBlocklist.apps = getBlocklistRegularApps(blocklist);
     normalizedBlocklist.iosScreenTimeSelection = getBlocklistIOSScreenTimeSelection(blocklist);
-    if (blocklist.isQuickStart === false) {
-        normalizedBlocklist.isQuickStart = false;
-    } else if (isQuickStartBlocklist(normalizedBlocklist)) {
-        // Heal Quick starts whose isQuickStart flag was stripped (e.g. edit-modal save).
-        normalizedBlocklist.isQuickStart = true;
-        normalizedBlocklist.emoji = QUICK_START_EMOJI;
-    }
     return normalizedBlocklist;
 }
 

@@ -3815,7 +3815,6 @@ body:not(.ios) #settings-toolbar-scheduler{
     display: flex !important;
 }
 
-.blocklist-card-quick-start .blocklist-emoji,
 .now-blocking-chip-emoji{
     font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
     font-style: normal;
@@ -3897,10 +3896,6 @@ body.android .blocklists-create-btn--primary{
    just created and is most likely to want. */
 body.android #blocklists-container{
     padding-bottom: 76px;
-}
-
-body.android #quick-start-mode-group{
-    display: none;
 }
 
 .blocklists-create-btn{
@@ -7413,27 +7408,6 @@ body.android .blocklists-container {
 .blocklist-card.selected{
     border-left-width: 0;
     overflow: visible;
-}
-
-/* Running Quick start: ephemeral card at the top of the list. */
-.blocklist-card-quick-start{
-    --blocklist-card-border: 2px;
-    border: var(--blocklist-card-border) dashed color-mix(in srgb, var(--text-muted) 55%, var(--border-color));
-    border-left-width: var(--blocklist-card-border);
-    padding-top: calc(var(--blocklist-card-padding-y) + 3px);
-    cursor: pointer;
-}
-
-.blocklist-card-quick-start.selected{
-    /* Keep full dashed outline — generic .selected removes left border for the colour stripe. */
-    border-style: dashed;
-    border-left-width: var(--blocklist-card-border);
-}
-
-/* Don't dim Quick start — dashed border is the ephemeral cue. */
-.blocklist-card-quick-start .blocklist-stripe{
-    /* Keep stripe width so content aligns with normal cards; hide the color. */
-    background: transparent !important;
 }
 
 .blocklist-entering-chip{
@@ -11494,9 +11468,7 @@ body.handset-device #blocklist-modal .tags-input-stacked .browse-btn{
 
 /* iPhone and Android: app input is hidden — picker button spans the full row. */
 body.ios-phone #blocklist-modal .tags-input-stacked .apps-input-with-button .browse-btn,
-body.android #blocklist-modal .tags-input-stacked .apps-input-with-button .browse-btn,
-body.ios-phone #quick-start-modal .tags-input-stacked .apps-input-with-button .browse-btn,
-body.android #quick-start-modal .tags-input-stacked .apps-input-with-button .browse-btn{
+body.android #blocklist-modal .tags-input-stacked .apps-input-with-button .browse-btn{
     width: 100%;
     max-width: 100%;
     flex: 1 1 auto;
@@ -11777,7 +11749,6 @@ body.handset-device .mobile-fullscreen-modal{
 
 body.handset-device .mobile-fullscreen-modal .modal-content,
 body.handset-device #blocklist-modal.mobile-fullscreen-modal .modal-content,
-body.handset-device #quick-start-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #settings-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #override-modal.mobile-fullscreen-modal .modal-content,
 body.handset-device #override-all-modal.mobile-fullscreen-modal .modal-content,
@@ -11826,10 +11797,9 @@ body.enter-scheduler-sheet-layout .selection-prompt{
 
 /* Desktop enter sheet: always full-bleed under the title bar whenever open —
    keyed on enter-scheduler-modal-open so we never fall back to a centered dialog.
-   Same treatment for create/settings/quick-start and override/pause challenges. */
+   Same treatment for create/settings and override/pause challenges. */
 body.enter-scheduler-modal-open:not(.handset-device) #enter-scheduler-modal,
 body.desktop-compact-layout #enter-scheduler-modal.mobile-fullscreen-modal,
-body.desktop-compact-layout #quick-start-modal.mobile-fullscreen-modal,
 body.desktop-compact-layout #blocklist-modal.mobile-fullscreen-modal,
 body.desktop-compact-layout #settings-modal.mobile-fullscreen-modal,
 body.desktop-compact-layout #override-modal.mobile-fullscreen-modal,
@@ -11850,7 +11820,6 @@ body.desktop-compact-layout #pause-modal.mobile-fullscreen-modal{
 
 body.enter-scheduler-modal-open:not(.handset-device) #enter-scheduler-modal .modal-content,
 body.desktop-compact-layout #enter-scheduler-modal.mobile-fullscreen-modal .modal-content,
-body.desktop-compact-layout #quick-start-modal.mobile-fullscreen-modal .modal-content,
 body.desktop-compact-layout #blocklist-modal.mobile-fullscreen-modal .modal-content,
 body.desktop-compact-layout #settings-modal.mobile-fullscreen-modal .modal-content,
 body.desktop-compact-layout #override-modal.mobile-fullscreen-modal .modal-content,
@@ -11872,7 +11841,6 @@ body.desktop-compact-layout #pause-modal.mobile-fullscreen-modal .modal-content{
 
 body.enter-scheduler-modal-open:not(.handset-device) #enter-scheduler-modal .mobile-modal-header,
 body.desktop-compact-layout #enter-scheduler-modal.mobile-fullscreen-modal .mobile-modal-header,
-body.desktop-compact-layout #quick-start-modal.mobile-fullscreen-modal .mobile-modal-header,
 body.desktop-compact-layout #blocklist-modal.mobile-fullscreen-modal .mobile-modal-header,
 body.desktop-compact-layout #settings-modal.mobile-fullscreen-modal .mobile-modal-header,
 body.desktop-compact-layout #override-modal.mobile-fullscreen-modal .mobile-modal-header,
@@ -11938,8 +11906,8 @@ body.desktop-compact-layout .mobile-fullscreen-modal .mobile-modal-title-source{
     display: none;
 }
 
-/* Keep New list / Quick start tabs visible under the sticky mobile header when
-   the dialog title itself is moved into .mobile-modal-header. */
+/* The dialog title is moved into .mobile-modal-header, so the title row keeps
+   no top margin under the sticky mobile header. */
 body.desktop-compact-layout #blocklist-modal.mobile-fullscreen-modal .blocklist-modal-title-row,
 body.handset-device #blocklist-modal.mobile-fullscreen-modal .blocklist-modal-title-row{
     justify-content: flex-end;
@@ -11952,7 +11920,6 @@ body.desktop-compact-layout #enter-scheduler-modal.mobile-fullscreen-modal .moda
 
 body.enter-scheduler-modal-open:not(.handset-device) #enter-scheduler-modal .mobile-modal-scroll-body,
 body.desktop-compact-layout #enter-scheduler-modal.mobile-fullscreen-modal .mobile-modal-scroll-body,
-body.desktop-compact-layout #quick-start-modal.mobile-fullscreen-modal .mobile-modal-scroll-body,
 body.desktop-compact-layout #blocklist-modal.mobile-fullscreen-modal .mobile-modal-scroll-body,
 body.desktop-compact-layout #settings-modal.mobile-fullscreen-modal .mobile-modal-scroll-body,
 body.desktop-compact-layout #override-modal.mobile-fullscreen-modal .mobile-modal-scroll-body,
@@ -12003,26 +11970,12 @@ body.desktop-compact-layout #settings-modal.mobile-fullscreen-modal .modal-butto
     background: var(--app-bg);
 }
 
-/* Quick start: flatten desktop wrappers like handset; title lives in the mobile header. */
-body.desktop-compact-layout #quick-start-modal.mobile-fullscreen-modal .quick-start-header,
-body.desktop-compact-layout #quick-start-modal.mobile-fullscreen-modal .quick-start-modal-scroll-body{
-    display: contents;
-}
-
-/* Override desktop popup sizing while compact. */
-body.desktop-compact-layout #quick-start-modal .modal-content{
-    max-width: 100%;
-    max-height: none;
-    padding: 0;
-}
-
 /* Narrow desktop: same full-screen sheets via viewport media query (not only the
-   JS body class). Covers create/edit focus space, settings, quick start, and
-   override/pause when the window is ≤718px. */
+   JS body class). Covers create/edit focus space, settings, and override/pause
+   when the window is ≤718px. */
 @media (max-width: 718px) {
     body:not(.handset-device):not(.ios):not(.android) :is(
         #enter-scheduler-modal,
-        #quick-start-modal,
         #blocklist-modal,
         #settings-modal,
         #override-modal,
@@ -12044,7 +11997,6 @@ body.desktop-compact-layout #quick-start-modal .modal-content{
 
     body:not(.handset-device):not(.ios):not(.android) :is(
         #enter-scheduler-modal,
-        #quick-start-modal,
         #blocklist-modal,
         #settings-modal,
         #override-modal,
@@ -12067,7 +12019,6 @@ body.desktop-compact-layout #quick-start-modal .modal-content{
 
     body:not(.handset-device):not(.ios):not(.android) :is(
         #enter-scheduler-modal,
-        #quick-start-modal,
         #blocklist-modal,
         #settings-modal,
         #override-modal,
@@ -12130,7 +12081,6 @@ body.desktop-compact-layout #quick-start-modal .modal-content{
 
     body:not(.handset-device):not(.ios):not(.android) :is(
         #enter-scheduler-modal,
-        #quick-start-modal,
         #blocklist-modal,
         #settings-modal,
         #override-modal,
@@ -12163,11 +12113,6 @@ body.desktop-compact-layout #quick-start-modal .modal-content{
 
     body:not(.handset-device):not(.ios):not(.android) #settings-modal .settings-modal-header{
         display: none;
-    }
-
-    body:not(.handset-device):not(.ios):not(.android) #quick-start-modal.mobile-fullscreen-modal .quick-start-header,
-    body:not(.handset-device):not(.ios):not(.android) #quick-start-modal.mobile-fullscreen-modal .quick-start-modal-scroll-body{
-        display: contents;
     }
 
     body:not(.handset-device):not(.ios):not(.android) #enter-scheduler-modal.mobile-fullscreen-modal .modal-buttons{
@@ -12442,299 +12387,6 @@ body.handset-device .mobile-fullscreen-modal .modal-buttons{
     padding-bottom: 0;
 }
 
-/* ——— Quick start modal ———
-   Desktop: sticky header + inner scroll body (popup).
-   Handset: shares .mobile-fullscreen-modal layout with add/edit focus space
-   (header edge-to-edge + safe area; light content fills the viewport). */
-body:not(.handset-device) #quick-start-modal .modal-content{
-    max-width: 500px;
-    display: flex;
-    flex-direction: column;
-    max-height: 95vh;
-    overflow: hidden;
-    padding: 20px 24px 22px;
-}
-
-/* setupHandsetModalScreens wraps body in .mobile-modal-scroll-body on all
-   platforms; keep the desktop flex/scroll chain working through that wrapper. */
-body:not(.handset-device) #quick-start-modal .mobile-modal-scroll-body{
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.quick-start-header{
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
-    margin-bottom: 16px;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 2;
-}
-
-body:not(.handset-device) #quick-start-modal .quick-start-modal-scroll-body{
-    flex: 1;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
-    margin: -96px -24px 0;
-    padding: 96px 24px 0;
-}
-
-#quick-start-modal .form-group .label-with-info,
-#quick-start-modal .info-tooltip-wrapper{
-    overflow: visible;
-}
-
-#quick-start-modal #quick-start-title{
-    margin: 0;
-    font-family: var(--font-heading);
-    font-size: 1.45rem;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-
-#quick-start-modal .tags-input-container{
-    background: var(--settings-panel-bg);
-}
-
-#quick-start-modal .tags-input-container .tag:not(.locked){
-    background: var(--blocklist-tint, var(--accent-color));
-    color: var(--blocklist-tag-text, white);
-}
-
-#quick-start-modal .tags-input-container .tag:not(.locked) .tag-remove{
-    color: inherit;
-    opacity: 0.55;
-}
-
-#quick-start-modal .tags-input-container.tags-input-stacked{
-    flex-direction: column;
-    align-items: stretch;
-    flex-wrap: nowrap;
-    gap: 8px;
-    padding: 8px;
-    cursor: default;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: visible;
-}
-
-#quick-start-modal .tags-input-stacked:focus-within{
-    border-color: var(--input-border);
-    box-shadow: none;
-}
-
-#quick-start-modal .tags-input-stacked > .tags-container{
-    width: 100%;
-    flex: none;
-    cursor: text;
-}
-
-#quick-start-modal .tags-input-stacked > .tags-container:empty{
-    display: none;
-}
-
-#quick-start-modal .tags-input-stacked > .input-with-button{
-    width: 100%;
-    max-width: 100%;
-    flex: none;
-    min-width: 0;
-    box-sizing: border-box;
-    flex-direction: row;
-    align-items: stretch;
-    gap: 8px;
-}
-
-#quick-start-modal .tags-input-stacked .form-input{
-    flex: 1 1 0%;
-    min-width: 0;
-    width: auto;
-    border: 1px solid var(--input-border);
-    border-radius: 8px;
-    background: var(--input-bg);
-    padding: 8px 12px;
-    box-sizing: border-box;
-    color: var(--text-primary);
-}
-
-#quick-start-modal .tags-input-stacked .form-input:focus{
-    border-color: var(--accent-color);
-    box-shadow: 0 0 0 3px rgba(42, 157, 143, 0.1);
-}
-
-#quick-start-modal .tags-input-stacked .browse-btn{
-    flex: 0 0 auto;
-    align-self: stretch;
-    background: var(--button-bg);
-    border: 1px solid transparent;
-    color: white;
-    border-radius: 8px;
-    padding: 8px 12px;
-    white-space: nowrap;
-    gap: 4px;
-}
-
-#quick-start-modal .tags-input-stacked .browse-btn:hover{
-    background: var(--button-hover);
-    color: white;
-    border-color: transparent;
-}
-
-body:not(.ios) #quick-start-modal .browse-btn-caption{
-    display: none;
-}
-
-body:not(.ios) #quick-start-modal .tags-input-stacked .browse-btn-caption{
-    display: inline;
-}
-
-.quick-start-duration-btns{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-}
-
-.quick-start-duration-btn{
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 7px 12px;
-    border: 1px solid var(--input-border);
-    border-radius: 999px;
-    background: var(--input-bg);
-    color: var(--text-secondary);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.quick-start-duration-btn:hover{
-    border-color: var(--border-color-strong, var(--border-color-medium));
-    color: var(--text-primary);
-}
-
-.quick-start-duration-btn.active{
-    background: var(--accent-color);
-    border-color: var(--accent-color);
-    color: #ffffff;
-}
-
-.quick-start-effort-header{
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 8px;
-}
-
-.quick-start-effort-header label{
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.quick-start-effort-summary{
-    font-size: 13px;
-    color: var(--text-muted);
-    text-align: right;
-    flex-shrink: 0;
-}
-
-.quick-start-effort-slider-wrap{
-    padding: 4px 2px 0;
-}
-
-.quick-start-effort-slider{
-    width: 100%;
-    appearance: none;
-    height: 6px;
-    border-radius: 999px;
-    background: linear-gradient(
-        to right,
-        var(--accent-color) 0%,
-        var(--accent-color) var(--qs-effort-pct, 28%),
-        var(--redd-border) var(--qs-effort-pct, 28%),
-        var(--redd-border) 100%
-    );
-    outline: none;
-    cursor: pointer;
-}
-
-.quick-start-effort-slider::-webkit-slider-thumb{
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #ffffff;
-    border: 2px solid var(--accent-color);
-    box-shadow: 0 1px 3px rgba(30, 45, 62, 0.18);
-    cursor: pointer;
-}
-
-.quick-start-effort-slider::-moz-range-thumb{
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #ffffff;
-    border: 2px solid var(--accent-color);
-    box-shadow: 0 1px 3px rgba(30, 45, 62, 0.18);
-    cursor: pointer;
-}
-
-.quick-start-effort-ends{
-    display: flex;
-    justify-content: space-between;
-    margin-top: 8px;
-    font-size: 12px;
-    font-style: italic;
-    color: var(--text-muted);
-}
-
-.quick-start-start-btn{
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 8px;
-}
-
-.quick-start-hint{
-    margin: 10px 0 0;
-    text-align: center;
-    font-size: 13px;
-    color: var(--text-muted);
-    line-height: 1.4;
-}
-
-.quick-start-save-link{
-    border: none;
-    background: none;
-    padding: 0;
-    margin: 0;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-    text-decoration: underline;
-}
-
-.quick-start-save-link:hover{
-    text-decoration: none;
-}
-
 /* Add/edit blocklist modal — slightly wider than the default 400px so the
    apps tag list, override-difficulty row and colour/emoji pickers have room
    to breathe. Matches the 500px blocklist-card width for visual rhyme.
@@ -12854,44 +12506,6 @@ body.dark-mode .allowlist-scope-hint--empty strong{
     color: #4ade80;
 }
 
-.blocklist-create-kind-tabs{
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 8px;
-    background: var(--redd-warm-grey);
-}
-
-.blocklist-create-kind-tab{
-    flex: 0 0 auto;
-    padding: 6px 12px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.2;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
-}
-
-.blocklist-create-kind-tab.active{
-    background: var(--primary-btn-bg);
-    color: var(--primary-btn-text);
-}
-
-.blocklist-create-kind-tabs.hidden{
-    display: none;
-}
-
-.blocklist-quick-start-options.hidden{
-    display: none;
-}
-
 #blocklist-modal .form-group > label{
     padding-top: 4px;
 }
@@ -12998,24 +12612,14 @@ body.ios:not(.handset-device) #blocklist-modal{
     padding-top: env(safe-area-inset-top, 8px);
 }
 
-body.handset-device #blocklist-modal.mobile-fullscreen-modal .mobile-modal-header,
-body.handset-device #quick-start-modal.mobile-fullscreen-modal .mobile-modal-header{
+body.handset-device #blocklist-modal.mobile-fullscreen-modal .mobile-modal-header{
     padding-top: calc(env(safe-area-inset-top, 0px) + 4px);
     padding-bottom: 8px;
 }
 
-body.handset-device #blocklist-modal.mobile-fullscreen-modal .mobile-modal-scroll-body,
-body.handset-device #quick-start-modal.mobile-fullscreen-modal .mobile-modal-scroll-body{
+body.handset-device #blocklist-modal.mobile-fullscreen-modal .mobile-modal-scroll-body{
     padding-top: 12px;
     padding-bottom: 16px;
-}
-
-/* Flatten quick-start's desktop-only header/scroll wrappers so handset uses
-   the same .mobile-modal-header + .mobile-modal-scroll-body chrome as
-   add/edit focus space. Title text is synced into the mobile header. */
-body.handset-device #quick-start-modal.mobile-fullscreen-modal .quick-start-header,
-body.handset-device #quick-start-modal.mobile-fullscreen-modal .quick-start-modal-scroll-body{
-    display: contents;
 }
 
 .modal-content h3{

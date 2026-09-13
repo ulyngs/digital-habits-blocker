@@ -39,8 +39,6 @@ import {
     ensureIOSBlocklistSelectionReady,
     normalizeBlocklist,
     collectActiveIOSManualBlockPayload,
-    isQuickStartBlocklist,
-    QUICK_START_EMOJI,
 } from './blocklist-utils.js';
 import { openInstalledAppsPicker } from './apps-picker.js';
 import { closeAllPopovers, disableScheduleControls, disableTimeControls, getEndTimeAsDate, getStartTimeAsDate, handleDurationInputChange, handleDurationQuickBtn, handlePopoverOutsideClick, handleTimePartClick, initializeTimeInputs, pad, parseEndTimeBoundedInt, scrollElementWithinContainer, scrollPopoverOptionIntoView, setupEndTimeDirectInputs, updateDurationQuickBtns, updateTimeDisplay } from './time-inputs.js';
@@ -100,23 +98,13 @@ import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, clos
 import { renderBlocklists, autoSelectSoleBlocklist, closeAllBlocklistMenus, truncateBlocklistName, setupBlocklistsImportExportButtons, duplicateBlocklist, getNextCopyName, deleteBlocklist, clearPendingScheduleDraft, isBlocklistEditFrictionRequired, pendingDelete, saveBlocklistOrderFromDOM, getBlocklistScheduleDraft, saveBlocklistScheduleDraft, setUndoToastMessage } from './blocklists.js';
 import {
     getSelectedBlocklistModalMode,
-    getBlocklistCreateKind,
-    setBlocklistCreateKind,
-    syncBlocklistCreateKindUi,
+    syncBlocklistCreateUi,
     syncModalAppPlaceholder,
     syncModalWebsitePlaceholder,
     updateAllowlistScopeHints,
     updateBlocklistModalModeLabels,
 } from './list-mode.js';
 import { countIOSScreenTimeSelectionItems } from './list-presentation.js';
-import {
-    setupQuickStart,
-    applyQuickStartLanguage,
-    armPendingQuickStart,
-    getQuickStartOverrideCount,
-    applyQuickStartDurationToSchedulerState,
-    resetEmbeddedQuickStartControls,
-} from './quick-start.js';
 import { render, kickClockNow, startTickInterval, updateWeekCalendar, syncSelectedControlState, renderNowBlockingRow, renderScheduleAlwaysOnRow, renderScheduleVisibilityChips, renderWeekBlocks, renderBlocklistSelector, getCalendarSegmentLayout, layoutOverlappingBlocks } from './render.js';
 import { formatTitleBarScheduleStartWhen, hasAnyEnforcedBlocks, isNonRepeatingSchedule, isOneOffBlockEnforced, isSchedulePausedNow, pickEarliestUpcomingScheduledBlock, refreshDesktopHelperStatus, resolveOneShotOccurrences, scheduleHasFutureSingleOccurrence, syncActiveBlocksToHelper, syncSchedulesToHelper } from './schedule-engine.js';
 import { dismissTopmostEscapeLayer, isModalVisible, refreshOpenHelperUi, startHelperUiRefreshLoop, stopHelperUiRefreshLoop } from './modal-manager.js';
@@ -731,23 +719,6 @@ function setupEventListeners() {
     document.getElementById('allow-only-blocklist-btn')?.addEventListener('click', () => {
         openBlocklistModal(null, { mode: 'allowlist' });
     });
-
-    document.querySelectorAll('#blocklist-create-kind-tabs .blocklist-create-kind-tab').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const kind = btn.dataset.kind;
-            setBlocklistCreateKind(kind);
-            if (kind === 'quick-start' && !state.editingBlocklistId) {
-                resetEmbeddedQuickStartControls();
-            }
-            syncBlocklistCreateKindUi({ isCreate: !state.editingBlocklistId });
-            if (kind !== 'quick-start') {
-                const type = document.getElementById('override-type')?.value || 'random-words';
-                applyOverrideTypeUi(type);
-            }
-        });
-    });
-
-    setupQuickStart();
 
     // Onboarding
     // Onboarding removed — default blocklist created in loadData()
@@ -1693,14 +1664,11 @@ function setupModalListeners() {
         closeBlocklistModal();
     });
 
-    // Save / Quick-start primary button
+    // Save button
     document.getElementById('save-blocklist-btn').addEventListener('click', async () => {
-        const isQuickCreate = !state.editingBlocklistId && getBlocklistCreateKind() === 'quick-start';
         const nameInput = document.getElementById('blocklist-name');
-        const name = isQuickCreate
-            ? tSettings('quickStartDefaultName')
-            : truncateBlocklistName(nameInput.value.trim());
-        const nameEmpty = !isQuickCreate && !name;
+        const name = truncateBlocklistName(nameInput.value.trim());
+        const nameEmpty = !name;
         if (nameEmpty) {
             nameInput.classList.add('input-error');
         } else {
@@ -1716,13 +1684,11 @@ function setupModalListeners() {
             if (result?.websiteInvalid) websiteInvalid = true;
         }
 
-        const overrideType = isQuickCreate
-            ? 'random-words'
-            : document.getElementById('override-type').value;
+        const overrideType = document.getElementById('override-type').value;
         const customTextArea = document.getElementById('custom-override-text');
-        const customText = isQuickCreate ? '' : normalizeCustomOverrideText(customTextArea.value);
-        if (!isQuickCreate) customTextArea.value = customText;
-        const customEmpty = !isQuickCreate && overrideType === 'custom' && !customText;
+        const customText = normalizeCustomOverrideText(customTextArea.value);
+        customTextArea.value = customText;
+        const customEmpty = overrideType === 'custom' && !customText;
         const customErrorEl = document.getElementById('custom-override-text-error');
         if (customEmpty) {
             customTextArea.classList.add('input-error');
@@ -1737,7 +1703,7 @@ function setupModalListeners() {
 
         if (nameEmpty || websiteInvalid || customEmpty) return;
 
-        if (!isQuickCreate) nameInput.value = name;
+        nameInput.value = name;
 
         const pendingApp = modalAppInput.value.trim();
         if (pendingApp && !isProtectedApp(pendingApp) && !modalApps.includes(pendingApp)) {
@@ -1753,33 +1719,17 @@ function setupModalListeners() {
             modalAppInput.value = '';
         }
 
-        if (isQuickCreate
-            && modalWebsites.length === 0
-            && modalApps.length === 0
-            && !modalIOSScreenTimeSelection) {
-            alert(tSettings('quickStartNeedItems'));
-            return;
-        }
-
         const mode = getSelectedBlocklistModalMode();
         const overrideCountInput = document.getElementById('override-count');
-        const maxDifficultyChecked = isQuickCreate
-            ? false
-            : document.getElementById('override-max-difficulty-checkbox').checked;
-        const overrideCount = isQuickCreate
-            ? getQuickStartOverrideCount()
-            : (maxDifficultyChecked
-                ? getMaxOverrideCharsForType(overrideType)
-                : normalizeOverrideCount(overrideCountInput.value, overrideType));
-        if (!isQuickCreate) overrideCountInput.value = overrideCount;
+        const maxDifficultyChecked = document.getElementById('override-max-difficulty-checkbox').checked;
+        const overrideCount = maxDifficultyChecked
+            ? getMaxOverrideCharsForType(overrideType)
+            : normalizeOverrideCount(overrideCountInput.value, overrideType);
+        overrideCountInput.value = overrideCount;
         const selectedSwatch = document.querySelector('.color-swatch.selected');
-        const color = isQuickCreate
-            ? '#B8D1DE'
-            : (selectedSwatch ? selectedSwatch.dataset.color : null);
+        const color = selectedSwatch ? selectedSwatch.dataset.color : null;
         const selectedEmoji = document.querySelector('.emoji-swatch.selected');
-        const emoji = isQuickCreate
-            ? QUICK_START_EMOJI
-            : (selectedEmoji ? selectedEmoji.dataset.emoji : '📱');
+        const emoji = selectedEmoji ? selectedEmoji.dataset.emoji : '📱';
 
         const showItemDetails = document.getElementById('show-item-details-checkbox').checked;
         // Preserve the blocklist's existing schedule visibility (toggled via the chips above the
@@ -1787,9 +1737,7 @@ function setupModalListeners() {
         const existingBlocklistForSave = state.editingBlocklistId
             ? state.appData.blocklists.find(bl => bl.id === state.editingBlocklistId)
             : null;
-        const alwaysShowInSchedule = isQuickCreate
-            ? false
-            : (existingBlocklistForSave?.alwaysShowInSchedule !== false);
+        const alwaysShowInSchedule = existingBlocklistForSave?.alwaysShowInSchedule !== false;
 
         const overrideDifficultyPayload = {
             type: overrideType,
@@ -1834,15 +1782,6 @@ function setupModalListeners() {
             alwaysShowInSchedule,
             overrideDifficulty: overrideDifficultyPayload,
         };
-        // Preserve Quick start / promoted-ordinary flag across edit saves.
-        if (isQuickCreate) {
-            blocklist.isQuickStart = true;
-        } else if (existingBlocklistForSave?.isQuickStart === false) {
-            blocklist.isQuickStart = false;
-        } else if (isQuickStartBlocklist(existingBlocklistForSave)) {
-            blocklist.isQuickStart = true;
-        }
-
         if (state.editingBlocklistId) {
             const idx = state.appData.blocklists.findIndex(bl => bl.id === state.editingBlocklistId);
             if (idx !== -1) {
@@ -1877,11 +1816,6 @@ function setupModalListeners() {
         // Keep live preview while editing, but don't revert after a confirmed save.
         state.blocklistModalPreviewSnapshot = null;
         const wasNewBlocklist = !state.editingBlocklistId;
-        // Arm before re-render so orphan Quick-start prune keeps the draft.
-        if (isQuickCreate) {
-            armPendingQuickStart(blocklist.id);
-            applyQuickStartDurationToSchedulerState();
-        }
         closeBlocklistModal();
 
         // Only update blocklist display without resetting schedule segments
@@ -1890,11 +1824,6 @@ function setupModalListeners() {
         renderWeekBlocks(); // Refresh calendar so colour / emoji / name changes propagate
         renderNowBlockingRow(); // Title-bar chips read emoji/name from freshly saved blocklist
         renderScheduleAlwaysOnRow();
-
-        if (isQuickCreate) {
-            startBlock();
-            return;
-        }
 
         if (wasNewBlocklist) {
             // New focus space: land on enter (sheet on iOS iPhone, inline elsewhere).
@@ -3101,14 +3030,9 @@ export function applySettingsLanguage() {
         allowOnlyBtn.title = tSettings('allowOnlyBtn');
         allowOnlyBtn.setAttribute('aria-label', tSettings('allowOnlyBtn'));
     }
-    setText('blocklist-kind-new-list', tSettings('createKindNewList'));
-    setText('blocklist-kind-quick-start', tSettings('createKindQuickStart'));
-    const createKindTabs = document.getElementById('blocklist-create-kind-tabs');
-    if (createKindTabs) createKindTabs.setAttribute('aria-label', tSettings('createKindTabsAria'));
-    syncBlocklistCreateKindUi({ isCreate: !state.editingBlocklistId });
+    syncBlocklistCreateUi({ isCreate: !state.editingBlocklistId });
     const createActions = document.querySelector('.blocklists-create-actions');
     if (createActions) createActions.setAttribute('aria-label', tSettings('blocklistsCreateActionsAria'));
-    applyQuickStartLanguage();
     setText('main-schedule-title', tSettings('scheduleTitle'));
     setText('no-active-blocks-label', tSettings('noActiveBlocks'));
     setText('always-on-row-label-lead', tSettings('alwaysOnRowLead'));

@@ -6,7 +6,7 @@ import { ask, message, open as openDialog, save as saveDialog } from '@tauri-app
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { escapeHtml, getEnteringChipColor } from './utils.js';
 import { tSettings, tSettingsFmt } from './i18n.js';
-import { cloneIOSScreenTimeSelection, getBlocklistIOSScreenTimeSelection, getBlocklistRegularApps, isBlockAlwaysOn, isQuickStartBlocklist, isScreenTimeSummaryEntry, normalizeBlocklist, QUICK_START_EMOJI } from './blocklist-utils.js';
+import { cloneIOSScreenTimeSelection, getBlocklistIOSScreenTimeSelection, getBlocklistRegularApps, isBlockAlwaysOn, isScreenTimeSummaryEntry, normalizeBlocklist } from './blocklist-utils.js';
 import { isOneOffBlockEnforced, isSchedulePausedNow } from './schedule-engine.js';
 import { saveData, updateHostsFile } from './persistence.js';
 import { handleNowBlockingPause, handleNowBlockingStop, render, renderNowBlockingRow, renderScheduleVisibilityChips } from './render.js';
@@ -22,55 +22,8 @@ import { buildBlocklistCardMetaHtml, buildBlocklistCardDetailsHtml, blocklistCar
 import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, isMobilePhoneDevice, usesEnterSchedulerSheet, openBlocklistModal } from './confirm-modals.js';
 import { APP_BLOCKING_SNOOZE_ICON_IMG_12, appBlockingWarningSnoozedUntilMs, formatAppBlockingSnoozeStartsIn, getActiveAppBlockingSnoozeBlocklistId } from './blocking-platform.js';
 
-function isQuickStartActivelyRunning(blocklist, now = Date.now()) {
-    if (!isQuickStartBlocklist(blocklist)) return false;
-    return (state.appData.activeBlocks || []).some(
-        (b) => b.blocklistId === blocklist.id && b.startTime <= now && b.endTime > now,
-    );
-}
-
-/** Regular focus spaces, plus any currently-running Quick start (shown first). */
 function getVisibleBlocklists() {
-    const now = Date.now();
-    const lists = state.appData.blocklists || [];
-    const quickActive = lists
-        .filter((bl) => isQuickStartActivelyRunning(bl, now))
-        .sort((a, b) => {
-            const aStart = state.appData.activeBlocks.find(
-                (block) => block.blocklistId === a.id && block.startTime <= now && block.endTime > now,
-            )?.startTime ?? 0;
-            const bStart = state.appData.activeBlocks.find(
-                (block) => block.blocklistId === b.id && block.startTime <= now && block.endTime > now,
-            )?.startTime ?? 0;
-            return bStart - aStart;
-        });
-    const regular = lists.filter((bl) => !isQuickStartBlocklist(bl));
-    return [...quickActive, ...regular];
-}
-
-function pruneOrphanQuickStartBlocklists() {
-    const now = Date.now();
-    const activeIds = new Set(
-        (state.appData.activeBlocks || [])
-            .filter((b) => b.endTime > now)
-            .map((b) => b.blocklistId),
-    );
-    const pendingId = state.pendingQuickStartBlocklistId;
-    const before = state.appData.blocklists.length;
-    let healed = false;
-    state.appData.blocklists = state.appData.blocklists.filter((bl) => {
-        if (!isQuickStartBlocklist(bl)) return true;
-        if (bl.isQuickStart !== true) {
-            bl.isQuickStart = true;
-            healed = true;
-        }
-        // Keep drafts armed for start-confirm until the user confirms or cancels.
-        if (pendingId && bl.id === pendingId) return true;
-        return activeIds.has(bl.id);
-    });
-    if (state.appData.blocklists.length !== before || healed) {
-        saveData();
-    }
+    return state.appData.blocklists || [];
 }
 
 /** Focus-space cards whose Sites/Apps summary is expanded (survives re-render). */
@@ -277,28 +230,6 @@ export function getNextCopyName(blocklist) {
     let n = 1;
     while (used.has(n)) n++;
     return truncateBlocklistName(n === 1 ? `${base} ${suffix}` : `${base} ${suffix} ${n}`);
-}
-
-/** Promote a running Quick start into a permanent focus space. */
-export function saveQuickStartAsFocusSpace(id) {
-    const idx = state.appData.blocklists.findIndex((bl) => bl.id === id);
-    if (idx === -1) return;
-    const blocklist = state.appData.blocklists[idx];
-    if (!isQuickStartBlocklist(blocklist)) return;
-
-    blocklist.isQuickStart = false;
-    if (blocklist.alwaysShowInSchedule === false) {
-        blocklist.alwaysShowInSchedule = true;
-    }
-
-    // New/saved spaces go to the top of the focus list.
-    if (idx !== 0) {
-        state.appData.blocklists.splice(idx, 1);
-        state.appData.blocklists.unshift(blocklist);
-    }
-
-    saveData();
-    render();
 }
 
 /** Is this one-off block's pause live right now (open-ended pauses never expire)? */
@@ -545,9 +476,7 @@ export function buildBlocklistsExportPayload() {
         format: BLOCKLIST_EXPORT_FORMAT,
         formatVersion: BLOCKLIST_EXPORT_FORMAT_VERSION,
         exportedAt: new Date().toISOString(),
-        blocklists: (state.appData.blocklists || [])
-            .filter((bl) => !isQuickStartBlocklist(bl))
-            .map(serializeBlocklistForExport)
+        blocklists: (state.appData.blocklists || []).map(serializeBlocklistForExport)
     };
 }
 
@@ -935,17 +864,15 @@ export function undoDelete() {
 
 // Render blocklists
 export function renderBlocklists() {
-    pruneOrphanQuickStartBlocklists();
     closeAllBlocklistMenus();
     const container = document.getElementById('blocklists-container');
     const visibleBlocklists = getVisibleBlocklists();
 
     if (!didDefaultExpandSoleCard) {
-        const savedFocusSpaces = visibleBlocklists.filter((bl) => !isQuickStartBlocklist(bl));
-        if (savedFocusSpaces.length === 1 && blocklistCardHasExpandableSummary(savedFocusSpaces[0])) {
-            expandedBlocklistCardIds.add(savedFocusSpaces[0].id);
+        if (visibleBlocklists.length === 1 && blocklistCardHasExpandableSummary(visibleBlocklists[0])) {
+            expandedBlocklistCardIds.add(visibleBlocklists[0].id);
             didDefaultExpandSoleCard = true;
-        } else if (savedFocusSpaces.length >= 1) {
+        } else if (visibleBlocklists.length >= 1) {
             didDefaultExpandSoleCard = true;
         }
     }
@@ -981,8 +908,6 @@ export function renderBlocklists() {
         const hasSchedule = state.appData.schedules && state.appData.schedules.some(s => s.blocklistId === bl.id);
 
         const activeClass = isActive ? ' blocklist-card-active' : (hasSchedule ? ' blocklist-card-scheduled' : '');
-        const isQuickStart = isQuickStartBlocklist(bl);
-        const quickStartClass = isQuickStart ? ' blocklist-card-quick-start' : '';
 
         // Calculate badges - show BOTH if applicable
         let oneOffBadge = '';
@@ -1158,9 +1083,7 @@ export function renderBlocklists() {
         const expandedClass = isExpanded ? ' blocklist-card-expanded' : '';
         const accent = bl.color || '#667eea';
         const selectedStyle = isSelected
-            ? (isQuickStart
-                ? `style="border-color: ${accent}; border-style: dashed; border-left-width: var(--blocklist-card-border); box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);"`
-                : `style="border-top-color: ${accent}; border-right-color: ${accent}; border-bottom-color: ${accent}; border-left-width: 0; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);"`)
+            ? `style="border-top-color: ${accent}; border-right-color: ${accent}; border-bottom-color: ${accent}; border-left-width: 0; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);"`
             : '';
         const enteringChipColor = getEnteringChipColor(accent);
         const enteringChip = isSelected
@@ -1212,15 +1135,6 @@ export function renderBlocklists() {
                   <div class="blocklist-menu hidden">
                     ${startItemHtml}
                     ${runControlsHtml}
-                    ${isQuickStart ? `
-                    <button class="blocklist-menu-item save-quick-start-item" title="${tSettings('quickStartSaveAsLink')}" aria-label="${tSettings('quickStartSaveAsLink')}">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
-                        <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/>
-                        <path d="M7 3v4a1 1 0 0 0 1 1h7"/>
-                      </svg>
-                      ${tSettings('quickStartSaveAsLink')}
-                    </button>` : ''}
                     ${editMenuItemHtml}
                     <button class="blocklist-menu-item duplicate-blocklist-item" title="${tSettings('blocklistCardDuplicate')}" aria-label="${tSettings('blocklistCardDuplicate')}">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1250,14 +1164,14 @@ export function renderBlocklists() {
         const menuOnlyClass = usesEnterSheetCards ? ' blocklist-card-menu-only' : '';
 
         return `
-      <div class="blocklist-card${activeClass}${quickStartClass}${selectedClass}${expandedClass}${menuOnlyClass}" data-id="${bl.id}" data-active="${isActive}" ${selectedStyle}>
+      <div class="blocklist-card${activeClass}${selectedClass}${expandedClass}${menuOnlyClass}" data-id="${bl.id}" data-active="${isActive}" ${selectedStyle}>
         ${enteringChip}
         <div class="blocklist-stripe" style="background: ${borderColor}"></div>
         <div class="blocklist-card-body">
           <div class="blocklist-card-header">
             <div class="blocklist-card-title-row">
               <div class="blocklist-name">
-                <span class="blocklist-emoji">${isQuickStart ? QUICK_START_EMOJI : (bl.emoji || '🚫')}</span>
+                <span class="blocklist-emoji">${bl.emoji || '🚫'}</span>
                 <span class="blocklist-title-text">${escapeHtml(bl.name)}</span>
                 ${badgesHtml}
               </div>
@@ -1347,12 +1261,6 @@ export function renderBlocklists() {
             if (wasHidden) positionBlocklistMenu(menuBtn, menu, menuWrapper);
         });
 
-        card.querySelector('.save-quick-start-item')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeAllBlocklistMenus();
-            saveQuickStartAsFocusSpace(id);
-        });
-
         card.querySelector('.duplicate-blocklist-item')?.addEventListener('click', (e) => {
             e.stopPropagation();
             closeAllBlocklistMenus();
@@ -1371,7 +1279,6 @@ export function renderBlocklists() {
             if (e.target.closest('.edit-btn') || e.target.closest('.blocklist-menu-btn') || e.target.closest('.blocklist-menu')) return;
             if (e.target.closest('.blocklist-meta-items-btn')) return;
             if (e.target.closest('.blocklist-actions')) return;
-            if (card.classList.contains('blocklist-card-quick-start')) return;
             if (e.button !== 0) return; // Only left click
 
             e.preventDefault(); // Prevent text selection
@@ -1426,7 +1333,7 @@ export function renderBlocklists() {
 /// user just *created* a new blocklist, which is a strong "I want to
 /// use this" signal.
 export function autoSelectSoleBlocklist({ force = false } = {}) {
-    const visible = getVisibleBlocklists().filter((bl) => !isQuickStartBlocklist(bl));
+    const visible = getVisibleBlocklists();
     if (visible.length !== 1) return;
     if (state.selectedBlocklistId) return;
     if (force) state.userExplicitlyDeselected = false;

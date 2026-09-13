@@ -15,7 +15,6 @@ export const state = {
     },
     selectedBlocklistId: null,
     /** Quick start draft waiting on start-confirm — orphan prune must keep this id. */
-    pendingQuickStartBlocklistId: null,
     /** Session flag set when the user actively deselects (click-outside / ESC).
      *  Read by the sole-blocklist auto-selector so it stops fighting an
      *  intentional deselect — cleared again when the user picks anything via

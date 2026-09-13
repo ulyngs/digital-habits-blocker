@@ -145,7 +145,7 @@ cases belong — boundary values, malformed input, "exact match, not substring".
 
 | File | Module under test |
 | --- | --- |
-| `blocklist-utils.test.js` | protected apps/domains, always-on detection, iOS Screen Time selection normalization, quick-start healing, focus-space colours |
+| `blocklist-utils.test.js` | protected apps/domains, always-on detection, iOS Screen Time selection normalization, legacy quick-start cleanup, focus-space colours |
 | `schedule-engine.test.js` | Android payload mapping (day names, friction fields), repeat classification, one-off enforcement windows, pause state, weekday indexing |
 | `pause-and-time-inputs.test.js` | default pause clamp (mirrors Kotlin `coerceDefaultPauseMinutes`), end-time field parsing |
 

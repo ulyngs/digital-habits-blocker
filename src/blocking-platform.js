@@ -1497,7 +1497,6 @@ export function attachModalScrollResetOnShow(modalEl) {
 export function setupHandsetModalScreens() {
     const modalIds = [
         'blocklist-modal',
-        'quick-start-modal',
         'override-modal',
         'pause-modal',
         'start-block-confirm-modal',
@@ -1618,7 +1617,7 @@ export function setupHandsetModalScreens() {
 function configureMobileBlocklistFields() {
     // Mobile apps are selected from the platform picker. Keep the text fields
     // out of the UI and the tab order so app names cannot be entered manually.
-    ['app-input', 'modal-app-input', 'quick-start-app-input'].forEach((id) => {
+    ['app-input', 'modal-app-input'].forEach((id) => {
         const input = document.getElementById(id);
         if (!input) return;
         input.style.display = 'none';
@@ -1627,12 +1626,11 @@ function configureMobileBlocklistFields() {
         input.tabIndex = -1;
     });
 
-    // Keep desktop's website-first layout, but put apps first in both mobile
-    // entry points. Moving the nodes also keeps accessibility/tab order in
-    // sync with what is shown on screen.
+    // Keep desktop's website-first layout, but put apps first on mobile.
+    // Moving the nodes also keeps accessibility/tab order in sync with what
+    // is shown on screen.
     [
         ['blocklist-apps-group', 'blocklist-websites-group'],
-        ['quick-start-apps-group', 'quick-start-websites-group'],
     ].forEach(([appsId, websitesId]) => {
         const appsGroup = document.getElementById(appsId);
         const websitesGroup = document.getElementById(websitesId);

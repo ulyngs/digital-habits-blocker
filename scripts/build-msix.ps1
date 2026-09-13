@@ -168,9 +168,11 @@ $manifest = @"
 <Package 
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:virtualization="http://schemas.microsoft.com/appx/manifest/virtualization/windows10"
-  IgnorableNamespaces="uap rescap virtualization">
+  IgnorableNamespaces="uap uap10 desktop rescap virtualization">
   
   <Identity 
     Name="$IdentityName" 
@@ -219,6 +221,13 @@ $manifest = @"
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.scale-100.png" Square71x71Logo="Assets\SmallTile.scale-100.png" Square310x310Logo="Assets\LargeTile.scale-100.png" />
         <uap:SplashScreen Image="Assets\Square150x150Logo.scale-200.png" />
       </uap:VisualElements>
+      <!-- Package-managed sign-in startup survives Store updates. The user
+           must launch the app once; Windows Startup settings can disable it. -->
+      <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="redd-block.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--autostart">
+          <desktop:StartupTask TaskId="DigitalHabitsBlockerStartup" Enabled="true" DisplayName="Digital Habits: Blocker" />
+        </desktop:Extension>
+      </Extensions>
     </Application>
   </Applications>
   

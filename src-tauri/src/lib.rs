@@ -795,20 +795,11 @@ pub fn run() {
                 log::debug!("extension-install: startup auto-install skipped (marker present)");
             }
 
-            // Self-heal the watchdog Scheduled Task on Windows. If the
-            // user disabled or deleted it (or the install dir moved),
-            // this rewrites the wrapper script with the current exe
-            // path and re-registers the task. Idempotent.
-            //
-            // Gated on release builds only — in `tauri dev` the
-            // watchdog would respawn the debug binary, lock the build
-            // artifact, and interfere with `cargo` rebuilds.
-            #[cfg(all(
-                target_os = "windows",
-                not(debug_assertions),
-                not(feature = "system-test")
-            ))]
-            watchdog::register();
+            // Do not create or refresh Windows watchdog tasks: Defender
+            // flags the script-based registration command (issue #152).
+            // Existing tasks are left alone until uninstall. Recovery after
+            // termination is optional; launch-at-login remains enabled below
+            // and through the MSIX manifest's native startup task.
 
             // Self-heal launch-at-login on every startup. For ReDD
             // Block 2.0 the app IS the enforcement engine, so blocking

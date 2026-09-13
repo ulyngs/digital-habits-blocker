@@ -15,7 +15,7 @@ import { render } from './render.js';
 import { renderBlocklists } from './blocklists.js';
 import { canEditScheduleBetweenBlocks, isScheduleSegmentActiveNow } from './schedule-editor.js';
 import { applyScheduleStartOverlayPresentation, getScheduleStartOverlayForWarningApps, playAppBlockingLetsGoVoice } from './schedule-overlay.js';
-import { closeBlocklistModal, closeOverrideModal, closePauseModal, closeScheduleConfirmModal, closeStartBlockConfirmModal, initializeOverrideModalChallenge, openPauseModal, populateOverrideConfirmModalContent } from './confirm-modals.js';
+import { closeBlocklistModal, closeOverrideModal, closePauseModal, closeStartBlockConfirmModal, initializeOverrideModalChallenge, openPauseModal, populateOverrideConfirmModalContent } from './confirm-modals.js';
 import { isModalVisible } from './modal-manager.js';
 import { updateManageSectionVisibility, closeOverrideAllModal } from './settings.js';
 import { closeDefaultPauseModal } from './pause-default.js';
@@ -1110,7 +1110,6 @@ export const ANDROID_MODAL_CLOSE_FNS = {
     'pause-modal': closePauseModal,
     'pause-default-modal': closeDefaultPauseModal,
     'start-block-confirm-modal': closeStartBlockConfirmModal,
-    'start-schedule-confirm-modal': closeScheduleConfirmModal,
     'override-all-modal': closeOverrideAllModal,
 };
 
@@ -1638,20 +1637,6 @@ function configureMobileBlocklistFields() {
         websitesGroup.parentElement.insertBefore(appsGroup, websitesGroup);
     });
 
-    // On handset-sized screens, keep the primary blocking choices together
-    // before the less frequent appearance controls. Desktop keeps the
-    // existing name → emoji → color ordering.
-    const emojiGroup = document.getElementById('blocklist-emoji-group');
-    const colorGroup = document.getElementById('blocklist-color-group');
-    const overrideGroup = document.getElementById('blocklist-override-group');
-    const advancedToggle = document.getElementById('blocklist-advanced-toggle');
-    if (emojiGroup && colorGroup && overrideGroup && advancedToggle
-        && emojiGroup.parentElement === overrideGroup.parentElement
-        && advancedToggle.parentElement === overrideGroup.parentElement) {
-        const parent = overrideGroup.parentElement;
-        parent.insertBefore(emojiGroup, advancedToggle);
-        parent.insertBefore(colorGroup, advancedToggle);
-    }
 }
 
 // Detect platform for window controls and iOS

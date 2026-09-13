@@ -19,7 +19,7 @@ import {
     generateId,
 } from './app.js';
 import { buildBlocklistCardMetaHtml, buildBlocklistCardDetailsHtml, blocklistCardHasExpandableSummary } from './list-presentation.js';
-import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, isMobilePhoneDevice, usesEnterSchedulerSheet, openBlocklistModal } from './confirm-modals.js';
+import { cloneOverrideDifficulty, deselectBlocklist, handleBlocklistSelect, isBlocklistCardVisuallySelected, isEnterSchedulerModalOpen, usesEnterSchedulerSheet, openBlocklistModal } from './confirm-modals.js';
 import { APP_BLOCKING_SNOOZE_ICON_IMG_12, appBlockingWarningSnoozedUntilMs, formatAppBlockingSnoozeStartsIn, getActiveAppBlockingSnoozeBlocklistId } from './blocking-platform.js';
 
 function getVisibleBlocklists() {
@@ -49,11 +49,6 @@ function setBlocklistCardExpanded(card, id, expanded) {
 function toggleBlocklistCardExpanded(card, id) {
     setBlocklistCardExpanded(card, id, !expandedBlocklistCardIds.has(id));
 }
-
-const BLOCKLIST_EDIT_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
-                        <path d="m15 5 4 4"/>
-                      </svg>`;
 
 const BLOCKLIST_START_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="m9 18 6-6-6-6"/>
@@ -299,16 +294,6 @@ export function isBlocklistEditFrictionRequired(blocklistId, now = Date.now()) {
     return !canEditScheduleBetweenBlocks(schedule, new Date(now));
 }
 
-export function clearPendingScheduleDraft(blocklistId) {
-    if (!blocklistId || !state.appData.settings) return;
-    if (state.appData.settings.pendingScheduleSegments?.[blocklistId]) {
-        delete state.appData.settings.pendingScheduleSegments[blocklistId];
-    }
-    if (state.appData.settings.pendingScheduleRepeatOptions?.[blocklistId]) {
-        delete state.appData.settings.pendingScheduleRepeatOptions[blocklistId];
-    }
-}
-
 export function cloneScheduleSegment(seg) {
     return {
         startHour: seg.startHour,
@@ -316,60 +301,6 @@ export function cloneScheduleSegment(seg) {
         endHour: seg.endHour,
         endMinute: seg.endMinute,
         days: [...(seg.days || [])]
-    };
-}
-
-export function normalizeScheduleRepeatFromSchedule(schedule) {
-    const repeatType = schedule?.repeatType || 'no';
-    let repeatDate = null;
-    if (repeatType === 'date' && schedule?.repeatDate) {
-        const rd = schedule.repeatDate;
-        repeatDate = typeof rd === 'number' ? rd : new Date(rd.getTime ? rd.getTime() : rd).getTime();
-    }
-    return { repeatType, repeatDate };
-}
-
-/** Committed or draft schedule config for a blocklist (segments + repeat, no active state). */
-export function getBlocklistScheduleDraft(blocklistId) {
-    const existingSchedule = state.appData.schedules?.find((s) => s.blocklistId === blocklistId);
-    const pendingSegs = state.appData.settings?.pendingScheduleSegments?.[blocklistId];
-    const pendingRepeat = state.appData.settings?.pendingScheduleRepeatOptions?.[blocklistId];
-
-    if (existingSchedule?.segments?.length) {
-        return {
-            segments: existingSchedule.segments.map(cloneScheduleSegment),
-            repeat: normalizeScheduleRepeatFromSchedule(existingSchedule)
-        };
-    }
-
-    if (pendingSegs?.length) {
-        return {
-            segments: pendingSegs.map((seg) => ({ ...seg })),
-            repeat:
-                pendingRepeat && typeof pendingRepeat.repeatType === 'string'
-                    ? {
-                          repeatType: pendingRepeat.repeatType,
-                          repeatDate:
-                              pendingRepeat.repeatType === 'date' && pendingRepeat.repeatDate != null
-                                  ? pendingRepeat.repeatDate
-                                  : null
-                      }
-                    : { repeatType: 'forever', repeatDate: null }
-        };
-    }
-
-    return null;
-}
-
-export function saveBlocklistScheduleDraft(blocklistId, draft) {
-    if (!blocklistId || !draft?.segments?.length) return;
-    if (!state.appData.settings) state.appData.settings = {};
-    if (!state.appData.settings.pendingScheduleSegments) state.appData.settings.pendingScheduleSegments = {};
-    if (!state.appData.settings.pendingScheduleRepeatOptions) state.appData.settings.pendingScheduleRepeatOptions = {};
-    state.appData.settings.pendingScheduleSegments[blocklistId] = draft.segments.map(cloneScheduleSegment);
-    state.appData.settings.pendingScheduleRepeatOptions[blocklistId] = draft.repeat || {
-        repeatType: 'forever',
-        repeatDate: null
     };
 }
 
@@ -396,9 +327,21 @@ export function duplicateBlocklist(id) {
 
     state.appData.blocklists.unshift(duplicate);
 
-    const scheduleDraft = getBlocklistScheduleDraft(id);
-    if (scheduleDraft) {
-        saveBlocklistScheduleDraft(newId, scheduleDraft);
+    // A duplicated schedule starts switched off (paused until turned on), so a
+    // copy never enforces anything the user did not explicitly enable.
+    const sourceSchedule = state.appData.schedules?.find((s) => s.blocklistId === id);
+    if (sourceSchedule?.segments?.length) {
+        state.appData.schedules.push({
+            id: crypto.randomUUID(),
+            blocklistId: newId,
+            segments: sourceSchedule.segments.map(cloneScheduleSegment),
+            repeatType: sourceSchedule.repeatType === 'date' ? 'date' : 'forever',
+            repeatDate: sourceSchedule.repeatType === 'date' ? (sourceSchedule.repeatDate ?? null) : null,
+            createdAt: Date.now(),
+            startOverlayId: sourceSchedule.startOverlayId || null,
+            allowEditsBetweenBlocks: !!sourceSchedule.allowEditsBetweenBlocks,
+            isPaused: true,
+        });
     }
 
     saveData();
@@ -459,12 +402,12 @@ export function serializeBlocklistForExport(blocklist) {
         overrideDifficulty: cloneOverrideDifficulty(blocklist.overrideDifficulty)
     };
 
-    const scheduleDraft = getBlocklistScheduleDraft(blocklist.id);
-    if (scheduleDraft) {
+    const schedule = state.appData.schedules?.find((s) => s.blocklistId === blocklist.id);
+    if (schedule?.segments?.length) {
         payload.schedule = {
-            segments: scheduleDraft.segments.map(cloneScheduleSegment),
-            repeatType: scheduleDraft.repeat.repeatType,
-            repeatDate: scheduleDraft.repeat.repeatDate
+            segments: schedule.segments.map(cloneScheduleSegment),
+            repeatType: schedule.repeatType === 'date' ? 'date' : 'forever',
+            repeatDate: schedule.repeatType === 'date' ? (schedule.repeatDate ?? null) : null
         };
     }
 
@@ -677,8 +620,20 @@ export async function importBlocklistsFromFile() {
         for (const entry of importedEntries) {
             const blocklist = blocklistFromImportedEntry(entry);
             state.appData.blocklists.push(blocklist);
-            if (entry.schedule) {
-                saveBlocklistScheduleDraft(blocklist.id, entry.schedule);
+            // Imported schedules arrive switched off (open-ended pause) so an
+            // import never starts enforcing anything by itself.
+            if (entry.schedule?.segments?.length) {
+                state.appData.schedules.push({
+                    id: crypto.randomUUID(),
+                    blocklistId: blocklist.id,
+                    segments: entry.schedule.segments.map(cloneScheduleSegment),
+                    repeatType: entry.schedule.repeat?.repeatType === 'date' || entry.schedule.repeatType === 'date' ? 'date' : 'forever',
+                    repeatDate: entry.schedule.repeat?.repeatDate ?? entry.schedule.repeatDate ?? null,
+                    createdAt: Date.now(),
+                    startOverlayId: null,
+                    allowEditsBetweenBlocks: false,
+                    isPaused: true,
+                });
             }
         }
 
@@ -1116,13 +1071,6 @@ export function renderBlocklists() {
                       ${tSettings('nowBlockingMenuStop')}
                     </button>`
             : '';
-        const editMenuItemHtml = usesEnterSheetCards
-            ? `<button class="blocklist-menu-item edit-blocklist-item" title="${tSettings('blocklistCardEditTooltip')}" aria-label="${tSettings('blocklistCardEditTooltip')}">
-                      ${BLOCKLIST_EDIT_ICON_SVG}
-                      ${tSettings('blocklistCardEditTooltip')}
-                    </button>`
-            : '';
-
         const menuHtml = `
                 <div class="blocklist-menu-wrapper">
                   <button class="blocklist-action-btn blocklist-menu-btn" title="${tSettings('blocklistCardMenuTitle')}" aria-label="${tSettings('blocklistCardMenuTitle')}">
@@ -1135,7 +1083,6 @@ export function renderBlocklists() {
                   <div class="blocklist-menu hidden">
                     ${startItemHtml}
                     ${runControlsHtml}
-                    ${editMenuItemHtml}
                     <button class="blocklist-menu-item duplicate-blocklist-item" title="${tSettings('blocklistCardDuplicate')}" aria-label="${tSettings('blocklistCardDuplicate')}">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="15" x2="15" y1="12" y2="18"/>
@@ -1156,11 +1103,6 @@ export function renderBlocklists() {
                   </div>
                 </div>`;
 
-        const secondaryActionHtml = usesEnterSheetCards
-            ? ''
-            : `<button class="blocklist-action-btn edit-btn" title="${tSettings('blocklistCardEditTooltip')}" aria-label="${tSettings('blocklistCardEditTooltip')}">
-                ${BLOCKLIST_EDIT_ICON_SVG}
-              </button>`;
         const menuOnlyClass = usesEnterSheetCards ? ' blocklist-card-menu-only' : '';
 
         return `
@@ -1177,7 +1119,6 @@ export function renderBlocklists() {
               </div>
               <div class="blocklist-actions">
                 ${menuHtml}
-                ${secondaryActionHtml}
               </div>
             </div>
             <div class="blocklist-meta">${metaHtml}</div>
@@ -1193,13 +1134,11 @@ export function renderBlocklists() {
         const id = card.dataset.id;
         const isActive = card.dataset.active === 'true';
 
-        // Everywhere on the card except action controls selects/opens enter. Phone
-        // layouts have no card-body tap target at all — the overflow menu is the only
-        // entry point there. The single-column desktop sheet (≤718px) is NOT menu-only:
-        // its card body opens the same full-screen enter sheet the menu's Start item does.
+        // Everywhere on the card except action controls selects the space, which
+        // shows its editor: inline on desktop, as a full-screen sheet on phones and
+        // single-column desktop windows.
         card.addEventListener('click', (e) => {
             if (e.target.closest('.blocklist-meta-items-btn')) return;
-            if (isMobilePhoneDevice()) return;
             if (e.target.closest('.blocklist-actions') || e.target.closest('.blocklist-menu')) return;
 
             openBlocklistEnterFromCard(id);
@@ -1223,20 +1162,6 @@ export function renderBlocklists() {
             closeAllBlocklistMenus();
             const controls = getBlocklistRunControls(id);
             if (controls) handleNowBlockingStop(controls.entry);
-        });
-
-        card.querySelector('.edit-btn')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeAllBlocklistMenus();
-            const blocklist = state.appData.blocklists.find(bl => bl.id === id);
-            openBlocklistModal(blocklist);
-        });
-
-        card.querySelector('.edit-blocklist-item')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeAllBlocklistMenus();
-            const blocklist = state.appData.blocklists.find(bl => bl.id === id);
-            openBlocklistModal(blocklist);
         });
 
         const summaryBtn = card.querySelector('.blocklist-meta-items-btn');
@@ -1276,7 +1201,7 @@ export function renderBlocklists() {
         // Drag and drop using mouse events on document
         card.addEventListener('mousedown', (e) => {
             // Don't start drag if clicking on buttons
-            if (e.target.closest('.edit-btn') || e.target.closest('.blocklist-menu-btn') || e.target.closest('.blocklist-menu')) return;
+            if (e.target.closest('.blocklist-menu-btn') || e.target.closest('.blocklist-menu')) return;
             if (e.target.closest('.blocklist-meta-items-btn')) return;
             if (e.target.closest('.blocklist-actions')) return;
             if (e.button !== 0) return; // Only left click

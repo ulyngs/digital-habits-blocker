@@ -1083,19 +1083,21 @@
         });
     }
 
-    async function testI3_stopAndPauseCancelWorkflows() {
+    async function testI3_stopCancelWorkflow() {
         return runIsolatedIntegrationTest('I3', async () => {
             hideAllIntegrationModals();
             const bl = addTestBlocklist({ websites: [TEST_DOMAINS.a], name: 'I3 Modal' });
             const block = addActiveBlock(bl.id, { durationMs: 120000 });
             await callSaveData();
             callRender();
-            document.getElementById('instant-mode-tab')?.click();
             selectIntegrationBlocklist('I3', bl);
+            // A running Manual space shows the editor with a Stop footer button.
             await waitForIntegrationCondition(
-                () => document.getElementById('start-block-btn')?.dataset.activeBlockId === block.id,
+                () => isVisible('time-picker-container')
+                    && document.getElementById('start-block-btn')?.dataset.activeBlockId === block.id,
                 'I3 active block selection',
             );
+            assertOrThrow(isVisible('active-blocklist-warning'), 'I3: running space must show the locked-settings banner');
 
             document.getElementById('start-block-btn')?.click();
             await waitForIntegrationCondition(() => isVisible('override-modal'), 'I3 stop modal');
@@ -1105,15 +1107,9 @@
                 (getAppData().activeBlocks || []).some((candidate) => candidate.id === block.id),
                 'I3: cancelling stop removed the active block',
             );
-
-            await waitForIntegrationCondition(() => !document.getElementById('pause-block-btn')?.classList.contains('hidden'), 'I3 pause button');
-            document.getElementById('pause-block-btn')?.click();
-            await waitForIntegrationCondition(() => isVisible('pause-modal'), 'I3 pause modal');
-            document.getElementById('cancel-pause-btn')?.click();
-            await waitForIntegrationCondition(() => !isVisible('pause-modal'), 'I3 pause modal cancel');
             assertOrThrow(
                 !(getAppData().activeBlocks || []).find((candidate) => candidate.id === block.id)?.isPaused,
-                'I3: cancelling pause changed the active block state',
+                'I3: cancelling stop changed the active block state',
             );
             hideAllIntegrationModals();
             return { passed: true };
@@ -1162,15 +1158,16 @@
 
             const card = document.querySelector(`.blocklist-card[data-id="${bl.id}"]`);
             assertOrThrow(card, 'I5: focus-space card missing');
-            let editButton = card.querySelector('.edit-btn');
-            if (!editButton) {
-                card.querySelector('.blocklist-menu-btn')?.click();
-                editButton = card.querySelector('.edit-blocklist-item');
-            }
-            assertOrThrow(editButton, 'I5: edit button missing');
-            editButton.click();
+            card.click();
 
-            await waitForIntegrationCondition(() => isVisible('blocklist-modal'), 'I5 edit modal');
+            await waitForIntegrationCondition(
+                () => isVisible('time-picker-container') && document.getElementById('editor-section-what-header'),
+                'I5 editor panel',
+            );
+            // What to block is collapsed for an existing space; open it to type.
+            if (document.getElementById('editor-section-what-header')?.getAttribute('aria-expanded') !== 'true') {
+                document.getElementById('editor-section-what-header')?.click();
+            }
             assertOrThrow(isVisible('active-blocklist-warning'), 'I5: active warning missing');
             const pauseButton = document.getElementById('active-blocklist-pause-btn');
             assertOrThrow(pauseButton && !pauseButton.classList.contains('hidden'), 'I5: warning Pause button missing');
@@ -1199,9 +1196,9 @@
 
             await waitForIntegrationCondition(
                 () => !isVisible('pause-modal')
-                    && isVisible('blocklist-modal')
+                    && isVisible('time-picker-container')
                     && !!getAppData().activeBlocks.find(candidate => candidate.id === block.id)?.isPaused,
-                'I5 pause unlocks edit modal',
+                'I5 pause unlocks editor',
             );
             assertOrThrow(!isVisible('active-blocklist-warning'), 'I5: warning stayed visible after pause');
             assertOrThrow(!document.getElementById('override-type')?.disabled, 'I5: override settings stayed locked after pause');
@@ -1264,7 +1261,7 @@
             { group: 'H', name: 'H1: Single allowlist enforcement state', fn: testH1_singleAllowlistEnforcementState },
             { group: 'I', name: 'I1: Stop-all cancel restores Settings', fn: testI1_stopAllCancelRestoresSettings },
             { group: 'I', name: 'I2: Stop-all success restores Settings', fn: testI2_stopAllSuccessRestoresSettings },
-            { group: 'I', name: 'I3: Stop and pause cancel workflows', fn: testI3_stopAndPauseCancelWorkflows },
+            { group: 'I', name: 'I3: Stop cancel keeps the block', fn: testI3_stopCancelWorkflow },
             { group: 'I', name: 'I4: Android back closes topmost modal', fn: testI4_androidBackClosesTopmostModal },
             { group: 'I', name: 'I5: Edit warning Pause unlocks modal', fn: testI5_editWarningPauseUnlocksModal },
             { group: 'I', name: 'I6: Let\'s go acknowledges before shell reconcile', fn: testI6_letsGoAcknowledgesBeforeShellReconcile }

@@ -455,10 +455,6 @@ export function measureTimePickerPlaceholderHeight(section) {
 
     const measuredPicker = measurer.querySelector('.time-picker-container');
     measuredPicker?.classList.remove('hidden');
-    measuredPicker?.querySelector('.instant-block-panel')?.classList.remove('hidden');
-    measuredPicker?.querySelector('.schedule-block-panel')?.classList.add('hidden');
-    measuredPicker?.querySelector('.always-on-message')?.classList.add('hidden');
-    measuredPicker?.querySelector('.timed-controls')?.classList.add('hidden');
     measuredPicker?.querySelector('.block-action-buttons')?.classList.add('hidden');
 
     return measuredPicker?.offsetHeight || 0;

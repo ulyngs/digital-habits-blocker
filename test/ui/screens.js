@@ -113,4 +113,103 @@ export const screens = [
         viewport: DESKTOP,
         clip: '.week-calendar-section',
     },
+
+    // ---- The focus-space editor -------------------------------------------
+    // One form for create (modal) and edit (panel; sheet on phones). The sole
+    // space in the fixture is auto-selected, so the panel shows its editor.
+    {
+        name: 'editor-edit-weekly',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#time-picker-container',
+        prepare: async (page) => {
+            await page.click('#editor-section-when-header');
+        },
+    },
+    {
+        name: 'editor-edit-stop-early',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#time-picker-container',
+        prepare: async (page) => {
+            await page.click('#editor-section-stop-header');
+        },
+    },
+    {
+        name: 'editor-create',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#blocklist-modal .modal-content',
+        prepare: async (page) => {
+            await page.click('#add-blocklist-btn');
+            await page.click('#editor-section-when-header');
+        },
+    },
+    {
+        name: 'editor-edit-weekly-dark',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        theme: 'dark',
+        viewport: DESKTOP,
+        clip: '#time-picker-container',
+        prepare: async (page) => {
+            await page.click('#editor-section-when-header');
+        },
+    },
+    {
+        name: 'editor-edit-what',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#time-picker-container',
+        prepare: async (page) => {
+            await page.click('#editor-section-what-header');
+        },
+    },
+    {
+        name: 'editor-edit-advanced',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#time-picker-container',
+        prepare: async (page) => {
+            await page.click('#editor-section-advanced-header');
+        },
+    },
+    {
+        name: 'editor-create-daily',
+        fixture: fixtures.singleSchedule,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#blocklist-modal .modal-content',
+        prepare: async (page) => {
+            await page.click('#add-blocklist-btn');
+            await page.click('#editor-section-when-header');
+            await page.click('#when-kind-daily');
+            await page.click('#until-date');
+        },
+    },
+    {
+        name: 'editor-edit-manual',
+        fixture: fixtures.manualRunning,
+        platform: 'mac',
+        viewport: DESKTOP,
+        clip: '#time-picker-container',
+        prepare: async (page) => {
+            await page.click('#editor-section-when-header');
+        },
+    },
+    {
+        name: 'editor-edit-iphone',
+        fixture: fixtures.singleSchedule,
+        platform: 'iphone',
+        viewport: IPHONE,
+        prepare: async (page) => {
+            await page.click('.blocklist-card');
+            await page.click('#editor-section-when-header');
+        },
+    },
 ];

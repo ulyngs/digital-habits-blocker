@@ -663,243 +663,328 @@
 
                         <!-- Time Pickers (hidden until blocklist selected) -->
                         <div class="time-picker-container hidden" id="time-picker-container">
-                            <div class="start-confirm-room-chip scheduler-room-chip" id="scheduler-room-chip">
-                                <span class="start-confirm-room-chip-emoji" id="scheduler-room-chip-emoji" aria-hidden="true"></span>
-                                <span class="start-confirm-room-chip-name" id="scheduler-room-chip-name"></span>
-                            </div>
-                            <div class="scheduler-enter-header" id="scheduler-enter-header">
-                                <div class="scheduler-enter-header-row">
-                                    <h2 id="main-start-block-title">Enter</h2>
-                                </div>
-                                <div class="scheduler-mode-tabs">
-                                    <button class="mode-tab active" id="instant-mode-tab" data-mode="instant" title="One-off">
-                                        <svg class="mode-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                            stroke-linejoin="round" aria-hidden="true">
-                                            <path d="M5 22h14"></path>
-                                            <path d="M5 2h14"></path>
-                                            <path
-                                                d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22">
-                                            </path>
-                                            <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2">
-                                            </path>
-                                        </svg>
-                                        <span class="mode-tab-label" id="instant-mode-tab-label">Timer</span>
-                                    </button>
-                                    <button class="mode-tab" id="schedule-mode-tab" data-mode="schedule" title="Schedule">
-                                        <svg class="mode-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                            stroke-linejoin="round" aria-hidden="true">
-                                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                                            <line x1="16" y1="2" x2="16" y2="6"></line>
-                                            <line x1="8" y1="2" x2="8" y2="6"></line>
-                                            <line x1="3" y1="10" x2="21" y2="10"></line>
-                                        </svg>
-                                        <span class="mode-tab-label" id="schedule-mode-tab-label">Schedule</span>
-                                    </button>
-                                </div>
-                            </div>
+<div class="editor-panel-header" id="editor-panel-header">
+    <h2 class="editor-panel-title" id="editor-panel-title">Edit focus space</h2>
+</div>
 
-                            <!-- INSTANT BLOCK PANEL (shown by default) -->
-                            <div class="instant-block-panel" id="instant-block-panel">
-                                <!-- Quick select: timed durations (shortest first) + until-I-stop. -->
-                                <div class="quick-select-row">
-                                    <label class="time-label" id="quick-select-label">For how long?</label>
-                                    <div class="duration-quick-btns">
-                                        <button type="button" class="duration-quick-btn" data-mins="15"
-                                            id="duration-quick-btn-15">15m</button>
-                                        <button type="button" class="duration-quick-btn" data-mins="30"
-                                            id="duration-quick-btn-30">30m</button>
-                                        <button type="button" class="duration-quick-btn" data-mins="45"
-                                            id="duration-quick-btn-45">45m</button>
-                                        <button type="button" class="duration-quick-btn" data-mins="60"
-                                            id="duration-quick-btn-60">1 hour</button>
-                                        <button type="button" class="duration-quick-btn" data-mins="120"
-                                            id="duration-quick-btn-120">2 hours</button>
-                                        <button type="button"
-                                            class="duration-quick-btn duration-quick-btn-always active"
-                                            data-mode="always" id="duration-quick-btn-always">
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                stroke-linejoin="round">
-                                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-                                                <line x1="12" y1="2" x2="12" y2="12"></line>
-                                            </svg>
-                                            <span id="duration-quick-btn-always-label">Until I stop</span>
-                                        </button>
-                                    </div>
-                                </div>
+<div class="focus-space-editor" id="focus-space-editor">
+<div id="active-blocklist-warning" class="warning-banner hidden">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    <span id="active-blocklist-warning-text">This focus space is active. Some settings are locked.</span>
+                    <button type="button" id="active-blocklist-pause-btn" class="warning-banner-action">Pause</button>
+                </div>
 
-                                <!-- Always-on message (visible when "Always" is selected) -->
-                                <div class="always-on-message" id="always-on-message">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="12" cy="12" r="10"></circle>
-                                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+<div class="form-group" id="blocklist-name-group">
+    <label for="blocklist-name" id="blocklist-name-label">Focus space name</label>
+    <input type="text" id="blocklist-name" maxlength="60" placeholder="e.g., Social Media" class="form-input">
+</div>
+
+<div class="editor-section" id="editor-section-what" data-section="what">
+    <button type="button" class="editor-section-header" id="editor-section-what-header" aria-expanded="false" aria-controls="editor-section-what-body">
+        <span class="editor-section-copy">
+            <span class="editor-section-title" id="editor-section-what-title">What to block</span>
+            <span class="editor-section-summary" id="editor-section-what-summary"></span>
+        </span>
+        <span class="editor-section-icon" aria-hidden="true"></span>
+    </button>
+    <div class="editor-section-body hidden" id="editor-section-what-body">
+<div class="form-group" id="blocklist-websites-group">
+                    <label class="label-with-info">
+                        <span id="blocklist-websites-label">Websites to block</span>
+                        <span class="info-tooltip-wrapper">
+                            <svg class="info-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="16" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                            </svg>
+                            <span id="blocklist-websites-tooltip" class="info-tooltip">Blocking applies to entire
+                                domains. For example, typing
+                                "facebook.com" blocks all of Facebook, not just specific pages.</span>
+                        </span>
+                    </label>
+                    <div class="tags-input-container tags-input-stacked">
+                        <div id="modal-websites-tags" class="tags-container"></div>
+                        <div class="input-with-button websites-input-with-import">
+                            <input type="text" id="modal-website-input" placeholder="e.g., facebook.com"
+                                class="form-input" autocomplete="off" autocorrect="off" autocapitalize="off"
+                                spellcheck="false">
+                            <button type="button" id="modal-import-websites-btn" class="browse-btn"
+                                title="Import websites" aria-haspopup="menu" aria-expanded="false">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="8" y1="6" x2="21" y2="6"></line>
+                                    <line x1="8" y1="12" x2="21" y2="12"></line>
+                                    <line x1="8" y1="18" x2="21" y2="18"></line>
+                                    <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                                    <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                                    <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                                </svg>
+                                <span class="browse-btn-caption" id="modal-import-websites-caption"></span>
+                            </button>
+                            <div class="websites-import-menu hidden" id="websites-import-menu" role="menu">
+                                <button type="button" class="websites-import-menu-item"
+                                    id="websites-import-menu-text-file" data-import-action="text-file" role="menuitem">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
                                     </svg>
-                                    <span id="always-on-message-text">You will stay in this room until you pause or exit it</span>
-                                </div>
-
-                                <!-- Duration & End Row (visible when a duration is selected) -->
-                                <div class="timed-controls hidden" id="timed-controls">
-                                    <div class="time-pickers-row">
-                                        <div class="time-picker-group">
-                                            <label class="time-label" id="duration-label">Duration</label>
-                                            <div class="duration-input-wrapper">
-                                                <input type="number" id="duration-minutes-input" class="duration-input"
-                                                    inputmode="numeric" min="1" max="99999" value="60">
-                                                <span class="duration-unit" id="duration-unit-label">min</span>
-                                            </div>
-                                        </div>
-                                        <span class="time-separator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>
-                                        <div class="time-picker-group">
-                                            <div class="time-label-row">
-                                                <label class="time-label" id="end-label">End</label>
-                                                <span id="next-day-indicator" class="next-day-inline hidden">+1
-                                                    day</span>
-                                            </div>
-                                            <div class="time-picker-row">
-                                                <div class="time-display" id="end-time-display">
-                                                    <div class="time-part-wrapper">
-                                                        <input type="text" inputmode="numeric" maxlength="2"
-                                                            autocomplete="off" class="time-part time-popover-anchor"
-                                                            id="end-hour-input" data-type="hour" data-target="end"
-                                                            aria-label="End hour" />
-                                                        <div class="time-popover hidden" id="end-hour-popover">
-                                                            <div class="popover-scroll" id="end-hour-options"></div>
-                                                        </div>
-                                                    </div>
-                                                    <span class="time-colon">:</span>
-                                                    <div class="time-part-wrapper">
-                                                        <input type="text" inputmode="numeric" maxlength="2"
-                                                            autocomplete="off" class="time-part time-popover-anchor"
-                                                            id="end-minute-input" data-type="minute" data-target="end"
-                                                            aria-label="End minute" />
-                                                        <div class="time-popover hidden" id="end-minute-popover">
-                                                            <div class="popover-scroll" id="end-minute-options"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- SCHEDULE BLOCK PANEL (hidden by default) -->
-                            <div class="schedule-block-panel hidden" id="schedule-block-panel">
-                                <label class="time-label" id="schedule-segments-heading">Starts automatically at</label>
-                                <!-- Time Segments Container -->
-                                <div class="schedule-segments" id="schedule-segments">
-                                    <!-- First segment (always present) -->
-                                    <div class="schedule-segment" data-segment-index="0">
-                                        <div class="segment-row">
-                                            <div class="time-pickers-row">
-                                                <div class="time-picker-group">
-                                                    <label class="time-label" id="schedule-start-label">Start</label>
-                                                    <div class="time-picker-row">
-                                                        <div class="time-display schedule-start-display">
-                                                            <div class="time-part-wrapper">
-                                                                <input type="text" class="time-part schedule-hour-btn"
-                                                                    data-type="hour" data-target="schedule-start-0"
-                                                                    inputmode="numeric" maxlength="2" autocomplete="off"
-                                                                    value="09" aria-label="Schedule start hour" />
-                                                            </div>
-                                                            <span class="time-colon">:</span>
-                                                            <div class="time-part-wrapper">
-                                                                <input type="text" class="time-part schedule-minute-btn"
-                                                                    data-type="minute" data-target="schedule-start-0"
-                                                                    inputmode="numeric" maxlength="2" autocomplete="off"
-                                                                    value="00" aria-label="Schedule start minute" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <span class="time-separator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>
-                                                <div class="time-picker-group">
-                                                    <label class="time-label" id="schedule-end-label">End</label>
-                                                    <div class="time-picker-row">
-                                                        <div class="time-display schedule-end-display">
-                                                            <div class="time-part-wrapper">
-                                                                <input type="text" class="time-part schedule-hour-btn"
-                                                                    data-type="hour" data-target="schedule-end-0"
-                                                                    inputmode="numeric" maxlength="2" autocomplete="off"
-                                                                    value="12" aria-label="Schedule end hour" />
-                                                            </div>
-                                                            <span class="time-colon">:</span>
-                                                            <div class="time-part-wrapper">
-                                                                <input type="text" class="time-part schedule-minute-btn"
-                                                                    data-type="minute" data-target="schedule-end-0"
-                                                                    inputmode="numeric" maxlength="2" autocomplete="off"
-                                                                    value="00" aria-label="Schedule end minute" />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="segment-days-group">
-                                                <label class="time-label" id="schedule-days-label">Days</label>
-                                                <div class="segment-days" data-segment-index="0">
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="0">M</button>
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="1">T</button>
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="2">W</button>
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="3">T</button>
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="4">F</button>
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="5">S</button>
-                                                    <button type="button" class="segment-day-toggle"
-                                                        data-day="6">S</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Add Segment Button -->
-                                <button type="button" class="add-segment-btn" id="add-segment-btn">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                                    </svg>
-                                    <span id="add-segment-label">Add times</span>
+                                    <span id="websites-import-menu-text-file-label">From text file…</span>
                                 </button>
+                                <div class="websites-import-menu-divider" role="separator"></div>
+                                <div class="websites-import-menu-section-label" id="websites-import-menu-section-label">
+                                    Pre-made lists</div>
+                                <button type="button" class="websites-import-menu-item" id="websites-import-menu-email"
+                                    data-preset="email" role="menuitem">Email</button>
+                                <button type="button" class="websites-import-menu-item"
+                                    id="websites-import-menu-gambling" data-preset="gambling"
+                                    role="menuitem">Gambling</button>
+                                <button type="button" class="websites-import-menu-item" id="websites-import-menu-news"
+                                    data-preset="news" role="menuitem">News</button>
+                                <button type="button" class="websites-import-menu-item" id="websites-import-menu-porn"
+                                    data-preset="porn" role="menuitem">Porn</button>
+                                <button type="button" class="websites-import-menu-item"
+                                    id="websites-import-menu-search-engines" data-preset="search-engines"
+                                    role="menuitem">Search engines</button>
+                                <button type="button" class="websites-import-menu-item"
+                                    id="websites-import-menu-shopping" data-preset="shopping"
+                                    role="menuitem">Shopping</button>
+                                <button type="button" class="websites-import-menu-item"
+                                    id="websites-import-menu-social-media" data-preset="social-media"
+                                    role="menuitem">Social media</button>
+                            </div>
+                        </div>
+                    </div>
+                    <p id="blocklist-websites-allow-hint" class="allowlist-scope-hint hidden" aria-live="polite"></p>
+                    <span id="website-input-error" class="input-error-msg hidden">Please enter a valid domain (e.g.
+                        reddit.com)</span>
+                </div>
+<div class="form-group" id="blocklist-apps-group">
+                    <label class="label-with-info">
+                        <span id="blocklist-apps-label">Apps to block</span>
+                        <span class="info-tooltip-wrapper">
+                            <svg class="info-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="16" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                            </svg>
+                            <span id="blocklist-apps-tooltip" class="info-tooltip">Enter the exact name of the
+                                application (e.g. 'Safari'). You can
+                                also use the folder button to find the app.</span>
+                        </span>
+                    </label>
+                    <div class="tags-input-container tags-input-stacked">
+                        <div id="modal-apps-tags" class="tags-container"></div>
+                        <div class="input-with-button apps-input-with-button">
+                            <input type="text" id="modal-app-input" placeholder="e.g., Safari" class="form-input"
+                                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                            <button type="button" id="modal-browse-apps-btn" class="browse-btn browse-btn-apps"
+                                title="Browse Applications">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path
+                                        d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z">
+                                    </path>
+                                </svg>
+                                <span class="browse-btn-caption" id="modal-browse-apps-caption"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <p id="blocklist-apps-allow-hint" class="allowlist-scope-hint hidden" aria-live="polite"></p>
+                </div>
+    </div>
+</div>
 
+<div class="editor-section" id="editor-section-when" data-section="when">
+    <button type="button" class="editor-section-header" id="editor-section-when-header" aria-expanded="false" aria-controls="editor-section-when-body">
+        <span class="editor-section-copy">
+            <span class="editor-section-title" id="editor-section-when-title">When to block</span>
+            <span class="editor-section-summary" id="editor-section-when-summary"></span>
+        </span>
+        <span class="editor-section-icon" aria-hidden="true"></span>
+    </button>
+    <div class="editor-section-body hidden" id="editor-section-when-body">
+<div class="editor-segmented" id="when-kind-toggle" role="group" aria-label="When to block">
+    <button type="button" class="editor-segmented-btn" data-kind="daily" id="when-kind-daily">Daily</button>
+    <button type="button" class="editor-segmented-btn" data-kind="weekly" id="when-kind-weekly">Weekly</button>
+    <button type="button" class="editor-segmented-btn" data-kind="manual" id="when-kind-manual">Manual</button>
+</div>
+<p class="editor-hint hidden" id="when-manual-hint">Starts when you turn it on and runs until you stop it.</p>
+<div class="when-times" id="when-times">
+    <div class="schedule-segments" id="schedule-segments"></div>
+    <button type="button" class="add-segment-btn" id="add-segment-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <span id="add-segment-label">Add times</span>
+    </button>
+    <div class="when-until" id="when-until">
+        <span class="editor-inline-label" id="until-label">Until</span>
+        <div class="editor-segmented editor-segmented--compact" id="until-toggle" role="group" aria-labelledby="until-label">
+            <button type="button" class="editor-segmented-btn" data-until="forever" id="until-forever">When I stop it</button>
+            <button type="button" class="editor-segmented-btn" data-until="date" id="until-date">Date</button>
+        </div>
+        <div class="repeat-date-wrapper hidden" id="repeat-date-wrapper">
+            <input type="date" class="repeat-date-input" id="repeat-date-input">
+            <span class="repeat-date-overlay" id="repeat-date-overlay"></span>
+        </div>
+    </div>
+</div>
+    </div>
+</div>
 
-                                <!-- Repeat Section -->
-                                <div class="schedule-repeat-section" id="schedule-repeat-section">
-                                    <span class="repeat-label" id="repeat-label">Repeat:</span>
-                                    <div class="repeat-control-stack">
-                                        <div class="repeat-dropdown-wrapper">
-                                            <button type="button" class="repeat-dropdown-btn" id="repeat-dropdown-btn">
-                                                <span id="repeat-dropdown-text">Forever</span>
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                    stroke-linejoin="round">
-                                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                                </svg>
-                                            </button>
-                                            <div class="repeat-dropdown-menu hidden" id="repeat-dropdown-menu">
-                                                <button type="button" class="repeat-option active"
-                                                    data-value="forever">Forever</button>
-                                                <button type="button" class="repeat-option" data-value="date">Until
-                                                    date</button>
-                                                <button type="button" class="repeat-option" data-value="no">No</button>
-                                            </div>
-                                        </div>
-                                        <div class="repeat-date-wrapper hidden" id="repeat-date-wrapper">
-                                            <input type="date" class="repeat-date-input" id="repeat-date-input">
-                                            <span class="repeat-date-overlay" id="repeat-date-overlay"></span>
-                                        </div>
+<div class="editor-section" id="editor-section-stop" data-section="stop">
+    <button type="button" class="editor-section-header" id="editor-section-stop-header" aria-expanded="false" aria-controls="editor-section-stop-body">
+        <span class="editor-section-copy">
+            <span class="editor-section-title" id="editor-section-stop-title">To stop early</span>
+            <span class="editor-section-summary" id="editor-section-stop-summary"></span>
+        </span>
+        <span class="editor-section-icon" aria-hidden="true"></span>
+    </button>
+    <div class="editor-section-body hidden" id="editor-section-stop-body">
+<div class="form-group" id="blocklist-override-group">
+                    <div class="exit-difficulty-panel settings-panel" id="exit-difficulty-panel">
+                        <div class="exit-difficulty-rows settings-panel-rows">
+                            <div class="exit-difficulty-row settings-row" id="override-method-row">
+                                <div class="exit-difficulty-row-copy settings-row-copy">
+                                    <span class="exit-difficulty-row-label settings-row-label"
+                                        id="override-method-label">Method</span>
+                                </div>
+                                <div class="exit-difficulty-row-control settings-row-control">
+                                    <select id="override-type" class="form-select override-type-select">
+                                        <option id="override-option-random-words" value="random-words">Random Words</option>
+                                        <option id="override-option-gibberish" value="gibberish">Random Gibberish</option>
+                                        <option id="override-option-custom" value="custom">Custom Text</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="exit-difficulty-row settings-row" id="override-count-wrapper">
+                                <div class="exit-difficulty-row-copy settings-row-copy">
+                                    <span class="exit-difficulty-row-label settings-row-label"
+                                        id="override-count-label">Words to type</span>
+                                </div>
+                                <div class="exit-difficulty-row-control exit-difficulty-count-control">
+                                    <div class="override-count-stepper" id="override-count-stepper">
+                                        <button type="button" id="override-count-minus" class="override-count-step-btn"
+                                            aria-label="Decrease">−</button>
+                                        <input type="number" id="override-count" class="override-count-input form-input"
+                                            inputmode="numeric" value="50" min="5" max="6600">
+                                        <button type="button" id="override-count-plus" class="override-count-step-btn"
+                                            aria-label="Increase">+</button>
                                     </div>
+                                    <span class="exit-difficulty-time-estimate"
+                                        id="override-count-time-estimate">~0 min</span>
+                                </div>
+                            </div>
+                            <div class="exit-difficulty-row settings-row" id="override-max-difficulty-wrap">
+                                <div class="exit-difficulty-row-copy settings-row-copy">
+                                    <span class="exit-difficulty-row-label settings-row-label"
+                                        id="override-max-difficulty-label">Max difficulty</span>
+                                    <span class="exit-difficulty-row-hint settings-row-hint"
+                                        id="override-max-difficulty-hint">500 words</span>
+                                </div>
+                                <div class="exit-difficulty-row-control">
+                                    <label class="toggle-switch" for="override-max-difficulty-checkbox">
+                                        <input type="checkbox" id="override-max-difficulty-checkbox">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="override-preview-block" class="exit-difficulty-preview">
+                            <span class="exit-difficulty-preview-label" id="override-preview-label">Looks like</span>
+                            <div id="override-preview-text" class="override-preview-text" title=""></div>
+                        </div>
+                    </div>
+                    <textarea id="custom-override-text" class="form-textarea hidden"
+                        placeholder="Enter your custom text (e.g., a motivational statement)"
+                        autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+                    <span id="custom-override-text-error" class="input-error-msg hidden">Custom message cannot be empty.</span>
+                    <span id="override-count-warning" class="form-hint warning hidden"></span>
+                </div>
+    </div>
+</div>
 
-                                    <span class="repeat-label" id="schedule-strictness-label">Strictness:</span>
+<div class="editor-section" id="editor-section-advanced" data-section="advanced">
+    <button type="button" class="editor-section-header" id="editor-section-advanced-header" aria-expanded="false" aria-controls="editor-section-advanced-body">
+        <span class="editor-section-copy">
+            <span class="editor-section-title" id="editor-section-advanced-title">Advanced options</span>
+            
+        </span>
+        <span class="editor-section-icon" aria-hidden="true"></span>
+    </button>
+    <div class="editor-section-body hidden" id="editor-section-advanced-body">
+<div class="form-group" id="blocklist-emoji-group">
+                    <label id="blocklist-emoji-label">Emoji</label>
+                    <div class="emoji-picker-container">
+                        <div class="emoji-swatches" id="emoji-swatches">
+                            <button type="button" class="emoji-swatch selected" data-emoji="🎯">🎯</button>
+                            <button type="button" class="emoji-swatch" data-emoji="💪">💪</button>
+                            <button type="button" class="emoji-swatch" data-emoji="📚">📚</button>
+                            <button type="button" class="emoji-swatch" data-emoji="📱">📱</button>
+                            <button type="button" class="emoji-swatch" data-emoji="🌳">🌳</button>
+                            <button type="button" class="emoji-swatch" data-emoji="🎉">🎉</button>
+                            <button type="button" class="emoji-swatch" data-emoji="🛏️">🛏️</button>
+                            <button type="button" class="emoji-swatch" data-emoji="🎹">🎹</button>
+                            <!-- Custom emoji selector -->
+                            <div class="custom-emoji-wrapper">
+                                <button type="button" class="emoji-swatch custom-emoji-swatch" id="custom-emoji-swatch">
+                                    <span class="custom-icon">+</span>
+                                </button>
+                                <div id="emoji-picker-popover" class="emoji-picker-popover hidden">
+                                    <emoji-picker></emoji-picker>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+<div class="form-group" id="blocklist-color-group">
+                    <label id="blocklist-color-label">Colour</label>
+                    <div class="color-picker-container">
+                        <div class="color-swatches" id="color-swatches">
+                            <!-- ReDD-aligned palette: Nordic-watercolor pastels, taking inspiration
+                                 from digitalhabits.org soft-surface accents (coral-soft, teal-soft,
+                                 blue-soft) which read as calm watercolor washes on the cream canvas.
+                                 Hues sweep cleanly around the wheel — sky → sea → fern → linen →
+                                 peach → terracotta → rose → lilac — so the family feels Scandi /
+                                 sophisticated, not earthy. Lightness held in a 76-82% band so they
+                                 sit comfortably on cream without shouting. -->
+                            <button type="button" class="color-swatch selected" data-color="#B8D1DE"
+                                style="background: #B8D1DE" title="Sky"></button>
+                            <button type="button" class="color-swatch" data-color="#B3D2C8" style="background: #B3D2C8"
+                                title="Seafoam"></button>
+                            <button type="button" class="color-swatch" data-color="#BCD9B6" style="background: #BCD9B6"
+                                title="Fern"></button>
+                            <button type="button" class="color-swatch" data-color="#EBDCB6" style="background: #EBDCB6"
+                                title="Linen"></button>
+                            <button type="button" class="color-swatch" data-color="#EECAAD" style="background: #EECAAD"
+                                title="Peach"></button>
+                            <button type="button" class="color-swatch" data-color="#E7B3A8" style="background: #E7B3A8"
+                                title="Terracotta"></button>
+                            <button type="button" class="color-swatch" data-color="#E1BAC3" style="background: #E1BAC3"
+                                title="Rose"></button>
+                            <button type="button" class="color-swatch" data-color="#C8B9D6" style="background: #C8B9D6"
+                                title="Lilac"></button>
+                            <label class="color-swatch custom-swatch" id="custom-color-swatch" data-color="custom"
+                                style="background: #B8D1DE" title="Custom colour">
+                                <span class="custom-icon">+</span>
+                                <input type="color" id="custom-color-input" class="custom-color-input" value="#B8D1DE">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+<label class="checkbox-option" id="show-item-details-option">
+    <input type="checkbox" id="show-item-details-checkbox" checked>
+    <span id="show-item-details-label">Show names of blocked websites &amp; apps in the overview</span>
+</label>
+<div class="editor-advanced-schedule schedule-repeat-section" id="editor-advanced-schedule">
+    <span class="repeat-label" id="schedule-strictness-label">Strictness:</span>
                                     <div class="repeat-dropdown-wrapper" id="schedule-strictness-dropdown-wrapper">
                                         <button type="button" class="repeat-dropdown-btn"
                                             id="schedule-strictness-dropdown-btn">
@@ -922,8 +1007,7 @@
                                             </button>
                                         </div>
                                     </div>
-
-                                    <div class="schedule-panel-overlay-group" id="schedule-panel-overlay-section">
+    <div class="schedule-panel-overlay-group" id="schedule-panel-overlay-section">
                                         <span class="repeat-label" id="schedule-panel-overlay-label">Start alert:</span>
                                         <div class="schedule-panel-overlay-controls">
                                             <div class="repeat-dropdown-wrapper" id="schedule-panel-overlay-dropdown-wrapper">
@@ -952,31 +1036,22 @@
                                             </button>
                                         </div>
                                     </div>
-                                </div>
+</div>
+    </div>
+</div>
+</div>
 
-                                <!-- Pending Changes Bar (shown when running schedule has unsaved new segments) -->
-                                <div class="schedule-pending-bar hidden" id="schedule-pending-bar">
-                                    <span class="schedule-pending-label" id="schedule-pending-label">Unsaved changes</span>
-                                    <div class="schedule-pending-actions">
-                                        <button type="button" class="schedule-pending-discard" id="schedule-pending-discard">Discard</button>
-                                        <button type="button" class="schedule-pending-save" id="schedule-pending-save">Save changes</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Block action buttons wrapper (footer of the card) -->
-                            <div id="block-action-buttons" class="block-action-buttons">
-                                <!-- Pause Block Button (shown only when a block/schedule is active) -->
-                                <button id="pause-block-btn" class="pause-block-btn hidden">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="6" y="4" width="4" height="16"></rect>
-                                        <rect x="14" y="4" width="4" height="16"></rect>
-                                    </svg>
-                                    <span id="pause-btn-label">Pause</span>
-                                </button>
-
-                                <!-- Start/Stop Block Button (for instant mode) -->
+<div class="editor-panel-footer" id="editor-panel-footer">
+    <div class="schedule-pending-bar hidden" id="editor-pending-bar">
+        <span class="schedule-pending-label" id="editor-pending-label">Unsaved changes</span>
+        <div class="schedule-pending-actions">
+            <button type="button" class="schedule-pending-discard" id="editor-discard-btn">Discard</button>
+            <button type="button" class="schedule-pending-save" id="editor-save-btn">Save changes</button>
+        </div>
+    </div>
+    <!-- Block action buttons wrapper (footer of the card) -->
+    <div id="block-action-buttons" class="block-action-buttons">
+        <!-- Start/Stop Block Button (for instant mode) -->
                                 <button id="start-block-btn" class="start-block-btn hidden" disabled>
                                     <svg class="start-block-btn-play-icon start-block-btn-leading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                                     <svg class="start-block-btn-stop-icon start-block-btn-leading hidden" width="18"
@@ -1010,8 +1085,9 @@
                                         <span class="btn-name"></span>
                                     </span>
                                 </button>
-                            </div>
-                        </div>
+    </div>
+</div>
+</div>
                     </div>
                 </div>
 
@@ -1145,277 +1221,8 @@
         <!-- Blocklist Modal -->
         <div id="blocklist-modal" class="modal-overlay hidden">
             <div class="modal-content">
-                <div class="blocklist-modal-heading">
-                    <div class="blocklist-modal-title-row">
-                        <h3 id="modal-title">Block</h3>
-                    </div>
-                    <p id="blocklist-modal-mode-desc" class="blocklist-modal-mode-desc hidden"></p>
-                </div>
-
-                <div id="active-blocklist-warning" class="warning-banner hidden">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                        aria-hidden="true">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="16" x2="12" y2="12"></line>
-                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                    </svg>
-                    <span id="active-blocklist-warning-text">This focus space is active. Some settings are locked.</span>
-                    <button type="button" id="active-blocklist-pause-btn" class="warning-banner-action">Pause</button>
-                </div>
-
-                <div class="form-group" id="blocklist-name-group">
-                    <label for="blocklist-name" id="blocklist-name-label">Name</label>
-                    <input type="text" id="blocklist-name" maxlength="60"
-                        placeholder="e.g., Social Media" class="form-input">
-                </div>
-
-                <div class="form-group" id="blocklist-websites-group">
-                    <label class="label-with-info">
-                        <span id="blocklist-websites-label">Websites to block</span>
-                        <span class="info-tooltip-wrapper">
-                            <svg class="info-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <line x1="12" y1="16" x2="12" y2="12"></line>
-                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                            </svg>
-                            <span id="blocklist-websites-tooltip" class="info-tooltip">Blocking applies to entire
-                                domains. For example, typing
-                                "facebook.com" blocks all of Facebook, not just specific pages.</span>
-                        </span>
-                    </label>
-                    <div class="tags-input-container tags-input-stacked">
-                        <div id="modal-websites-tags" class="tags-container"></div>
-                        <div class="input-with-button websites-input-with-import">
-                            <input type="text" id="modal-website-input" placeholder="e.g., facebook.com"
-                                class="form-input" autocomplete="off" autocorrect="off" autocapitalize="off"
-                                spellcheck="false">
-                            <button type="button" id="modal-import-websites-btn" class="browse-btn"
-                                title="Import websites" aria-haspopup="menu" aria-expanded="false">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="8" y1="6" x2="21" y2="6"></line>
-                                    <line x1="8" y1="12" x2="21" y2="12"></line>
-                                    <line x1="8" y1="18" x2="21" y2="18"></line>
-                                    <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                                    <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                                    <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                                </svg>
-                                <span class="browse-btn-caption" id="modal-import-websites-caption"></span>
-                            </button>
-                            <div class="websites-import-menu hidden" id="websites-import-menu" role="menu">
-                                <button type="button" class="websites-import-menu-item"
-                                    id="websites-import-menu-text-file" data-import-action="text-file" role="menuitem">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                        <polyline points="14 2 14 8 20 8"></polyline>
-                                    </svg>
-                                    <span id="websites-import-menu-text-file-label">From text file…</span>
-                                </button>
-                                <div class="websites-import-menu-divider" role="separator"></div>
-                                <div class="websites-import-menu-section-label" id="websites-import-menu-section-label">
-                                    Pre-made lists</div>
-                                <button type="button" class="websites-import-menu-item" id="websites-import-menu-email"
-                                    data-preset="email" role="menuitem">Email</button>
-                                <button type="button" class="websites-import-menu-item"
-                                    id="websites-import-menu-gambling" data-preset="gambling"
-                                    role="menuitem">Gambling</button>
-                                <button type="button" class="websites-import-menu-item" id="websites-import-menu-news"
-                                    data-preset="news" role="menuitem">News</button>
-                                <button type="button" class="websites-import-menu-item" id="websites-import-menu-porn"
-                                    data-preset="porn" role="menuitem">Porn</button>
-                                <button type="button" class="websites-import-menu-item"
-                                    id="websites-import-menu-search-engines" data-preset="search-engines"
-                                    role="menuitem">Search engines</button>
-                                <button type="button" class="websites-import-menu-item"
-                                    id="websites-import-menu-shopping" data-preset="shopping"
-                                    role="menuitem">Shopping</button>
-                                <button type="button" class="websites-import-menu-item"
-                                    id="websites-import-menu-social-media" data-preset="social-media"
-                                    role="menuitem">Social media</button>
-                            </div>
-                        </div>
-                    </div>
-                    <p id="blocklist-websites-allow-hint" class="allowlist-scope-hint hidden" aria-live="polite"></p>
-                    <span id="website-input-error" class="input-error-msg hidden">Please enter a valid domain (e.g.
-                        reddit.com)</span>
-                </div>
-
-                <div class="form-group" id="blocklist-apps-group">
-                    <label class="label-with-info">
-                        <span id="blocklist-apps-label">Apps to block</span>
-                        <span class="info-tooltip-wrapper">
-                            <svg class="info-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <line x1="12" y1="16" x2="12" y2="12"></line>
-                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                            </svg>
-                            <span id="blocklist-apps-tooltip" class="info-tooltip">Enter the exact name of the
-                                application (e.g. 'Safari'). You can
-                                also use the folder button to find the app.</span>
-                        </span>
-                    </label>
-                    <div class="tags-input-container tags-input-stacked">
-                        <div id="modal-apps-tags" class="tags-container"></div>
-                        <div class="input-with-button apps-input-with-button">
-                            <input type="text" id="modal-app-input" placeholder="e.g., Safari" class="form-input"
-                                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                            <button type="button" id="modal-browse-apps-btn" class="browse-btn browse-btn-apps"
-                                title="Browse Applications">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path
-                                        d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z">
-                                    </path>
-                                </svg>
-                                <span class="browse-btn-caption" id="modal-browse-apps-caption"></span>
-                            </button>
-                        </div>
-                    </div>
-                    <p id="blocklist-apps-allow-hint" class="allowlist-scope-hint hidden" aria-live="polite"></p>
-                </div>
-
-                <div class="form-group" id="blocklist-override-group">
-                    <label id="override-difficulty-label">Stop Method</label>
-                    <div class="exit-difficulty-panel settings-panel" id="exit-difficulty-panel">
-                        <div class="exit-difficulty-rows settings-panel-rows">
-                            <div class="exit-difficulty-row settings-row" id="override-method-row">
-                                <div class="exit-difficulty-row-copy settings-row-copy">
-                                    <span class="exit-difficulty-row-label settings-row-label"
-                                        id="override-method-label">Method</span>
-                                </div>
-                                <div class="exit-difficulty-row-control settings-row-control">
-                                    <select id="override-type" class="form-select override-type-select">
-                                        <option id="override-option-random-words" value="random-words">Random Words</option>
-                                        <option id="override-option-gibberish" value="gibberish">Random Gibberish</option>
-                                        <option id="override-option-custom" value="custom">Custom Text</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="exit-difficulty-row settings-row" id="override-count-wrapper">
-                                <div class="exit-difficulty-row-copy settings-row-copy">
-                                    <span class="exit-difficulty-row-label settings-row-label"
-                                        id="override-count-label">Words to type</span>
-                                </div>
-                                <div class="exit-difficulty-row-control exit-difficulty-count-control">
-                                    <div class="override-count-stepper" id="override-count-stepper">
-                                        <button type="button" id="override-count-minus" class="override-count-step-btn"
-                                            aria-label="Decrease">−</button>
-                                        <input type="number" id="override-count" class="override-count-input form-input"
-                                            inputmode="numeric" value="50" min="5" max="6600">
-                                        <button type="button" id="override-count-plus" class="override-count-step-btn"
-                                            aria-label="Increase">+</button>
-                                    </div>
-                                    <span class="exit-difficulty-time-estimate"
-                                        id="override-count-time-estimate">~0 min</span>
-                                </div>
-                            </div>
-                            <div class="exit-difficulty-row settings-row" id="override-max-difficulty-wrap">
-                                <div class="exit-difficulty-row-copy settings-row-copy">
-                                    <span class="exit-difficulty-row-label settings-row-label"
-                                        id="override-max-difficulty-label">Max difficulty</span>
-                                    <span class="exit-difficulty-row-hint settings-row-hint"
-                                        id="override-max-difficulty-hint">500 words</span>
-                                </div>
-                                <div class="exit-difficulty-row-control">
-                                    <label class="toggle-switch" for="override-max-difficulty-checkbox">
-                                        <input type="checkbox" id="override-max-difficulty-checkbox">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                        <div id="override-preview-block" class="exit-difficulty-preview">
-                            <span class="exit-difficulty-preview-label" id="override-preview-label">Looks like</span>
-                            <div id="override-preview-text" class="override-preview-text" title=""></div>
-                        </div>
-                    </div>
-                    <textarea id="custom-override-text" class="form-textarea hidden"
-                        placeholder="Enter your custom text (e.g., a motivational statement)"
-                        autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-                    <span id="custom-override-text-error" class="input-error-msg hidden">Custom message cannot be empty.</span>
-                    <span id="override-count-warning" class="form-hint warning hidden"></span>
-                </div>
-
-                <div class="form-group" id="blocklist-emoji-group">
-                    <label id="blocklist-emoji-label">Emoji</label>
-                    <div class="emoji-picker-container">
-                        <div class="emoji-swatches" id="emoji-swatches">
-                            <button type="button" class="emoji-swatch selected" data-emoji="🎯">🎯</button>
-                            <button type="button" class="emoji-swatch" data-emoji="💪">💪</button>
-                            <button type="button" class="emoji-swatch" data-emoji="📚">📚</button>
-                            <button type="button" class="emoji-swatch" data-emoji="📱">📱</button>
-                            <button type="button" class="emoji-swatch" data-emoji="🌳">🌳</button>
-                            <button type="button" class="emoji-swatch" data-emoji="🎉">🎉</button>
-                            <button type="button" class="emoji-swatch" data-emoji="🛏️">🛏️</button>
-                            <button type="button" class="emoji-swatch" data-emoji="🎹">🎹</button>
-                            <!-- Custom emoji selector -->
-                            <div class="custom-emoji-wrapper">
-                                <button type="button" class="emoji-swatch custom-emoji-swatch" id="custom-emoji-swatch">
-                                    <span class="custom-icon">+</span>
-                                </button>
-                                <div id="emoji-picker-popover" class="emoji-picker-popover hidden">
-                                    <emoji-picker></emoji-picker>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-group" id="blocklist-color-group">
-                    <label id="blocklist-color-label">Colour</label>
-                    <div class="color-picker-container">
-                        <div class="color-swatches" id="color-swatches">
-                            <!-- ReDD-aligned palette: Nordic-watercolor pastels, taking inspiration
-                                 from digitalhabits.org soft-surface accents (coral-soft, teal-soft,
-                                 blue-soft) which read as calm watercolor washes on the cream canvas.
-                                 Hues sweep cleanly around the wheel — sky → sea → fern → linen →
-                                 peach → terracotta → rose → lilac — so the family feels Scandi /
-                                 sophisticated, not earthy. Lightness held in a 76-82% band so they
-                                 sit comfortably on cream without shouting. -->
-                            <button type="button" class="color-swatch selected" data-color="#B8D1DE"
-                                style="background: #B8D1DE" title="Sky"></button>
-                            <button type="button" class="color-swatch" data-color="#B3D2C8" style="background: #B3D2C8"
-                                title="Seafoam"></button>
-                            <button type="button" class="color-swatch" data-color="#BCD9B6" style="background: #BCD9B6"
-                                title="Fern"></button>
-                            <button type="button" class="color-swatch" data-color="#EBDCB6" style="background: #EBDCB6"
-                                title="Linen"></button>
-                            <button type="button" class="color-swatch" data-color="#EECAAD" style="background: #EECAAD"
-                                title="Peach"></button>
-                            <button type="button" class="color-swatch" data-color="#E7B3A8" style="background: #E7B3A8"
-                                title="Terracotta"></button>
-                            <button type="button" class="color-swatch" data-color="#E1BAC3" style="background: #E1BAC3"
-                                title="Rose"></button>
-                            <button type="button" class="color-swatch" data-color="#C8B9D6" style="background: #C8B9D6"
-                                title="Lilac"></button>
-                            <label class="color-swatch custom-swatch" id="custom-color-swatch" data-color="custom"
-                                style="background: #B8D1DE" title="Custom colour">
-                                <span class="custom-icon">+</span>
-                                <input type="color" id="custom-color-input" class="custom-color-input" value="#B8D1DE">
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Advanced Options (Expandable) -->
-                <div class="blocklist-advanced-toggle" id="blocklist-advanced-toggle">
-                    <span id="blocklist-advanced-options-label">Advanced options</span>
-                    <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                </div>
-                <div class="blocklist-advanced-content hidden" id="blocklist-advanced-content">
-                    <label class="checkbox-option">
-                        <input type="checkbox" id="show-item-details-checkbox" checked>
-                        <span id="show-item-details-label">Show names of blocked websites &amp; apps in the overview</span>
-                    </label>
-                </div>
-
+                <h3 id="modal-title">New focus space</h3>
+                <div class="blocklist-modal-editor-slot" id="blocklist-modal-editor-slot"></div>
                 <div class="modal-buttons">
                     <button id="cancel-blocklist-btn" class="modal-btn cancel-btn">Cancel</button>
                     <button id="save-blocklist-btn" class="modal-btn primary-btn">Save</button>

@@ -7,7 +7,7 @@
 import { state } from './state.js';
 import { tauriAPI } from './tauri-api.js';
 import { PROTECTED_APP_NAMES, PROTECTED_DOMAINS, isAllowlistBlocklist, isProtectedApp, isProtectedDomain } from './blocklist-utils.js';
-import { buildAndroidScheduleEntries, buildIOSScheduleEntries, isAndroidAllowlistUnsupported } from './schedule-engine.js';
+import { buildAndroidScheduleEntries, buildIOSScheduleEntries, isAndroidAllowlistUnsupported, isSchedulePausedNow } from './schedule-engine.js';
 import {
     buildWordChallengeState,
     getCompletedChallengeText,
@@ -63,6 +63,7 @@ window.__REDDBLOCK_INTERNALS__ = {
     buildAndroidScheduleEntries,
     isAndroidAllowlistUnsupported,
     buildIOSScheduleEntries,
+    isSchedulePausedNow,
     // Challenge-engine primitives (characterization tests / controller suite)
     normalizeChallengeComparableText,
     sanitizeChallengeTypedInput,

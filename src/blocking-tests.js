@@ -15,7 +15,7 @@
  * - T38c-T38e: Max difficulty (effective count)
  * - T43-T47: Self-Block Prevention
  * - T48-T50: Protected Domain Prevention
- * - T51-T54, T51da: Blocklist duplication (schedules copy as pending drafts; DA uses "kopi")
+ * - T51-T54, T51da: Blocklist duplication (schedules copy switched off; DA uses "kopi")
  * - T55-T62: iOS allowlist effective-policy resolvers (pure helpers)
  * - T63-T65: Default pause length setting (fallback, configured value, clamping)
  * - T169-T172: Single-column (≤718px) desktop focus-space cards open the enter sheet on tap
@@ -1253,7 +1253,7 @@
             });
         })();
 
-        // T52: Duplicate copies source schedule as pending draft only (not committed / not enforcing)
+        // T52: Duplicate copies the source schedule switched off (present, paused open-ended, never enforcing)
         (function T52() {
             const blocklist = createMockBlocklist({ name: 'DupSched', websites: ['a.com'] });
             const now = new Date();
@@ -1271,17 +1271,18 @@
                 assert(dup !== undefined, 'T52: Duplicate blocklist present');
                 if (!dup) return;
                 const dupSchedule = (mockData.schedules || []).find(function(s) { return s.blocklistId === dup.id; });
-                assert(dupSchedule === undefined, 'T52: Duplicate has no committed schedule');
-                const pending = mockData.settings.pendingScheduleSegments[dup.id];
-                assert(pending && pending.length === 1, 'T52: Pending segments copied for duplicate');
-                assertEqual(JSON.stringify(pending[0]), JSON.stringify(segment), 'T52: Segment fields match');
-                const repeat = mockData.settings.pendingScheduleRepeatOptions[dup.id];
-                assert(repeat && repeat.repeatType === 'forever', 'T52: Repeat options copied as draft');
-                assertEqual(mockData.schedules.length, 1, 'T52: Original schedule list unchanged');
+                assert(dupSchedule !== undefined, 'T52: Duplicate has its own schedule record');
+                if (!dupSchedule) return;
+                assert(dupSchedule.id !== schedule.id, 'T52: Duplicate schedule has a new id');
+                assertEqual(dupSchedule.segments.length, 1, 'T52: Segments copied for duplicate');
+                assertEqual(JSON.stringify(dupSchedule.segments[0]), JSON.stringify(segment), 'T52: Segment fields match');
+                assertEqual(dupSchedule.repeatType, 'forever', 'T52: Repeat options copied');
+                assert(dupSchedule.isPaused === true && dupSchedule.pauseEndTime === undefined, 'T52: Duplicate schedule is switched off');
+                assertEqual(mockData.schedules.length, 2, 'T52: Original schedule untouched, copy added');
             });
         })();
 
-        // T53: Duplicate with active schedule still copies draft only (never auto-enforcing)
+        // T53: Duplicate of an actively-enforcing schedule is still switched off (never auto-enforcing)
         (function T53() {
             const blocklist = createMockBlocklist({ name: 'DupSchedActive', websites: ['active.com'] });
             const now = new Date();
@@ -1302,15 +1303,15 @@
                 assert(dup !== undefined, 'T53: Duplicate blocklist present');
                 if (!dup) return;
                 const dupSchedule = (mockData.schedules || []).find(function(s) { return s.blocklistId === dup.id; });
-                assert(dupSchedule === undefined, 'T53: No committed schedule on duplicate');
-                const pending = mockData.settings.pendingScheduleSegments[dup.id];
-                assert(pending && pending.length === 1, 'T53: Active source schedule copied as pending draft');
-                assertEqual(JSON.stringify(pending[0]), JSON.stringify(segment), 'T53: Segment fields match');
-                assertEqual(mockData.schedules.length, 1, 'T53: Only original remains committed');
+                assert(dupSchedule !== undefined, 'T53: Active source schedule copied onto duplicate');
+                if (!dupSchedule) return;
+                assertEqual(JSON.stringify(dupSchedule.segments[0]), JSON.stringify(segment), 'T53: Segment fields match');
+                assert(internals.isSchedulePausedNow(dupSchedule), 'T53: Duplicate is switched off, not enforcing');
+                assert(!internals.isSchedulePausedNow(schedule), 'T53: Original keeps enforcing');
             });
         })();
 
-        // T53b: Duplicate with paused schedule copies draft only (pause does not carry over)
+        // T53b: Duplicate of a timed-paused schedule is switched off open-ended (the timed pause does not carry over)
         (function T53b() {
             const blocklist = createMockBlocklist({ name: 'DupSchedPaused', websites: ['pause.com'] });
             const now = new Date();
@@ -1334,11 +1335,10 @@
                 assert(dup !== undefined, 'T53b: Duplicate blocklist present');
                 if (!dup) return;
                 const dupSchedule = (mockData.schedules || []).find(function(s) { return s.blocklistId === dup.id; });
-                assert(dupSchedule === undefined, 'T53b: No committed schedule on duplicate');
-                const pending = mockData.settings.pendingScheduleSegments[dup.id];
-                assert(pending && pending.length === 1, 'T53b: Paused source schedule copied as pending draft');
-                assertEqual(JSON.stringify(pending[0]), JSON.stringify(segment), 'T53b: Segment fields match');
-                assertEqual(mockData.schedules.length, 1, 'T53b: Only original remains committed');
+                assert(dupSchedule !== undefined, 'T53b: Paused source schedule copied onto duplicate');
+                if (!dupSchedule) return;
+                assertEqual(JSON.stringify(dupSchedule.segments[0]), JSON.stringify(segment), 'T53b: Segment fields match');
+                assert(dupSchedule.isPaused === true && dupSchedule.pauseEndTime === undefined, 'T53b: Copy is switched off open-ended, not for the source\'s timed pause');
             });
         })();
 

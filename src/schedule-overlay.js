@@ -10,8 +10,7 @@ import { tSettings, tSettingsFmt } from './i18n.js';
 import { getBlocklistDisplayApps } from './list-presentation.js';
 import { isMobileOverrideChallengePlatform } from './override-challenge.js';
 import { saveData } from './persistence.js';
-import { disableScheduleControls } from './time-inputs.js';
-import { closeSchedulePanelDropdownMenus, canEditScheduleBetweenBlocks } from './schedule-editor.js';
+import { closeSchedulePanelDropdownMenus } from './schedule-editor.js';
 import { findResponsibleBlocklistForWarningApps, joinAppListWithLimit } from './blocking-platform.js';
 import {
     initScheduleOverlayMessageEditor,
@@ -712,8 +711,8 @@ export async function playAppBlockingLetsGoVoice() {
 }
 
 export function getActiveScheduleForSelectedBlocklist() {
-    if (!state.selectedBlocklistId || !state.appData.schedules) return null;
-    return state.appData.schedules.find((s) => s.blocklistId === state.selectedBlocklistId) || null;
+    if (!state.editingBlocklistId || !state.appData.schedules) return null;
+    return state.appData.schedules.find((s) => s.blocklistId === state.editingBlocklistId) || null;
 }
 
 export function getEffectiveScheduleStartOverlayId() {
@@ -867,12 +866,6 @@ export function syncAllStartOverlaySelectors() {
     }
 
     state.pendingScheduleStartOverlayId = selectedId;
-
-    const activeSchedule = getActiveScheduleForSelectedBlocklist();
-    // Don't re-lock when between-blocks editing is allowed — updateScheduleButtonState
-    // already applied the correct lock state before calling into overlay sync.
-    const shouldLock = !!activeSchedule && !canEditScheduleBetweenBlocks(activeSchedule);
-    disableScheduleControls(shouldLock);
 }
 
 export function syncSchedulePanelOverlayControls() {

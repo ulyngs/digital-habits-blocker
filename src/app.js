@@ -41,7 +41,9 @@ import {
     collectActiveIOSManualBlockPayload,
 } from './blocklist-utils.js';
 import { openInstalledAppsPicker } from './apps-picker.js';
-import { closeAllPopovers, disableScheduleControls, disableTimeControls, getEndTimeAsDate, getStartTimeAsDate, handleDurationInputChange, handleDurationQuickBtn, handlePopoverOutsideClick, handleTimePartClick, initializeTimeInputs, pad, parseEndTimeBoundedInt, scrollElementWithinContainer, scrollPopoverOptionIntoView, setupEndTimeDirectInputs, updateDurationQuickBtns, updateTimeDisplay } from './time-inputs.js';
+import { handlePopoverOutsideClick, handleTimePartClick } from './time-inputs.js';
+import { ensureIOSAllowlistStartable } from './allowlist-ios.js';
+import { applyEditorScheduleForBlocklist, applyFocusSpaceEditorLanguage, getWhenToBlockKind, isEditorInCreateModal, populateFocusSpaceEditor, setupFocusSpaceEditor } from './focus-space-editor.js';
 import { loadData, saveData, updateHostsFile } from './persistence.js';
 import { cleanDomainInput, isValidDomain, processWebsiteInput, setupWebsitesImportMenu, resetWebsitesImportMenuPosition } from './website-input.js';
 import { updateBlockedApps, acceptEula, appBlockingWarningSnoozedUntilMs, checkAndroidPermissions, checkHelperStatus, checkScreentimeAuth, collectManualBlockedApps, collectScheduleBlockedApps, detectPlatform, displayNameForBlockedApp, ensureInstalledAppsCache, initializeAndroidBlockingState, initializeIOSBlockingState, listenForAndroidFrictionGate, onAndroidResumed, renderAppBlockingClosedownBanner, renderAppBlockingWarningOverlay, requestScreentimeAuth, runExpiryOnce, setupAndroidBackButtonHandling, setupAppBlockingWarningOverlay, setupHandsetModalScreens, setupMaximizeButtonSync, setupMobileExternalLinkOpens, syncMaximizeButtonFromWindow, updateOnboardingVisibility, openExternal, updateWindowHeight, isHelperInstallCancelled, isHelperConnectionError, joinAppListWithLimit, findResponsibleBlocklistForWarningApps, getActiveAppBlockingSnoozeBlocklistId, formatAppBlockingSnoozeStartsIn, APP_BLOCKING_SNOOZE_ICON_IMG_12 } from './blocking-platform.js';
@@ -76,26 +78,25 @@ import {
     wireEnforcementToggle,
 } from './enforcement.js';
 import {
-    addScheduleSegment, discardSchedulePendingChanges, getCommittedScheduleSegmentCount,
-    getDefaultScheduleSegments, getInitialExpandedScheduleSegmentIndex, handleRepeatDateChange,
-    handleRepeatOptionClick, handleSegmentDayToggle, handleUndoToastClick, pendingSegmentDelete,
+    addScheduleSegment,
+    getDefaultScheduleSegments, handleRepeatDateChange,
+    handleUndoToastClick, pendingSegmentDelete,
     rebuildScheduleSegments,
-    saveSchedulePendingChanges, setAlwaysOnMode, setScheduleMode, setupAllowEditsBetweenBlocksToggle,
-    startSchedule, toggleRepeatDropdown, updateScheduleButtonState, isScheduleSegmentActiveNow,
-    formatDateForDisplay,
+    setupAllowEditsBetweenBlocksToggle,
+    startSchedule, updateScheduleButtonState,
 } from './schedule-editor.js';
 import {
     SCHEDULE_OVERLAY_DEFAULT_PRESET_VALUE, applyScheduleStartOverlayPresentation,
-    getEffectiveScheduleStartOverlayId, getScheduleStartOverlayForWarningApps,
+    getScheduleStartOverlayForWarningApps,
     handleSchedulePanelOverlayOptionClick, isScheduleOverlayCustomiseModalOpen,
     playAppBlockingLetsGoVoice, populateScheduleOverlayCustomiseSelector,
-    rememberLastScheduleStartOverlayId, setupScheduleOverlayCustomiseModal,
-    syncScheduleConfirmOverlaySummary, syncScheduleOverlayCustomiseDirtyState,
+    setupScheduleOverlayCustomiseModal,
+    syncScheduleOverlayCustomiseDirtyState,
     syncScheduleOverlayCustomiseEditorState, syncScheduleOverlayCustomiseTitle,
     toggleSchedulePanelOverlayDropdown,
 } from './schedule-overlay.js';
-import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, closeScheduleConfirmModal, closeStartBlockConfirmModal, deselectBlocklist, handleBlocklistSelect, handlePauseBlockButtonClick, openBlocklistModal, openPauseModal, openResumeConfirmation, proceedWithBlock, proceedWithPause, proceedWithSchedule, proceedWithScheduleEdit, refreshSelectedBlocklistUi, renderScheduleConfirmSegments, setBtnActionLabel, setOverrideCountMaxMode, setStartBlockBtnLeadingIcon, setStartConfirmPrimaryLabel, startBlock, syncAllStopBtnLabelFits, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal, openScheduleOverrideModal, showScheduleConfirmModal, showScheduleEditConfirmModal, syncStopBtnLabelFit, setStartBtnBlocklistInfo } from './confirm-modals.js';
-import { renderBlocklists, autoSelectSoleBlocklist, closeAllBlocklistMenus, truncateBlocklistName, setupBlocklistsImportExportButtons, duplicateBlocklist, getNextCopyName, deleteBlocklist, clearPendingScheduleDraft, isBlocklistEditFrictionRequired, pendingDelete, saveBlocklistOrderFromDOM, getBlocklistScheduleDraft, saveBlocklistScheduleDraft, setUndoToastMessage } from './blocklists.js';
+import { applyModalBlocklistTint, applyOverrideTypeUi, closeBlocklistModal, closeOverrideModal, closePauseModal, closeStartBlockConfirmModal, deselectBlocklist, handleBlocklistSelect, handlePauseBlockButtonClick, openBlocklistModal, openPauseModal, openResumeConfirmation, proceedWithBlock, proceedWithPause, refreshSelectedBlocklistUi, renderScheduleConfirmSegments, setBtnActionLabel, setOverrideCountMaxMode, setStartBlockBtnLeadingIcon, setStartConfirmPrimaryLabel, startBlock, syncAllStopBtnLabelFits, syncOverrideCountUi, syncPauseDurationRowLayout, updateOverridePreview, updatePauseRestartTime, openOverrideModal } from './confirm-modals.js';
+import { renderBlocklists, autoSelectSoleBlocklist, closeAllBlocklistMenus, truncateBlocklistName, setupBlocklistsImportExportButtons, duplicateBlocklist, getNextCopyName, deleteBlocklist, isBlocklistEditFrictionRequired, pendingDelete, saveBlocklistOrderFromDOM, setUndoToastMessage } from './blocklists.js';
 import {
     getSelectedBlocklistModalMode,
     syncBlocklistCreateUi,
@@ -106,7 +107,7 @@ import {
 } from './list-mode.js';
 import { countIOSScreenTimeSelectionItems } from './list-presentation.js';
 import { render, kickClockNow, startTickInterval, updateWeekCalendar, syncSelectedControlState, renderNowBlockingRow, renderScheduleAlwaysOnRow, renderScheduleVisibilityChips, renderWeekBlocks, renderBlocklistSelector, getCalendarSegmentLayout, layoutOverlappingBlocks } from './render.js';
-import { formatTitleBarScheduleStartWhen, hasAnyEnforcedBlocks, isNonRepeatingSchedule, isOneOffBlockEnforced, isSchedulePausedNow, pickEarliestUpcomingScheduledBlock, refreshDesktopHelperStatus, resolveOneShotOccurrences, scheduleHasFutureSingleOccurrence, syncActiveBlocksToHelper, syncSchedulesToHelper } from './schedule-engine.js';
+import { formatTitleBarScheduleStartWhen, hasAnyEnforcedBlocks, isAndroidAllowlistUnsupported, isNonRepeatingSchedule, isOneOffBlockEnforced, pickEarliestUpcomingScheduledBlock, refreshDesktopHelperStatus, scheduleHasFutureSingleOccurrence, syncActiveBlocksToHelper, syncSchedulesToHelper } from './schedule-engine.js';
 import { dismissTopmostEscapeLayer, isModalVisible, refreshOpenHelperUi, startHelperUiRefreshLoop, stopHelperUiRefreshLoop } from './modal-manager.js';
 import {
     refreshUninstallButtonState,
@@ -625,8 +626,8 @@ function setupEventListeners() {
     // Rule: clear pending (unsaved) text in website/app fields before undoing stack actions. Prefer clearing
     // the focused field first, then clear any other field that still has pending text, then pop stack.
     document.addEventListener('keydown', (e) => {
-        const blocklistModal = document.getElementById('blocklist-modal');
-        if (!blocklistModal || blocklistModal.classList.contains('hidden')) return;
+        const editorHost = document.getElementById('focus-space-editor')?.closest('#blocklist-modal, #time-picker-container');
+        if (!editorHost || editorHost.classList.contains('hidden')) return;
         const isUndo = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey;
         if (!isUndo) return;
 
@@ -680,34 +681,6 @@ function setupEventListeners() {
         }
     }, true);
 
-    // Duration picker - input change
-    const durationInput = document.getElementById('duration-minutes-input');
-    if (durationInput) {
-        durationInput.addEventListener('input', (e) => {
-            // Enforce max 5 digits visually
-            if (durationInput.value.length > 5) {
-                durationInput.value = durationInput.value.slice(0, 5);
-            }
-            handleDurationInputChange();
-        });
-        durationInput.addEventListener('blur', () => {
-            let mins = parseInt(durationInput.value);
-            if (isNaN(mins) || mins < 1) mins = 60;
-            if (mins > 99999) mins = 99999;
-            durationInput.value = mins;
-            handleDurationInputChange();
-        });
-    }
-
-    // Quick-select buttons: timed durations + until-I-stop option (scheduler only)
-    document.querySelectorAll('#instant-block-panel .duration-quick-btn').forEach(btn => {
-        btn.addEventListener('click', handleDurationQuickBtn);
-    });
-
-    // Initialize time picker with defaults
-    initializeTimeInputs();
-    setupEndTimeDirectInputs();
-
     // Blocklist selector
     document.getElementById('blocklist-select').addEventListener('change', handleBlocklistSelect);
 
@@ -744,58 +717,17 @@ function setupEventListeners() {
         }
     });
 
-    // Schedule confirmation modal buttons.
-    // The proceed button routes between the start-flow and edit-flow handlers via
-    // window.editScheduleData (set by showScheduleEditConfirmModal). A single
-    // dispatch listener avoids a previous bug where both addEventListener and a
-    // per-flow .onclick fired, causing proceedWithSchedule to add a duplicate
-    // schedule after an edit-flow save.
-    document.getElementById('cancel-schedule-confirm-btn')?.addEventListener('click', closeScheduleConfirmModal);
-    document.getElementById('proceed-schedule-confirm-btn')?.addEventListener('click', () => {
-        if (window.editScheduleData) {
-            proceedWithScheduleEdit();
-        } else {
-            proceedWithSchedule();
-        }
-    });
-    document.getElementById('start-schedule-confirm-modal')?.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal-overlay')) {
-            closeScheduleConfirmModal();
-        }
-    });
-
     setupScheduleOverlayCustomiseModal();
 
-    // Schedule mode tabs
-    document.getElementById('instant-mode-tab')?.addEventListener('click', () => setScheduleMode(false));
-    document.getElementById('schedule-mode-tab')?.addEventListener('click', () => setScheduleMode(true));
-
-    // Add segment button
+    // Focus-space editor: create modal + edit panel share one form.
+    setupFocusSpaceEditor({ onSave: saveFocusSpaceEditor });
     document.getElementById('add-segment-btn')?.addEventListener('click', addScheduleSegment);
     setupAllowEditsBetweenBlocksToggle();
-
-    // Start schedule button
     document.getElementById('start-schedule-btn')?.addEventListener('click', startSchedule);
-    document.getElementById('schedule-pending-save')?.addEventListener('click', saveSchedulePendingChanges);
-    document.getElementById('schedule-pending-discard')?.addEventListener('click', discardSchedulePendingChanges);
 
-    // Repeat dropdown (renamed from Until)
-    document.getElementById('repeat-dropdown-btn')?.addEventListener('click', toggleRepeatDropdown);
     document.getElementById('schedule-panel-overlay-dropdown-btn')?.addEventListener('click', toggleSchedulePanelOverlayDropdown);
     document.getElementById('schedule-panel-overlay-dropdown-menu')?.addEventListener('click', handleSchedulePanelOverlayOptionClick);
-    document.querySelectorAll('.repeat-option').forEach(opt => {
-        opt.addEventListener('click', handleRepeatOptionClick);
-    });
     document.getElementById('repeat-date-input')?.addEventListener('change', handleRepeatDateChange);
-
-    // Initialize first segment day toggles
-    document.querySelectorAll('.segment-day-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const segmentIndex = parseInt(btn.closest('.segment-days').dataset.segmentIndex);
-            const dayIndex = parseInt(btn.dataset.day);
-            handleSegmentDayToggle(segmentIndex, dayIndex, btn);
-        });
-    });
 
     // Listen for blocks updated from main process
     tauriAPI.onBlocksUpdated(async () => {
@@ -806,6 +738,12 @@ function setupEventListeners() {
 
 
 
+
+/** Set inside setupModalListeners, which owns the form's closure state. */
+let saveFocusSpaceEditorImpl = null;
+export async function saveFocusSpaceEditor() {
+    if (saveFocusSpaceEditorImpl) await saveFocusSpaceEditorImpl();
+}
 
 // Modal listeners
 function setupModalListeners() {
@@ -1642,30 +1580,13 @@ function setupModalListeners() {
         });
     }
 
-    // Blocklist modal advanced options toggle
-    const blocklistAdvancedToggle = document.getElementById('blocklist-advanced-toggle');
-    const blocklistAdvancedContent = document.getElementById('blocklist-advanced-content');
-    if (blocklistAdvancedToggle && blocklistAdvancedContent) {
-        blocklistAdvancedToggle.addEventListener('click', () => {
-            const willExpand = blocklistAdvancedContent.classList.contains('hidden');
-            blocklistAdvancedToggle.classList.toggle('expanded');
-            blocklistAdvancedContent.classList.toggle('hidden');
-            if (willExpand) {
-                requestAnimationFrame(() => {
-                    const scrollBody = blocklistAdvancedContent.closest('.mobile-modal-scroll-body');
-                    scrollElementWithinContainer(scrollBody, blocklistAdvancedContent);
-                });
-            }
-        });
-    }
-
     // Cancel button
     document.getElementById('cancel-blocklist-btn').addEventListener('click', () => {
         closeBlocklistModal();
     });
 
-    // Save button
-    document.getElementById('save-blocklist-btn').addEventListener('click', async () => {
+    // Save (create modal's Save button and the panel's Save changes both land here).
+    saveFocusSpaceEditorImpl = async () => {
         const nameInput = document.getElementById('blocklist-name');
         const name = truncateBlocklistName(nameInput.value.trim());
         const nameEmpty = !name;
@@ -1782,6 +1703,17 @@ function setupModalListeners() {
             alwaysShowInSchedule,
             overrideDifficulty: overrideDifficultyPayload,
         };
+        // Daily / Weekly spaces activate on save, so the same platform checks
+        // that used to guard "Start schedule" apply here.
+        if (getWhenToBlockKind() !== 'manual') {
+            if (isAndroidAllowlistUnsupported(blocklist)) {
+                alert(tSettings('androidAllowlistUnsupported'));
+                return;
+            }
+            if (!ensureIOSBlocklistSelectionReady(blocklist, 'saving this schedule')) return;
+            if (!await ensureIOSAllowlistStartable(blocklist)) return;
+        }
+
         if (state.editingBlocklistId) {
             const idx = state.appData.blocklists.findIndex(bl => bl.id === state.editingBlocklistId);
             if (idx !== -1) {
@@ -1791,6 +1723,8 @@ function setupModalListeners() {
             // New spaces go to the top of the focus list.
             state.appData.blocklists.unshift(blocklist);
         }
+
+        applyEditorScheduleForBlocklist(blocklist.id);
 
         await saveData();
 
@@ -1816,7 +1750,11 @@ function setupModalListeners() {
         // Keep live preview while editing, but don't revert after a confirmed save.
         state.blocklistModalPreviewSnapshot = null;
         const wasNewBlocklist = !state.editingBlocklistId;
-        closeBlocklistModal();
+        if (isEditorInCreateModal()) {
+            closeBlocklistModal();
+        } else {
+            populateFocusSpaceEditor(blocklist);
+        }
 
         // Only update blocklist display without resetting schedule segments
         renderBlocklists();
@@ -1841,12 +1779,17 @@ function setupModalListeners() {
                 handleBlocklistSelect({ target: dropdown });
             }
         }
+    };
+    document.getElementById('save-blocklist-btn').addEventListener('click', () => {
+        void saveFocusSpaceEditorImpl();
     });
 
     // Store references for modal functions. Keep both the refactor-era getter
     // and the original direct array bridge so extracted modules like the app
     // picker still share the same mutable selection state.
     window.getModalApps = () => modalApps;
+    window.getModalWebsites = () => modalWebsites;
+    window.getModalIOSScreenTimeSelection = () => modalIOSScreenTimeSelection;
     window.lockedWebsites = [];
     window.lockedApps = [];
     window.clearModalTagSelections = () => {
@@ -1983,7 +1926,7 @@ function setupOverrideModalListeners() {
     });
 
     // Pause block button
-    document.getElementById('pause-block-btn').addEventListener('click', () => {
+    document.getElementById('pause-block-btn')?.addEventListener('click', () => {
         handlePauseBlockButtonClick();
     });
 
@@ -2077,34 +2020,18 @@ function setupOverrideModalListeners() {
                 // Update blocked apps (will stop watcher if no apps to block, including schedules)
                 await updateBlockedApps();
             } else if (window.overrideScheduleId) {
-                // Schedules behave like one-off blocks now: stopping always tears down the
-                // entire schedule (no per-instance skip). Segments are re-loaded into the
-                // editor so the user can re-start them later without re-typing them.
+                // Stopping a schedule switches it off rather than deleting it: an
+                // open-ended pause (isPaused without pauseEndTime) that every
+                // enforcement layer reads as "off until turned on again". The
+                // times stay on the record, ready for the switch to flip back.
                 const scheduleId = window.overrideScheduleId;
                 const scheduleToStop = state.appData.schedules.find(s =>
                     s.id === scheduleId || s.blocklistId === scheduleId
                 );
 
                 if (scheduleToStop) {
-                    state.scheduleSegments = scheduleToStop.segments.map(seg => ({ ...seg }));
-                    state.activeScheduleSegmentCount = 0; // No segments are locked anymore
-
-                    // Save these segments as pending so they persist when clicking off/on
-                    if (!state.appData.settings) state.appData.settings = {};
-                    if (!state.appData.settings.pendingScheduleSegments) state.appData.settings.pendingScheduleSegments = {};
-                    state.appData.settings.pendingScheduleSegments[scheduleToStop.blocklistId] = state.scheduleSegments.map(seg => ({ ...seg }));
-
-                    state.appData.schedules = state.appData.schedules.filter(s =>
-                        s.id !== scheduleId && s.blocklistId !== scheduleId
-                    );
-
-                    // Rebuild UI to show all segments as editable if we're viewing this blocklist
-                    if (state.selectedBlocklistId === scheduleToStop.blocklistId && state.isScheduleMode) {
-                        rebuildScheduleSegments();
-                        disableScheduleControls(false);
-                    }
-                } else {
-                    state.activeScheduleSegmentCount = 0;
+                    scheduleToStop.isPaused = true;
+                    delete scheduleToStop.pauseEndTime;
                 }
 
                 // On iOS, clear both Screen Time stores so the overridden schedule's blocks are removed
@@ -2295,7 +2222,7 @@ export function syncMobileScheduleDayLabelsViewportMode() {
     state.mobileCompactScheduleDayLabelsActive = nextCompact;
 
     const schedulePanel = document.getElementById('schedule-block-panel');
-    if (state.isScheduleMode && schedulePanel && !schedulePanel.classList.contains('hidden')) {
+    if (getWhenToBlockKind() !== 'manual') {
         rebuildScheduleSegments();
     }
 
@@ -3012,7 +2939,6 @@ export function applySettingsLanguage() {
     if (behaviourDismissBtn) {
         behaviourDismissBtn.title = tSettings('setupBrowsersBannerDismissTitle');
     }
-    setText('main-start-block-title', tSettings('mainStartBlockTitle'));
     setText('instant-mode-tab-label', tSettings('modeTimer'));
     setText('schedule-mode-tab-label', tSettings('modeSchedule'));
     setText('selection-prompt-label', tSettings('selectionPrompt'));
@@ -3042,42 +2968,12 @@ export function applySettingsLanguage() {
     );
     setText('now-blocking-label-text', tSettings('nowBlockingLabel'));
     setText('schedule-footer-hint', tSettings('scheduleFooterHint'));
-    setText('duration-quick-btn-15', tSettings('durationQuick15m'));
-    setText('duration-quick-btn-30', tSettings('durationQuick30m'));
-    setText('duration-quick-btn-45', tSettings('durationQuick45m'));
-    setText('duration-quick-btn-60', tSettings('durationQuick1Hour'));
-    setText('duration-quick-btn-120', tSettings('durationQuick2Hours'));
-    setText('duration-quick-btn-always-label', tSettings('durationQuickAlways'));
-    setText('always-on-message-text', tSettings('alwaysOnMessage'));
-    setText('duration-label', tSettings('duration'));
-    setText('duration-unit-label', tSettings('durationUnitMin'));
-    setText('end-label', tSettings('end'));
-    setText('quick-select-label', tSettings('quickSelect'));
-    setText('schedule-start-label', tSettings('start'));
-    setText('schedule-end-label', tSettings('end'));
-    setText('schedule-days-label', tSettings('days'));
-    setText('add-segment-label', tSettings('add'));
     setText('schedule-strictness-label', `${tSettings('scheduleStrictnessLabel')}${tSettings('stopScheduleMetaColon')}`);
     setText('strictness-option-committed-title', tSettings('allowEditsStrictLabel'));
     setText('strictness-option-committed-desc', tSettings('allowEditsStrictDesc'));
     setText('strictness-option-flexible-title', tSettings('allowEditsFlexibleLabel'));
     setText('strictness-option-flexible-desc', tSettings('allowEditsFlexibleDesc'));
-    setText('schedule-segments-heading', tSettings('scheduleWhenHeading'));
-    setText('repeat-label', tSettings('repeat'));
     setText('schedule-panel-overlay-label', tSettings('scheduleActiveOverlayLabel'));
-    const repeatNo = document.querySelector('.repeat-option[data-value="no"]');
-    const repeatForever = document.querySelector('.repeat-option[data-value="forever"]');
-    const repeatDate = document.querySelector('.repeat-option[data-value="date"]');
-    if (repeatNo) repeatNo.textContent = tSettings('repeatNo');
-    if (repeatForever) repeatForever.textContent = tSettings('repeatForever');
-    if (repeatDate) repeatDate.textContent = tSettings('repeatUntilDate');
-    const repeatDropdownText = document.getElementById('repeat-dropdown-text');
-    if (repeatDropdownText) {
-        if (state.scheduleRepeatType === 'forever') repeatDropdownText.textContent = tSettings('repeatForever');
-        else if (state.scheduleRepeatType === 'date') repeatDropdownText.textContent = tSettings('repeatUntilDate');
-        else repeatDropdownText.textContent = tSettings('repeatNo');
-    }
-    setText('pause-btn-label', tSettings('pause'));
     setBtnActionLabel(document.getElementById('start-block-btn-label'), tSettings('startBlockButton'), { simple: true });
     const startBlockBtn = document.getElementById('start-block-btn');
     if (startBlockBtn) {
@@ -3115,24 +3011,11 @@ export function applySettingsLanguage() {
     setText('website-input-error', tSettings('invalidDomainMsg'));
     setText('custom-override-text-error', tSettings('customOverrideEmptyError'));
 
-    // Blocklist modal
-    const modalTitle = document.getElementById('modal-title');
-    if (modalTitle) {
-        if (state.editingBlocklistId) {
-            modalTitle.textContent = tSettings('editBlocklist');
-        } else {
-            modalTitle.textContent = tSettings(
-                getSelectedBlocklistModalMode() === 'allowlist'
-                    ? 'createAllowlist'
-                    : 'createBlocklist',
-            );
-        }
-    }
+    // Focus-space editor
+    applyFocusSpaceEditorLanguage();
     setText('active-blocklist-warning-text', tSettings('activeBlocklistWarning'));
     setText('active-blocklist-pause-btn', tSettings('pause'));
-    setText('blocklist-name-label', tSettings('name'));
     updateBlocklistModalModeLabels(getSelectedBlocklistModalMode());
-    setText('override-difficulty-label', tSettings('overrideDifficulty'));
     setText('override-method-label', tSettings('overrideMethod'));
     setText('override-option-random-words', tSettings('overrideRandomWords'));
     setText('override-option-gibberish', tSettings('overrideGibberish'));
@@ -3144,7 +3027,6 @@ export function applySettingsLanguage() {
     updateOverridePreview();
     setText('blocklist-emoji-label', tSettings('emoji'));
     setText('blocklist-color-label', tSettings('color'));
-    setText('blocklist-advanced-options-label', tSettings('advancedOptions'));
     setText('websites-import-menu-text-file-label', tSettings('importWebsitesFromFile'));
     setText('websites-import-menu-section-label', tSettings('importWebsitesPreMadeList'));
     setText('websites-import-menu-email', tSettings('importPresetEmail'));

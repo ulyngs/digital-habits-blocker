@@ -645,10 +645,11 @@ struct ScheduleMatch {
 /// normal tray state. Keying off the flag alone left a block silently
 /// unenforced past its pause end.
 ///
-/// A missing `pauseEndTime` reads as "not paused", matching the schedule rule.
-/// Both pause paths (`confirm-modals.js`, and the Android reconciliation in
-/// `blocking-platform.js`) always write the two fields together, so an
-/// end-time-less pause is not reachable from the app.
+/// A missing `pauseEndTime` reads as "not paused" for one-off blocks. The
+/// app never writes that shape for a block (switching a Manual space off
+/// deletes its block, and timed pauses always carry an end time), so it can
+/// only come from a hand-edited data file — and then it fails safe, towards
+/// blocking. Schedules are the deliberate exception: see `match_schedule_now`.
 pub(crate) fn one_off_pause_active(active_block: &Value, now_ms: u64) -> bool {
     let paused = active_block
         .get("isPaused")
@@ -673,12 +674,16 @@ fn match_schedule_now(schedule: &Value, now_ms: u64) -> Option<ScheduleMatch> {
         .get("isPaused")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let pause_end = schedule
-        .get("pauseEndTime")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if paused && pause_end > now_ms {
-        return None;
+    // `isPaused` with no `pauseEndTime` is a schedule the user switched OFF
+    // (the card switch writes exactly this after the override challenge). The
+    // frontend engine, Android and iOS all read it as "paused until turned on
+    // again", and desktop must agree or a switched-off space would keep
+    // blocking on macOS/Windows only.
+    if paused {
+        match schedule.get("pauseEndTime").and_then(|v| v.as_u64()) {
+            Some(end) if end <= now_ms => {} // timed pause already over
+            _ => return None,                // still paused, or switched off
+        }
     }
     let segments = schedule
         .get("resolvedSegments")

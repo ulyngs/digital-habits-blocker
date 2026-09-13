@@ -14,7 +14,6 @@ export const state = {
         settings: {}
     },
     selectedBlocklistId: null,
-    /** Quick start draft waiting on start-confirm — orphan prune must keep this id. */
     /** Session flag set when the user actively deselects (click-outside / ESC).
      *  Read by the sole-blocklist auto-selector so it stops fighting an
      *  intentional deselect — cleared again when the user picks anything via
@@ -45,19 +44,19 @@ export const state = {
     overridePreviewFrozenByType: { 'random-words': null, 'gibberish': null },
     lastOverridePreviewType: null,
     installedAppsCache: null, // Cache the installed-apps list so we don't re-scan every open
-    isAlwaysOnMode: false, // false = timed block, true = always-on (permanent) block
-    scheduleRepeatType: 'forever', // 'forever', 'date', or 'no'
+    /** Focus-space editor: Daily / Weekly / Manual choice shown in the form. */
+    editorKind: 'manual',
+    /** Serialized form contents at the last populate/save; null = nothing loaded. */
+    editorSnapshot: null,
+    /** Which accordion section of the editor is open (null = all collapsed). */
+    openEditorSection: null,
+    scheduleRepeatType: 'forever', // 'forever' (Until: when I stop it) or 'date'
     activeScheduleSegmentCount: 0, // Number of segments locked in the active schedule (new segments can be added)
     /** Draft for allowEditsBetweenBlocks before a schedule is started (opt-in, default off). */
     draftAllowEditsBetweenBlocks: false,
-    selectedEndHour: 20,
-    selectedEndMinute: 30,
-    targetDurationMinutes: 60, // Default 60-minute block
-    userEditedEndTime: false, // Track if user manually changed end time
     lastBlockedDomains: new Set(), // Track what's currently blocked to avoid re-prompting
     activatedBlockIds: new Set(), // Track blocks that have already triggered host updates
     pauseScheduleData: null, // Track schedule-specific pause data { blocklistId, segmentEndTime }
-    isScheduleMode: false, // false = instant mode, true = schedule mode
     scheduleSegments: null, // Array of time segments with per-segment days (set at startup)
     expandedScheduleSegmentIndex: 0, // Which segment shows the full editor when multiple exist (-1 = all collapsed)
     scheduleRepeatDate: null, // Date object when repeatType is 'date'

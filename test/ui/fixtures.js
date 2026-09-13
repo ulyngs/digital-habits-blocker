@@ -57,4 +57,17 @@ export const singleSchedule = {
     settings: {},
 };
 
-export const fixtures = { crowdedWeek, singleSchedule };
+/** A Manual space that is running (always-on block) — the editor's Manual state, locked. */
+export const manualRunning = {
+    blocklists: [
+        { id: 'bl-manual', name: 'No Twitter', emoji: '🎯', color: '#B8D1DE', websites: ['twitter.invalid', 'x.invalid'], apps: ['Slack'] },
+    ],
+    activeBlocks: [
+        { id: 'b1', blocklistId: 'bl-manual', startTime: Date.now() - 60_000, endTime: 253402300799999, isAlwaysOn: true },
+    ],
+    schedules: [],
+    startOverlays: [],
+    settings: {},
+};
+
+export const fixtures = { crowdedWeek, singleSchedule, manualRunning };

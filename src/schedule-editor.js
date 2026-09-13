@@ -2,19 +2,17 @@
 // Extracted verbatim from app.js.
 import { state } from './state.js';
 import { tSettings, weekdayAbbrevMon0List, weekdayLetterMon0List } from './i18n.js';
-import { isBlockAlwaysOn, ensureIOSBlocklistSelectionReady } from './blocklist-utils.js';
-import { ensureIOSAllowlistStartable } from './allowlist-ios.js';
 import { isNonRepeatingSchedule, isSchedulePausedNow, resolveOneShotOccurrences } from './schedule-engine.js';
 import { saveData } from './persistence.js';
-import { clearPendingScheduleDraft, commitDelete, dismissUndoToast, pendingDelete, renderBlocklists, showUndoToast, undoDelete } from './blocklists.js';
-import { getLiveTimePickerContainer, handleTimeChange } from './confirm-modals.js';
-import { disableScheduleControls, disableTimeControls, pad, parseEndTimeBoundedInt, scrollPopoverOptionIntoView, updateDurationQuickBtns } from './time-inputs.js';
+import { commitDelete, dismissUndoToast, pendingDelete, showUndoToast, undoDelete } from './blocklists.js';
+import { handleTimeChange } from './confirm-modals.js';
+import { pad, parseEndTimeBoundedInt, scrollPopoverOptionIntoView } from './time-inputs.js';
 import { syncSchedulePanelOverlayControls } from './schedule-overlay.js';
 import {
+    saveFocusSpaceEditor,
     shouldUseCompactMobileScheduleDayLabels,
 } from './app.js';
-import { updateWindowHeight } from './blocking-platform.js';
-import { openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, showScheduleConfirmModal, showScheduleEditConfirmModal, syncPauseButtonForSelectedBlocklist, syncStopBtnLabelFit } from './confirm-modals.js';
+import { openScheduleOverrideModal, resumePausedSchedule, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, syncStopBtnLabelFit } from './confirm-modals.js';
 
 export const TIME_SEPARATOR_ARROW_HTML = '<span class="time-separator" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></span>';
 
@@ -46,12 +44,7 @@ export function undoSegmentDelete() {
         rebuildScheduleSegments();
     }
 
-    if (state.activeScheduleSegmentCount > 0 && !canEditScheduleBetweenBlocks()) {
-        disableScheduleControls(true);
-    }
     handleTimeChange();
-    updateScheduleButtonState();
-    void syncUnlockedScheduleEditsToData();
 }
 
 export function handleUndoToastClick() {
@@ -89,15 +82,18 @@ function findScheduleSegmentIndex(segment) {
 export const SEGMENT_SUMMARY_CLOCK_ICON = '<svg class="segment-summary-clock" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
 export const SEGMENT_SUMMARY_CHEVRON_ICON = '<svg class="segment-summary-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 
+/** The schedule record of the focus space the editor is showing (none while creating). */
 export function getSelectedSchedule() {
-    return state.selectedBlocklistId && state.appData.schedules
-        ? state.appData.schedules.find(s => s.blocklistId === state.selectedBlocklistId)
+    return state.editingBlocklistId && state.appData.schedules
+        ? state.appData.schedules.find(s => s.blocklistId === state.editingBlocklistId) || null
         : null;
 }
 
-/** Per-schedule opt-in (default off). Before start, uses the draft flag. */
-export function isAllowEditsBetweenBlocksOn(schedule = getSelectedSchedule()) {
-    if (schedule) return !!schedule.allowEditsBetweenBlocks;
+/**
+ * Per-schedule opt-in (default off). The editor holds it as a draft until
+ * Save writes it onto the schedule record.
+ */
+export function isAllowEditsBetweenBlocksOn() {
     return !!state.draftAllowEditsBetweenBlocks;
 }
 
@@ -149,7 +145,7 @@ export function syncAllowEditsBetweenBlocksToggle() {
     // Committed + schedule running: switching to flexible needs a full stop first,
     // and "committed" is already selected — so the whole dropdown is locked.
     const locked = !flexible && !canEnableAllowEditsBetweenBlocks();
-    // Class-only greying (no native `disabled`), mirroring disableScheduleControls.
+    // Class-only greying (no native `disabled`) so focus is not stolen.
     btn.classList.toggle('repeat-dropdown-disabled', locked);
     if (locked) menu?.classList.add('hidden');
     const wrapper = document.getElementById('schedule-strictness-dropdown-wrapper');
@@ -184,7 +180,7 @@ export function setupAllowEditsBetweenBlocksToggle() {
     window.addEventListener('resize', () => positionScheduleStrictnessDropdownMenu(menu));
 
     menu.querySelectorAll('.strictness-option').forEach(opt => {
-        opt.addEventListener('click', async (e) => {
+        opt.addEventListener('click', (e) => {
             e.stopPropagation();
             menu.classList.add('hidden');
             const desired = opt.dataset.value === 'flexible';
@@ -193,59 +189,11 @@ export function setupAllowEditsBetweenBlocksToggle() {
                 syncAllowEditsBetweenBlocksToggle();
                 return;
             }
-            const schedule = getSelectedSchedule();
-            if (schedule) {
-                schedule.allowEditsBetweenBlocks = desired;
-                await saveData();
-            } else {
-                state.draftAllowEditsBetweenBlocks = desired;
-            }
-            // Switching to committed: collapse any open segment — once locked, there's
-            // no Done control to close it and an expanded locked editor is just noise.
-            if (!desired && state.expandedScheduleSegmentIndex >= 0) {
-                state.expandedScheduleSegmentIndex = -1;
-                rebuildScheduleSegments();
-            }
-            updateScheduleButtonState();
-            if (desired) void syncUnlockedScheduleEditsToData();
+            state.draftAllowEditsBetweenBlocks = desired;
+            syncAllowEditsBetweenBlocksToggle();
+            handleTimeChange();
         });
     });
-}
-
-/** Write live panel edits into the running schedule when between-blocks editing is allowed. */
-let syncingUnlockedScheduleEdits = false;
-export async function syncUnlockedScheduleEditsToData() {
-    if (syncingUnlockedScheduleEdits) return false;
-    const schedule = getSelectedSchedule();
-    if (!canEditScheduleBetweenBlocks(schedule)) return false;
-
-    syncingUnlockedScheduleEdits = true;
-    try {
-        schedule.segments = state.scheduleSegments.map(seg => ({
-            startHour: seg.startHour,
-            startMinute: seg.startMinute,
-            endHour: seg.endHour,
-            endMinute: seg.endMinute,
-            days: Array.isArray(seg.days) ? [...seg.days] : [],
-        }));
-        schedule.repeatType = state.scheduleRepeatType;
-        schedule.repeatDate = state.scheduleRepeatType === 'date' ? state.scheduleRepeatDate : null;
-        state.activeScheduleSegmentCount = schedule.segments.length;
-        clearPendingScheduleDraft(state.selectedBlocklistId);
-        await saveData();
-
-        const { updateHostsFile } = await import('./persistence.js');
-        const { updateBlockedApps } = await import('./blocking-platform.js');
-        const { syncSchedulesToHelper } = await import('./schedule-engine.js');
-        await updateBlockedApps();
-        await updateHostsFile();
-        await syncSchedulesToHelper();
-        updateScheduleButtonState();
-        renderBlocklists();
-        return true;
-    } finally {
-        syncingUnlockedScheduleEdits = false;
-    }
 }
 
 // ========================================
@@ -263,290 +211,12 @@ export function getDefaultScheduleSegments() {
     ];
 }
 
-// Switch between timed and always-on modes for instant blocks
-export function setAlwaysOnMode(alwaysOn) {
-    state.isAlwaysOnMode = alwaysOn;
-
-    // Show/hide timed controls vs always-on message
-    const timedControls = document.getElementById('timed-controls');
-    const alwaysOnMessage = document.getElementById('always-on-message');
-    if (timedControls) timedControls.classList.toggle('hidden', alwaysOn);
-    if (alwaysOnMessage) alwaysOnMessage.classList.toggle('hidden', !alwaysOn);
-
-    // Reflect the mode change in the quick-select row (highlight "Always" or the matching duration).
-    updateDurationQuickBtns(state.targetDurationMinutes);
-
-    // Save preference per blocklist
-    if (state.selectedBlocklistId) {
-        if (!state.appData.settings) state.appData.settings = {};
-        if (!state.appData.settings.alwaysOnMode) state.appData.settings.alwaysOnMode = {};
-        if (state.appData.settings.alwaysOnMode[state.selectedBlocklistId] !== alwaysOn) {
-            state.appData.settings.alwaysOnMode[state.selectedBlocklistId] = alwaysOn;
-            saveData();
-        }
-    }
-
-    // Update calendar preview and button state
-    handleTimeChange();
-
-    // Update window height after layout change
-    setTimeout(() => updateWindowHeight(), 50);
-}
-
-// Switch between instant and schedule modes
-export function setScheduleMode(isSchedule) {
-    state.isScheduleMode = isSchedule;
-
-    // Persist this tab choice per blocklist so it restores when switching back
-    if (state.selectedBlocklistId && state.appData.settings) {
-        if (!state.appData.settings.preferredStartMode) state.appData.settings.preferredStartMode = {};
-        if (state.appData.settings.preferredStartMode[state.selectedBlocklistId] !== isSchedule) {
-            state.appData.settings.preferredStartMode[state.selectedBlocklistId] = isSchedule;
-            saveData();
-        }
-    }
-
-    const timePicker = getLiveTimePickerContainer();
-
-    // Update tab active states
-    timePicker?.querySelector('#instant-mode-tab')?.classList.toggle('active', !isSchedule);
-    timePicker?.querySelector('#schedule-mode-tab')?.classList.toggle('active', isSchedule);
-
-    // Update section heading
-    const heading = timePicker?.querySelector('#main-start-block-title');
-    if (heading) {
-        heading.textContent = tSettings('mainStartBlockTitle');
-    }
-
-    // Toggle panels
-    const instantPanel = timePicker?.querySelector('#instant-block-panel');
-    const schedulePanel = timePicker?.querySelector('#schedule-block-panel');
-    const startBlockBtn = timePicker?.querySelector('#start-block-btn');
-    const startScheduleBtn = timePicker?.querySelector('#start-schedule-btn');
-
-    if (!instantPanel || !schedulePanel || !startBlockBtn || !startScheduleBtn) return;
-
-    if (isSchedule) {
-        // Check if selected blocklist has an existing schedule
-        const existingSchedule = state.selectedBlocklistId && state.appData.schedules
-            ? state.appData.schedules.find(s => s.blocklistId === state.selectedBlocklistId)
-            : null;
-
-        if (existingSchedule && existingSchedule.segments) {
-            // Load existing schedule segments (locked)
-            state.scheduleSegments = existingSchedule.segments.map(seg => ({ ...seg }));
-            state.activeScheduleSegmentCount = getCommittedScheduleSegmentCount(existingSchedule);
-            state.scheduleRepeatType = existingSchedule.repeatType || 'no';
-            state.scheduleRepeatDate = existingSchedule.repeatDate;
-            state.draftAllowEditsBetweenBlocks = !!existingSchedule.allowEditsBetweenBlocks;
-
-            // Also load any pending (new) segments that were added but not yet committed
-            const pendingSegments = state.appData.settings?.pendingScheduleSegments?.[state.selectedBlocklistId];
-            if (pendingSegments && pendingSegments.length > 0) {
-                const cleanedPendingSegments = pendingSegments.filter(seg =>
-                    !existingSchedule.segments.some(existingSeg => areSegmentsEqual(existingSeg, seg))
-                );
-                if (cleanedPendingSegments.length > 0) {
-                    // Append pending segments to the existing locked segments
-                    state.scheduleSegments.push(...cleanedPendingSegments.map(seg => ({ ...seg })));
-                    const currentPending = JSON.stringify(state.appData.settings.pendingScheduleSegments[state.selectedBlocklistId] || []);
-                    const nextPending = JSON.stringify(cleanedPendingSegments);
-                    if (currentPending !== nextPending) {
-                        state.appData.settings.pendingScheduleSegments[state.selectedBlocklistId] = cleanedPendingSegments.map(seg => ({ ...seg }));
-                        saveData();
-                    }
-                } else {
-                    if (state.appData.settings.pendingScheduleSegments?.[state.selectedBlocklistId]) {
-                        clearPendingScheduleDraft(state.selectedBlocklistId);
-                        saveData();
-                    }
-                }
-            }
-        } else {
-            // Check for pending (unsaved) segments for this blocklist
-            const pendingSegments = state.appData.settings?.pendingScheduleSegments?.[state.selectedBlocklistId];
-            if (pendingSegments && pendingSegments.length > 0) {
-                state.scheduleSegments = pendingSegments.map(seg => ({ ...seg }));
-                const repeatOpts = state.appData.settings?.pendingScheduleRepeatOptions?.[state.selectedBlocklistId];
-                if (repeatOpts && typeof repeatOpts.repeatType === 'string') {
-                    state.scheduleRepeatType = repeatOpts.repeatType;
-                    state.scheduleRepeatDate =
-                        repeatOpts.repeatType === 'date' && repeatOpts.repeatDate != null
-                            ? new Date(repeatOpts.repeatDate)
-                            : null;
-                } else {
-                    state.scheduleRepeatType = 'forever';
-                    state.scheduleRepeatDate = null;
-                }
-            } else {
-                // Reset schedule segments to fresh default times
-                state.scheduleSegments = getDefaultScheduleSegments();
-                state.scheduleRepeatType = 'forever';
-                state.scheduleRepeatDate = null;
-            }
-            state.activeScheduleSegmentCount = 0;
-            state.draftAllowEditsBetweenBlocks = false;
-        }
-        syncAllowEditsBetweenBlocksToggle();
-        state.expandedScheduleSegmentIndex = getInitialExpandedScheduleSegmentIndex();
-        rebuildScheduleSegments();
-
-        instantPanel.classList.add('hidden');
-        schedulePanel.classList.remove('hidden');
-        startBlockBtn.classList.add('hidden');
-        if (state.selectedBlocklistId) {
-            startScheduleBtn.classList.remove('hidden');
-            updateScheduleButtonState();
-        }
-    } else {
-        instantPanel.classList.remove('hidden');
-        schedulePanel.classList.add('hidden');
-        startScheduleBtn.classList.add('hidden');
-        if (state.selectedBlocklistId) {
-            startBlockBtn.classList.remove('hidden');
-            const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-            const btnLabel = startBlockBtn.querySelector('.btn-label');
-            const now = Date.now();
-            const activeBlock = state.appData.activeBlocks.find(b =>
-                b.blocklistId === state.selectedBlocklistId &&
-                b.startTime <= now &&
-                b.endTime > now
-            );
-            if (activeBlock) {
-                startBlockBtn.classList.add('stop-block');
-                setBtnActionLabel(btnLabel, tSettings('stopBlock'));
-                setStartBtnBlocklistInfo(startBlockBtn, blocklist);
-                startBlockBtn.disabled = false;
-                startBlockBtn.dataset.activeBlockId = activeBlock.id;
-                setStartBlockBtnLeadingIcon(startBlockBtn, 'stop');
-                disableTimeControls(true);
-
-                const alwaysOnMsg = document.getElementById('always-on-message');
-                if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !isBlockAlwaysOn(activeBlock));
-            } else {
-                startBlockBtn.classList.remove('stop-block');
-                delete startBlockBtn.dataset.activeBlockId;
-                setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
-                setStartBtnBlocklistInfo(startBlockBtn, blocklist);
-                setStartBlockBtnLeadingIcon(startBlockBtn, 'enter');
-            }
-            syncPauseButtonForSelectedBlocklist(now);
-        }
-    }
-
-    // Toggle schedule-mode class on day-tracks for click-to-create
-    document.querySelectorAll('.day-track').forEach(track => {
-        track.classList.toggle('schedule-mode', isSchedule);
-    });
-
-    // Update calendar preview
-    handleTimeChange();
-}
-
-// Toggle Repeat dropdown visibility
 export function closeSchedulePanelDropdownMenus(exceptMenuId = null) {
-    for (const menuId of ['repeat-dropdown-menu', 'schedule-panel-overlay-dropdown-menu', 'schedule-strictness-dropdown-menu']) {
+    for (const menuId of ['schedule-panel-overlay-dropdown-menu', 'schedule-strictness-dropdown-menu']) {
         if (menuId !== exceptMenuId) {
             document.getElementById(menuId)?.classList.add('hidden');
         }
     }
-}
-
-export function toggleRepeatDropdown(e) {
-    e.stopPropagation();
-
-    // Don't allow opening dropdown when schedule is active (unless between-blocks editing)
-    if (state.activeScheduleSegmentCount > 0 && !canEditScheduleBetweenBlocks()) return;
-
-    const repeatDropdownBtn = document.getElementById('repeat-dropdown-btn');
-    if (repeatDropdownBtn?.classList.contains('repeat-dropdown-disabled')) {
-        return;
-    }
-
-    const menu = document.getElementById('repeat-dropdown-menu');
-    if (!menu) return;
-
-    const isHidden = menu.classList.contains('hidden');
-    if (isHidden) closeSchedulePanelDropdownMenus('repeat-dropdown-menu');
-    menu.classList.toggle('hidden');
-
-    if (isHidden) {
-        // Close on outside click
-        setTimeout(() => {
-            document.addEventListener('click', function closeMenu(evt) {
-                if (!menu.contains(evt.target)) {
-                    menu.classList.add('hidden');
-                    document.removeEventListener('click', closeMenu);
-                }
-            });
-        }, 10);
-    }
-}
-
-// Handle Repeat option selection
-export function handleRepeatOptionClick(e) {
-    e.stopPropagation();
-
-    // Don't allow changing repeat options when schedule is active (unless between-blocks editing)
-    if (state.activeScheduleSegmentCount > 0 && !canEditScheduleBetweenBlocks()) {
-        // Close dropdown silently
-        const menu = document.getElementById('repeat-dropdown-menu');
-        if (menu) menu.classList.add('hidden');
-        return;
-    }
-
-    const value = e.target.dataset.value;
-    const menu = document.getElementById('repeat-dropdown-menu');
-    const btnText = document.getElementById('repeat-dropdown-text');
-    const dateInput = document.getElementById('repeat-date-input');
-
-    state.scheduleRepeatType = value;
-
-    // Update dropdown text
-    if (btnText) {
-        if (value === 'no') {
-            btnText.textContent = tSettings('repeatNo');
-        } else if (value === 'forever') {
-            btnText.textContent = tSettings('repeatForever');
-        } else {
-            btnText.textContent = tSettings('repeatUntilDate');
-        }
-    }
-
-    // Update active state
-    document.querySelectorAll('.repeat-option').forEach(opt => {
-        opt.classList.toggle('active', opt.dataset.value === value);
-    });
-
-    // Show/hide date input wrapper
-    const dateWrapper = document.getElementById('repeat-date-wrapper');
-    const dateOverlay = document.getElementById('repeat-date-overlay');
-    if (dateInput && dateWrapper) {
-        if (value === 'date') {
-            dateWrapper.classList.remove('hidden');
-            // Set default date to 6 days from now (completing a full week including today)
-            if (!state.scheduleRepeatDate) {
-                const defaultDate = new Date();
-                defaultDate.setDate(defaultDate.getDate() + 6);
-                state.scheduleRepeatDate = defaultDate;
-                dateInput.value = formatDateForInput(defaultDate);
-            }
-            // Update overlay with formatted date
-            if (dateOverlay) {
-                dateOverlay.textContent = formatDateForDisplay(state.scheduleRepeatDate);
-            }
-        } else {
-            dateWrapper.classList.add('hidden');
-            state.scheduleRepeatDate = null;
-        }
-    }
-
-    // Close menu
-    if (menu) menu.classList.add('hidden');
-
-    // Update preview
-    handleTimeChange();
-    void syncUnlockedScheduleEditsToData();
 }
 
 // Handle Repeat date change
@@ -559,9 +229,8 @@ export function handleRepeatDateChange(e) {
         if (dateOverlay) {
             dateOverlay.textContent = formatDateForDisplay(state.scheduleRepeatDate);
         }
-        // Update preview
+        // Update preview + section summary
         handleTimeChange();
-        void syncUnlockedScheduleEditsToData();
     }
 }
 
@@ -631,146 +300,41 @@ export function areSegmentsEqual(a, b) {
         JSON.stringify(aDays) === JSON.stringify(bDays);
 }
 
-// Update schedule button enabled state
+/**
+ * Footer button for Daily / Weekly spaces. A schedule that exists and is not
+ * paused shows Stop; otherwise Start (which saves the form, or resumes a
+ * paused schedule). The pending-changes bar is owned by focus-space-editor.
+ */
 export function updateScheduleButtonState() {
     const startScheduleBtn = document.getElementById('start-schedule-btn');
     if (!startScheduleBtn) return;
 
-    // Check if selected blocklist has an active schedule
-    const activeSchedule = state.selectedBlocklistId && state.appData.schedules
-        ? state.appData.schedules.find(s => s.blocklistId === state.selectedBlocklistId)
+    const schedule = getSelectedSchedule();
+    const paused = isSchedulePausedNow(schedule, Date.now());
+    const blocklist = state.editingBlocklistId
+        ? state.appData.blocklists.find(bl => bl.id === state.editingBlocklistId)
         : null;
-    const now = Date.now();
-    const scheduleIsPaused = isSchedulePausedNow(activeSchedule, now);
-    const scheduleIsActiveNow = !!(activeSchedule && isScheduleSegmentActiveNow(activeSchedule));
-    const scheduleIsFunctionallyActive = scheduleIsPaused || scheduleIsActiveNow;
-
-    const blocklist = state.selectedBlocklistId
-        ? state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId)
-        : null;
-
     const btnLabel = startScheduleBtn.querySelector('.btn-label');
 
-    // Check if there are new segments (beyond the locked count)
-    const committedSegmentCount = getCommittedScheduleSegmentCount(activeSchedule);
-    const hasNewSegments = activeSchedule && state.scheduleSegments.length > committedSegmentCount;
-
-    syncPauseButtonForSelectedBlocklist(now);
-
-    if (activeSchedule) {
-        // Active schedule - keep Stop button visible regardless of pending changes.
-        // Pending segments are committed/discarded via the pending-changes bar.
+    if (schedule && !paused) {
         startScheduleBtn.classList.add('stop-schedule');
         setBtnActionLabel(btnLabel, tSettings('stopScheduleButton'));
         setStartBtnBlocklistInfo(startScheduleBtn, blocklist);
-        startScheduleBtn.classList.remove('edit-schedule');
-        startScheduleBtn.disabled = false;
-        startScheduleBtn.dataset.activeScheduleId = activeSchedule.id || activeSchedule.blocklistId;
-
+        startScheduleBtn.dataset.activeScheduleId = schedule.id || schedule.blocklistId;
         setStartBlockBtnLeadingIcon(startScheduleBtn, 'stop');
-
-        // Between-blocks editing: unlock the same controls as an inactive schedule.
-        // Otherwise lock committed segments (new "Add times" drafts stay editable).
-        disableScheduleControls(!canEditScheduleBetweenBlocks(activeSchedule));
     } else {
-        // No active schedule - show Start button (normal)
         startScheduleBtn.classList.remove('stop-schedule');
         setBtnActionLabel(btnLabel, tSettings('startScheduleButton'));
         setStartBtnBlocklistInfo(startScheduleBtn, blocklist);
-        startScheduleBtn.classList.remove('edit-schedule');
         delete startScheduleBtn.dataset.activeScheduleId;
-
         setStartBlockBtnLeadingIcon(startScheduleBtn, 'enter');
-
-        // Enable all controls
-        disableScheduleControls(false);
     }
+    startScheduleBtn.classList.remove('edit-schedule');
+    startScheduleBtn.disabled = !state.editingBlocklistId;
 
     syncAllowEditsBetweenBlocksToggle();
-
-    // Enable button if blocklist is selected
-    const isValid = state.selectedBlocklistId;
-    startScheduleBtn.disabled = !isValid;
-
-    // Pending bar only for locked active schedules with draft segments
-    const showPending = !!(
-        activeSchedule
-        && hasNewSegments
-        && !canEditScheduleBetweenBlocks(activeSchedule)
-    );
-    updateSchedulePendingBar(showPending, activeSchedule);
     syncSchedulePanelOverlayControls();
     syncStopBtnLabelFit(startScheduleBtn);
-
-    // If editing unlocked mid-session with leftover drafts, commit them for real.
-    if (activeSchedule && canEditScheduleBetweenBlocks(activeSchedule) && hasNewSegments) {
-        void syncUnlockedScheduleEditsToData();
-    }
-}
-
-// Show or hide the pending-changes bar at the bottom of the schedule panel.
-export function updateSchedulePendingBar(visible, activeSchedule) {
-    const bar = document.getElementById('schedule-pending-bar');
-    if (!bar) return;
-
-    if (!visible) {
-        bar.classList.add('hidden');
-        return;
-    }
-
-    const label = document.getElementById('schedule-pending-label');
-    if (label) label.textContent = tSettings('pendingChangesLabel');
-
-    const saveBtn = document.getElementById('schedule-pending-save');
-    if (saveBtn) saveBtn.textContent = tSettings('pendingChangesSave');
-    const discardBtn = document.getElementById('schedule-pending-discard');
-    if (discardBtn) discardBtn.textContent = tSettings('pendingChangesDiscard');
-
-    bar.classList.remove('hidden');
-}
-
-// Commit any unsaved new segments to the active schedule (Save changes from pending bar).
-export async function saveSchedulePendingChanges() {
-    if (!state.selectedBlocklistId) return;
-    const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-    const activeSchedule = state.appData.schedules
-        ? state.appData.schedules.find(s => s.blocklistId === state.selectedBlocklistId)
-        : null;
-    if (!blocklist || !activeSchedule) return;
-
-    const committedCount = getCommittedScheduleSegmentCount(activeSchedule);
-    const newSegments = state.scheduleSegments.slice(committedCount);
-    if (newSegments.length === 0) return;
-
-    // Require at least one day per new segment, matching startSchedule's validation.
-    const allHaveDays = newSegments.every(seg => Array.isArray(seg.days) && seg.days.length > 0);
-    if (!allHaveDays) return;
-
-    showScheduleEditConfirmModal(blocklist, activeSchedule, newSegments);
-}
-
-// Discard any unsaved new segments and revert the panel to the committed schedule.
-export function discardSchedulePendingChanges() {
-    if (!state.selectedBlocklistId) return;
-    const activeSchedule = state.appData.schedules
-        ? state.appData.schedules.find(s => s.blocklistId === state.selectedBlocklistId)
-        : null;
-    if (!activeSchedule) return;
-
-    const committedCount = getCommittedScheduleSegmentCount(activeSchedule);
-    if (state.scheduleSegments.length <= committedCount) return;
-
-    // Truncate to committed segments only
-    state.scheduleSegments = state.scheduleSegments.slice(0, committedCount).map(seg => ({ ...seg }));
-
-    // Clear persisted pending draft so a reload doesn't resurrect them
-    clearPendingScheduleDraft(state.selectedBlocklistId);
-    saveData();
-
-    rebuildScheduleSegments();
-    disableScheduleControls(true);
-    handleTimeChange();
-    updateScheduleButtonState();
 }
 
 // Add a new time segment
@@ -809,15 +373,8 @@ export function addScheduleSegment() {
     // Rebuild all segments to ensure consistent rendering
     rebuildScheduleSegments();
 
-    // Re-apply disabled state to locked segments (if schedule is active and not unlocked)
-    if (state.activeScheduleSegmentCount > 0 && !canEditScheduleBetweenBlocks()) {
-        disableScheduleControls(true);
-    }
-
-    // Update calendar preview and button state
+    // Update calendar preview and section summary
     handleTimeChange();
-    updateScheduleButtonState();
-    void syncUnlockedScheduleEditsToData();
 }
 
 // Handle clicking a day toggle within a segment
@@ -839,11 +396,8 @@ export function handleSegmentDayToggle(segmentIndex, dayIndex, btn) {
         btn.classList.remove('active');
     }
 
-    // Update preview and button state
     syncSegmentDayPresetButtons(segmentIndex);
     handleTimeChange();
-    updateScheduleButtonState();
-    void syncUnlockedScheduleEditsToData();
 }
 
 export function syncSegmentDayPresetButtons(segmentIndex) {
@@ -892,15 +446,7 @@ export function removeScheduleSegment(index) {
     // Rebuild DOM (simpler than updating indices)
     rebuildScheduleSegments();
 
-    // Re-apply disabled state to locked segments if a schedule is active and not unlocked
-    if (state.activeScheduleSegmentCount > 0 && !canEditScheduleBetweenBlocks()) {
-        disableScheduleControls(true);
-    }
-
-    // Update calendar preview and pending-bar visibility
     handleTimeChange();
-    updateScheduleButtonState();
-    void syncUnlockedScheduleEditsToData();
 
     showSegmentDeleteUndoToast(deletedSegment, index);
 }
@@ -995,10 +541,6 @@ export function expandScheduleSegment(index) {
     if (!usesScheduleSegmentCollapse()) return;
     state.expandedScheduleSegmentIndex = index;
     rebuildScheduleSegments();
-    // Re-apply unlock after rebuild (overlay/control sync may run during rebuild paths).
-    if (canEditScheduleBetweenBlocks()) {
-        disableScheduleControls(false);
-    }
 }
 
 export function collapseExpandedScheduleSegment() {
@@ -1031,8 +573,6 @@ export function applySegmentDayPreset(segmentIndex, preset) {
     }
 
     handleTimeChange();
-    updateScheduleButtonState();
-    void syncUnlockedScheduleEditsToData();
 }
 
 export function buildScheduleSegmentEditorHtml(seg, index, {
@@ -1044,6 +584,7 @@ export function buildScheduleSegmentEditorHtml(seg, index, {
     labelStart,
     labelEnd,
     labelDays,
+    hideDays = false,
 }) {
     const segmentDays = seg.days || [];
     const dayTogglesHtml = dayLabels.map((label, i) =>
@@ -1122,12 +663,12 @@ export function buildScheduleSegmentEditorHtml(seg, index, {
                         </div>
                     </div>
                 </div>
-                <div class="segment-days-group">
+                ${hideDays ? '' : `<div class="segment-days-group">
                     ${showLabels ? `<label class="time-label">${labelDays}</label>` : ''}
                     <div class="segment-days${useCompactDayLabels ? ' compact-day-labels' : ''}" data-segment-index="${index}">
                         ${dayTogglesHtml}
                     </div>
-                </div>
+                </div>`}
             </div>
             ${dayPresetsHtml}
             ${footerHtml}
@@ -1197,13 +738,32 @@ export function wireScheduleSegmentElement(segment, index) {
     }
 }
 
-// Rebuild schedule segments DOM from state
-export function rebuildScheduleSegments() {
+/**
+ * Lock the committed prefix of segments while the schedule is enforcing:
+ * `state.activeScheduleSegmentCount` is the number of segments that may only
+ * be added to, never changed, until the space is stopped or paused.
+ */
+export function applyScheduleSegmentLocks(container = document.getElementById('schedule-segments')) {
+    if (!container) return;
+    const unlocked = canEditScheduleBetweenBlocks();
+    container.querySelectorAll('.schedule-segment').forEach((segment, index) => {
+        const locked = !unlocked && index < state.activeScheduleSegmentCount;
+        segment.classList.toggle('segment-locked', locked);
+        segment.querySelectorAll(
+            '.time-part, .segment-day-toggle, .remove-segment-btn, .segment-delete-btn, .segment-done-btn, .segment-day-preset, .segment-summary-btn'
+        ).forEach(el => { el.disabled = locked; });
+    });
+}
+
+// Rebuild schedule segments DOM from state. In Daily mode there is exactly one
+// segment, rendered without the days row or the multi-segment chrome.
+export function rebuildScheduleSegments(container = document.getElementById('schedule-segments')) {
+    if (!container) return;
     // Sort chronologically before rebuilding
     sortScheduleSegments();
     normalizeExpandedScheduleSegmentIndex();
 
-    const container = document.getElementById('schedule-segments');
+    const daily = state.editorKind === 'daily';
     container.innerHTML = '';
 
     const fullDayLabels = weekdayAbbrevMon0List();
@@ -1212,8 +772,8 @@ export function rebuildScheduleSegments() {
     const labelStart = tSettings('start');
     const labelEnd = tSettings('end');
     const labelDays = tSettings('days');
-    const multiSegment = state.scheduleSegments.length > 1;
-    const useCollapse = usesScheduleSegmentCollapse();
+    const multiSegment = !daily && state.scheduleSegments.length > 1;
+    const useCollapse = !daily && usesScheduleSegmentCollapse();
 
     state.mobileCompactScheduleDayLabelsActive = useCompactDayLabels;
 
@@ -1236,6 +796,7 @@ export function rebuildScheduleSegments() {
                 labelStart,
                 labelEnd,
                 labelDays,
+                hideDays: daily,
             });
         } else {
             segment.innerHTML = buildScheduleSegmentSummaryHtml(seg, index);
@@ -1244,6 +805,7 @@ export function rebuildScheduleSegments() {
         container.appendChild(segment);
         wireScheduleSegmentElement(segment, index);
     });
+    applyScheduleSegmentLocks(container);
 }
 
 /** Parse `schedule-start-0` → { isStart, segmentIndex }. */
@@ -1314,7 +876,6 @@ export function commitScheduleTimePart(input) {
     }
     input.value = pad(v);
     handleTimeChange();
-    void syncUnlockedScheduleEditsToData();
 }
 
 export function attachScheduleSegmentTimeInteractions(segment) {
@@ -1326,10 +887,6 @@ export function attachScheduleSegmentTimeInteractions(segment) {
             el.addEventListener('click', handleScheduleTimeClick);
             bindScheduleTimePartInput(el);
         });
-}
-
-export function wireAllScheduleSegmentTimeControls() {
-    document.querySelectorAll('#schedule-segments .schedule-segment').forEach(attachScheduleSegmentTimeInteractions);
 }
 
 // Handle schedule time control click (show popover)
@@ -1502,7 +1059,6 @@ export function showScheduleTimePopover(field, type, isStart, segmentIndex) {
 
             // Update calendar preview
             handleTimeChange();
-            void syncUnlockedScheduleEditsToData();
         });
         scroll.appendChild(option);
     }
@@ -1525,33 +1081,22 @@ export function showScheduleTimePopover(field, type, isStart, segmentIndex) {
     }, 10);
 }
 
-// Start a schedule - show confirmation modal first.
-// When a schedule is already active this acts as Stop; the persistent Stop button
-// behaves identically whether or not pending edits exist (those are committed/discarded
-// via the pending-changes bar, never via this button).
+/**
+ * Footer Start / Stop for Daily and Weekly spaces.
+ *  - schedule exists and runs  → Stop (override challenge, then paused until turned on again)
+ *  - schedule exists, paused   → turn it back on (no challenge: falls toward blocking)
+ *  - no schedule yet           → Save the form, which creates and activates it
+ */
 export async function startSchedule() {
-    if (!state.selectedBlocklistId) return;
-
-    const blocklist = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-    if (!blocklist) return;
-
-    const activeSchedule = state.appData.schedules
-        ? state.appData.schedules.find(s => s.blocklistId === state.selectedBlocklistId)
-        : null;
-
-    if (activeSchedule) {
-        // Stop mode - open override dialog for the schedule
-        openScheduleOverrideModal(activeSchedule);
+    if (!state.editingBlocklistId) return;
+    const schedule = getSelectedSchedule();
+    if (schedule) {
+        if (isSchedulePausedNow(schedule, Date.now())) {
+            await resumePausedSchedule(schedule);
+        } else {
+            openScheduleOverrideModal(schedule);
+        }
         return;
     }
-
-    if (!ensureIOSBlocklistSelectionReady(blocklist, 'starting this schedule')) return;
-    if (!await ensureIOSAllowlistStartable(blocklist)) return;
-
-    // Normal start mode - check that at least one segment has days
-    const hasAnyDays = state.scheduleSegments.some(seg => seg.days && seg.days.length > 0);
-    if (!hasAnyDays) return;
-
-    // Show confirmation modal for new schedule
-    showScheduleConfirmModal(blocklist);
+    await saveFocusSpaceEditor();
 }

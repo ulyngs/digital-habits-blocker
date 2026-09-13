@@ -8,6 +8,7 @@ import { generateId } from './app.js';
 import { updateBlockedApps } from './blocking-platform.js';
 import { normalizeLoadedEulaState } from './onboarding.js';
 import { migrateBlocklistStartOverlaysToGlobal, migrateLegacyScheduleStartOverlays } from './schedule-overlay.js';
+import { migrateLegacyRepeatType } from './when-to-block.js';
 import { isScheduleSegmentActiveNow } from './schedule-editor.js';
 
 
@@ -54,6 +55,18 @@ export async function loadData() {
     state.appData.blocklists = (state.appData.blocklists || []).map((bl) => normalizeBlocklist(bl));
     if (migrateLegacyQuickStartBlocklists(state.appData)) {
         shouldSave = true;
+    }
+    // The editor keeps unsaved edits in memory only; drop the per-space drafts
+    // and the Timer / Schedule tab preferences older versions persisted.
+    for (const key of ['pendingScheduleSegments', 'pendingScheduleRepeatOptions', 'preferredStartMode', 'alwaysOnMode', 'instantBlockDuration']) {
+        if (key in state.appData.settings) {
+            delete state.appData.settings[key];
+            shouldSave = true;
+        }
+    }
+    // "Until" has no one-shot option any more.
+    for (const schedule of state.appData.schedules) {
+        if (migrateLegacyRepeatType(schedule)) shouldSave = true;
     }
     if (healFocusSpaceColors(state.appData.blocklists)) {
         shouldSave = true;

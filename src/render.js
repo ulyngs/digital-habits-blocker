@@ -7,11 +7,11 @@ import { tSettings, weekdayAbbrevMon0List } from './i18n.js';
 import { isBlockAlwaysOn } from './blocklist-utils.js';
 import { isNonRepeatingSchedule, isSchedulePausedNow, pickEarliestUpcomingScheduledBlock, resolveOneShotOccurrences, syncActiveBlocksToHelper, syncSchedulesToHelper, formatTitleBarScheduleStartWhen } from './schedule-engine.js';
 import { saveData, updateHostsFile } from './persistence.js';
-import { disableTimeControls, updateTimeDisplay } from './time-inputs.js';
 import { isScheduleSegmentActiveNow, updateScheduleButtonState } from './schedule-editor.js';
 import { autoSelectSoleBlocklist, renderBlocklists } from './blocklists.js';
 import { updateBlockedApps, updateOnboardingVisibility, updateWindowHeight } from './blocking-platform.js';
-import { handleBlocklistSelect, isMobilePhoneDevice, openBlocklistModal, openOverrideModal, openPauseModal, openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, syncPauseButtonForSelectedBlocklist, syncSchedulerChromeVisibility, syncStopBtnLabelFit, openScheduledBlockEdit, refreshCalendarPreviews, handleTimeChange } from './confirm-modals.js';
+import { handleBlocklistSelect, isMobilePhoneDevice, openOverrideModal, openPauseModal, openScheduleOverrideModal, setBtnActionLabel, setStartBlockBtnLeadingIcon, setStartBtnBlocklistInfo, syncSchedulerChromeVisibility, syncStopBtnLabelFit, refreshCalendarPreviews, handleTimeChange } from './confirm-modals.js';
+import { getWhenToBlockKind, syncEditorFooter } from './focus-space-editor.js';
 import { scheduleSelectionPromptLayout } from './theme.js';
 import { updateCleanHostsBtnState, updateOverrideAllButtonVisibility } from './settings.js';
 import {
@@ -69,11 +69,13 @@ export function render() {
 
 export function syncSelectedControlState() {
     if (!state.selectedBlocklistId) {
+        syncEditorFooter();
         updateOverrideAllButtonVisibility();
         updateCleanHostsBtnState();
         return;
     }
-    if (state.isScheduleMode) {
+    syncEditorFooter();
+    if (getWhenToBlockKind() !== 'manual') {
         updateScheduleButtonState();
         updateOverrideAllButtonVisibility();
         updateCleanHostsBtnState();
@@ -89,7 +91,6 @@ export function syncSelectedControlState() {
     const now = Date.now();
     const activeBlock = state.appData.activeBlocks.find(b => b.blocklistId === state.selectedBlocklistId && b.startTime <= now && b.endTime > now);
     const btnLabel = startBlockBtn.querySelector('.btn-label');
-    const alwaysOnMsg = document.getElementById('always-on-message');
     delete startBlockBtn.dataset.activeBlockId;
     startBlockBtn.classList.remove('stop-block');
     if (activeBlock) {
@@ -98,16 +99,11 @@ export function syncSelectedControlState() {
         setStartBtnBlocklistInfo(startBlockBtn, blocklist);
         startBlockBtn.dataset.activeBlockId = activeBlock.id;
         setStartBlockBtnLeadingIcon(startBlockBtn, 'stop');
-        disableTimeControls(true);
-        if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !isBlockAlwaysOn(activeBlock));
     } else {
-                setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
-                setStartBtnBlocklistInfo(startBlockBtn, blocklist);
+        setBtnActionLabel(btnLabel, tSettings('startBlockButton'), { simple: true });
+        setStartBtnBlocklistInfo(startBlockBtn, blocklist);
         setStartBlockBtnLeadingIcon(startBlockBtn, 'enter');
-        disableTimeControls(false);
-        if (alwaysOnMsg) alwaysOnMsg.classList.toggle('hidden', !state.isAlwaysOnMode);
     }
-    syncPauseButtonForSelectedBlocklist(now);
     startBlockBtn.disabled = !state.selectedBlocklistId;
     syncStopBtnLabelFit(startBlockBtn);
     updateOverrideAllButtonVisibility();
@@ -165,7 +161,7 @@ export function updateWeekCalendar() {
 
         const track = document.createElement('div');
         track.className = 'day-track';
-        if (state.isScheduleMode) track.classList.add('schedule-mode');
+        if (getWhenToBlockKind() !== 'manual') track.classList.add('schedule-mode');
         track.dataset.dayIndex = dayIndex;
 
         if (isToday) {
@@ -527,18 +523,22 @@ export function openNowBlockingChipMenu(triggerBtn, entry) {
     }, 0);
 }
 
-// Edit action: select the chip's blocklist and open the blocklist edit dialog.
+// Edit action: select the chip's blocklist so the editor panel (or sheet) shows it.
 export function handleNowBlockingEdit(entry) {
     const blocklist = entry.blocklist;
     if (!blocklist) return;
+    selectFocusSpaceForEditing(blocklist.id);
+}
+
+/** Select a focus space and open its editor (sheet on phones / narrow desktop). */
+export function selectFocusSpaceForEditing(blocklistId) {
     const dropdown = document.getElementById('blocklist-select');
     if (dropdown) {
-        dropdown.value = blocklist.id;
-        handleBlocklistSelect({ target: dropdown });
+        dropdown.value = blocklistId;
+        handleBlocklistSelect({ target: dropdown }, { openEnterUi: true });
     } else {
-        state.selectedBlocklistId = blocklist.id;
+        state.selectedBlocklistId = blocklistId;
     }
-    openBlocklistModal(blocklist);
 }
 
 // Pause action: open the pause modal for the corresponding block or schedule.
@@ -790,22 +790,7 @@ export function renderScheduleAlwaysOnRow() {
 
     const alwaysOnBlocks = (state.appData.activeBlocks || []).filter(b => isBlockAlwaysOn(b));
 
-    // When the user has the "always" tab selected and picked a blocklist that isn't already
-    // running, show a faded preview chip alongside the real ones. This replaces the timeline
-    // preview bar that always-on mode used to draw across every day.
-    let previewBlocklist = null;
-    if (state.isAlwaysOnMode && !state.isScheduleMode && state.selectedBlocklistId) {
-        const candidate = state.appData.blocklists.find(bl => bl.id === state.selectedBlocklistId);
-        const now = Date.now();
-        const alreadyActive = (state.appData.activeBlocks || []).some(b =>
-            b.blocklistId === state.selectedBlocklistId && b.startTime <= now && b.endTime > now
-        );
-        if (candidate && !alreadyActive) {
-            previewBlocklist = candidate;
-        }
-    }
-
-    if (alwaysOnBlocks.length === 0 && !previewBlocklist) {
+    if (alwaysOnBlocks.length === 0) {
         row.classList.add('hidden');
         chips.innerHTML = '';
         return;
@@ -837,19 +822,6 @@ export function renderScheduleAlwaysOnRow() {
 
         chips.appendChild(chip);
     });
-
-    if (previewBlocklist) {
-        const chip = document.createElement('div');
-        chip.className = 'always-on-chip preview';
-        chip.title = previewBlocklist.name;
-
-        const emoji = previewBlocklist.emoji
-            ? `<span class="always-on-chip-emoji">${escapeHtml(previewBlocklist.emoji)}</span>`
-            : '';
-
-        chip.innerHTML = `${emoji}<span class="always-on-chip-name">${escapeHtml(previewBlocklist.name)}</span>`;
-        chips.appendChild(chip);
-    }
 
     row.classList.remove('hidden');
 }
@@ -1141,7 +1113,7 @@ export function renderScheduleSegmentOnWeekday(schedule, segment, segmentIdx, da
 
         el.addEventListener('click', (e) => {
             e.stopPropagation();
-            openScheduledBlockEdit(schedule);
+            selectFocusSpaceForEditing(schedule.blocklistId);
         });
 
         return el;
@@ -1443,14 +1415,6 @@ export function startTickInterval() {
             }
         });
 
-        // Auto-update end time if user hasn't manually edited it (skip in always-on mode)
-        if (state.selectedBlocklistId && !state.userEditedEndTime && !state.isAlwaysOnMode) {
-            const newEndTime = new Date(now + state.targetDurationMinutes * 60 * 1000);
-            state.selectedEndHour = newEndTime.getHours();
-            state.selectedEndMinute = newEndTime.getMinutes();
-            updateTimeDisplay();
-            // Don't call handleTimeChange here to avoid circular updates
-        }
     };
     startTickInterval._intervalId = setInterval(startTickInterval._tickFn, 1000);
 }

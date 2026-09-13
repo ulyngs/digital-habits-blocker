@@ -167,6 +167,16 @@ nothing in the code will remind you of:
   call into another module can turn a working cycle into an undefined-at-import
   crash.
 
+- The focus-space editor (`src/focus-space-editor.js`) is **one DOM node,
+  `#focus-space-editor`, moved between two hosts**: the create modal borrows it
+  from the scheduler panel in `openBlocklistModal` and `closeBlocklistModal`
+  returns it. Every id inside it is looked up globally by the listeners in
+  `setupModalListeners`, so never clone it or give either host its own copy —
+  duplicate ids would silently bind the wrong form. `handleBlocklistSelect`
+  repopulates it for the selected space, except when the id is unchanged
+  (then only the lock state is resynced, so a pause or stop does not discard
+  unsaved edits) or while the create modal has it.
+
 The order-sensitive startup sequence is the `DOMContentLoaded` handler in
 `src/app.js`. The `window.__REDDBLOCK_INTERNALS__` keys in `src/dev-internals.js`
 are a contract with the in-app tests — renaming one breaks tests that will not
